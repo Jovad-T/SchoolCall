@@ -1,0 +1,101 @@
+import { useState, useEffect } from 'react';
+import { db } from './firebase';
+import { ref, onValue, set } from 'firebase/database';
+
+export type CallState = {
+  callStatus: boolean;
+  studentName: string;
+  message: string;
+  teacherName: string;
+  location: string;
+};
+
+const defaultState: CallState = {
+  callStatus: false,
+  studentName: '',
+  message: '',
+  teacherName: '',
+  location: '',
+};
+
+export function useCallState(classId: string) {
+  const [state, setState] = useState<CallState>(defaultState);
+  const [isFirebaseConnected] = useState<boolean>(!!db);
+
+  useEffect(() => {
+    if (!classId) return;
+
+    if (db) {
+      // Firebase Realtime Database 연동 (반별 분리)
+      const callRef = ref(db, `calls/${classId}`);
+      const unsub = onValue(callRef, (snapshot) => {
+        if (snapshot.exists()) {
+          setState(snapshot.val() as CallState);
+        } else {
+          setState(defaultState);
+        }
+      });
+      return () => unsub();
+    } else {
+      // Firebase가 없을 경우 Local BroadcastChannel 통신 (반별 분리)
+      const channel = new BroadcastChannel(`call_app_sync_${classId}`);
+      const handleMessage = (e: MessageEvent) => {
+        setState(e.data);
+      };
+      channel.addEventListener('message', handleMessage);
+      
+      const saved = localStorage.getItem(`callState_${classId}`);
+      if (saved) setState(JSON.parse(saved));
+      else setState(defaultState);
+      
+      return () => {
+        channel.removeEventListener('message', handleMessage);
+        channel.close();
+      };
+    }
+  }, [classId]);
+
+  const updateState = async (newState: CallState) => {
+    if (!classId) return;
+    if (db) {
+      await set(ref(db, `calls/${classId}`), newState);
+    } else {
+      setState(newState);
+      const channel = new BroadcastChannel(`call_app_sync_${classId}`);
+      channel.postMessage(newState);
+      localStorage.setItem(`callState_${classId}`, JSON.stringify(newState));
+      channel.close();
+    }
+  };
+
+  return { state, updateState, isFirebaseConnected };
+}
+
+// 명단(Roster) 가져오는 훅 추가
+export function useRoster(grade: string, classNm: string) {
+  const [roster, setRoster] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    if (!grade || !classNm || !db) {
+      setRoster([]);
+      setIsLoading(false);
+      return;
+    }
+    
+    setIsLoading(true);
+    const rosterRef = ref(db, `school_data/students/${grade}/${classNm}`);
+    const unsub = onValue(rosterRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setRoster(snapshot.val());
+      } else {
+        setRoster([]);
+      }
+      setIsLoading(false);
+    });
+    return () => unsub();
+  }, [grade, classNm]);
+
+  return { roster, isLoading };
+}
+
