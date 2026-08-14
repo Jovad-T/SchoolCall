@@ -19,6 +19,8 @@ const DUMMY_TIMETABLE = [
 
 const DUMMY_LUNCH = "현미밥\n쇠고기미역국\n매콤돼지갈비찜\n계란말이\n배추김치\n초코우유";
 
+const alertSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+
 export default function ClassroomDisplay() {
   const navigate = useNavigate();
 
@@ -113,6 +115,15 @@ export default function ClassroomDisplay() {
     prevCallStatus.current = state.callStatus;
   }, [state, schedule]);
 
+  
+  // 알림 모달이 표시될 때 알림음 재생
+  useEffect(() => {
+    if (activeAlert) {
+      alertSound.currentTime = 0;
+      alertSound.play().catch(err => console.warn("오디오 재생 실패 (Autoplay 차단 등):", err));
+    }
+  }, [activeAlert]);
+
   const handleDismissAlert = () => {
     setActiveAlert(null);
     updateState({
@@ -202,6 +213,15 @@ export default function ClassroomDisplay() {
   }, []);
 
   const handleSaveSettings = () => {
+    
+    // 브라우저 자동재생(Autoplay) 차단 방어 (Unlock)
+    alertSound.volume = 0; // 빈 소리로 만들기 위해 볼륨 0
+    alertSound.play().then(() => {
+      alertSound.pause();
+      alertSound.currentTime = 0;
+      alertSound.volume = 1; // 다시 정상 볼륨 복구
+    }).catch(() => {});
+
     localStorage.setItem('display_grade', tempSettings.grade);
     localStorage.setItem('display_class', tempSettings.classNm);
     setSettings(tempSettings);
