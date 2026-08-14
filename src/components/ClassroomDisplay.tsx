@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { ref, onValue } from 'firebase/database';
+import { db } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
-import { useCallState } from '../lib/store';
+import { useCallState, CallState } from '../lib/store';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, Utensils, Megaphone, Calendar, Settings, Home, CheckCircle, User, MapPin } from 'lucide-react';
 import clsx from 'clsx';
@@ -27,16 +29,6 @@ export default function ClassroomDisplay() {
   const { state, updateState } = useCallState(classId);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  const handleDismissAlert = () => {
-    updateState({
-      callStatus: false,
-      studentName: '',
-      message: '',
-      teacherName: '',
-      location: ''
-    });
-  };
-
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempSettings, setTempSettings] = useState({
     grade: '2',
@@ -48,6 +40,90 @@ export default function ClassroomDisplay() {
   const [lunch, setLunch] = useState<string[]>([]);
   const [isLoadingNeis, setIsLoadingNeis] = useState(false);
   const [neisError, setNeisError] = useState(false);
+
+  const [schedule, setSchedule] = useState<{period: number; start: string; end: string}[]>([]);
+  const [pendingCalls, setPendingCalls] = useState<CallState[]>([]);
+  const [activeAlert, setActiveAlert] = useState<CallState | null>(null);
+  
+  useEffect(() => {
+    if (db) {
+      const scheduleRef = ref(db, 'school_data/schedule');
+      const unsub = onValue(scheduleRef, (snapshot) => {
+        if (snapshot.exists()) {
+          setSchedule(snapshot.val());
+        }
+      });
+      return () => unsub();
+    }
+  }, []);
+
+  const checkIsClassTime = (time: Date) => {
+    const currentTotal = time.getHours() * 60 + time.getMinutes();
+    for (const slot of schedule) {
+      if (!slot.start || !slot.end) continue;
+      const [sH, sM] = slot.start.split(':').map(Number);
+      const [eH, eM] = slot.end.split(':').map(Number);
+      const sTotal = sH * 60 + sM;
+      const eTotal = eH * 60 + eM;
+      if (currentTotal >= sTotal && currentTotal <= eTotal) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const inClass = checkIsClassTime(currentTime);
+  const prevInClass = useRef(inClass);
+  const prevCallStatus = useRef(false);
+
+  // New call interception logic
+  useEffect(() => {
+    if (state.callStatus && !prevCallStatus.current) {
+      // Transition from false to true -> New call arrived
+      if (checkIsClassTime(new Date())) {
+        console.log("수업 중이라 알림이 대기열에 추가되었습니다:", state);
+        setPendingCalls(prev => [...prev, state]);
+      } else {
+        setActiveAlert(state);
+      }
+    }
+    
+    if (!state.callStatus && prevCallStatus.current) {
+       // Call was dismissed remotely
+       setActiveAlert(null);
+    }
+    
+    prevCallStatus.current = state.callStatus;
+  }, [state]);
+
+  // Recess observer logic
+  useEffect(() => {
+    if (prevInClass.current && !inClass) {
+      // Transitioned from Class time -> Recess
+      if (pendingCalls.length > 0) {
+        console.log("쉬는 시간이 되어 대기열의 알림을 표시합니다.");
+        const latestCall = pendingCalls[pendingCalls.length - 1];
+        setActiveAlert(latestCall);
+        setPendingCalls([]); // Initialize/clear queue
+      }
+    }
+    prevInClass.current = inClass;
+  }, [inClass, pendingCalls]);
+
+  const handleDismissAlert = () => {
+    setActiveAlert(null);
+    updateState({
+      callStatus: false,
+      studentName: '',
+      message: '',
+      teacherName: '',
+      location: ''
+    });
+  };
+
+
+  
+
 
   useEffect(() => {
     const savedGrade = localStorage.getItem('display_grade');
@@ -148,6 +224,20 @@ export default function ClassroomDisplay() {
         <Home className="w-4 h-4" /> 처음으로 (모드 변경)
       </button>
 
+      
+      {inClass && (
+        <div className="absolute top-6 right-20 z-40 flex items-center gap-3">
+          <div className="px-4 py-2 bg-[#1A1A1C] border border-[#333] rounded-full text-xs font-bold flex items-center gap-2 shadow-lg backdrop-blur text-brand-red">
+            <span>🔇 수업 중</span>
+            {pendingCalls.length > 0 && (
+              <span className="bg-brand-red text-black px-2 py-0.5 rounded-full text-[10px]">
+                대기 중인 알림 {pendingCalls.length}건
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <button 
         onClick={() => setShowSettingsModal(true)}
         className="absolute top-6 right-6 z-40 p-3 rounded-full bg-neutral-900/50 hover:bg-neutral-800 text-neutral-500 hover:text-brand-green transition-colors backdrop-blur"
@@ -156,7 +246,7 @@ export default function ClassroomDisplay() {
       </button>
 
       <AnimatePresence mode="wait">
-        {!state.callStatus ? (
+        {!activeAlert ? (
           <motion.div 
             key="idle"
             initial={{ opacity: 0 }}
@@ -270,23 +360,23 @@ export default function ClassroomDisplay() {
                 animate={{ scale: [1, 1.02, 1] }}
                 transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
               >
-                {state.studentName}
+                {activeAlert.studentName}
               </motion.h2>
               <p className="text-4xl font-light tracking-widest text-brand-red/80 uppercase mt-4">
-                {state.message}
+                {activeAlert.message}
               </p>
               
               <div className="mt-12 flex flex-col sm:flex-row justify-center items-center gap-6">
-                {state.teacherName && (
+                {activeAlert.teacherName && (
                   <div className="glass-card px-8 py-4 rounded-2xl flex items-center gap-4 text-brand-green border border-brand-green/30">
                      <User className="w-8 h-8" />
-                     <span className="text-3xl font-bold">{state.teacherName} 선생님</span>
+                     <span className="text-3xl font-bold">{activeAlert.teacherName} 선생님</span>
                   </div>
                 )}
-                {state.location && (
+                {activeAlert.location && (
                   <div className="glass-card px-8 py-4 rounded-2xl flex items-center gap-4 text-brand-blue border border-brand-blue/30">
                      <MapPin className="w-8 h-8" />
-                     <span className="text-3xl font-bold">도착 장소: {state.location}</span>
+                     <span className="text-3xl font-bold">도착 장소: {activeAlert.location}</span>
                   </div>
                 )}
               </div>
