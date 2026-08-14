@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ref, set } from 'firebase/database';
 import { db } from '../lib/firebase';
 import { Upload, Home } from 'lucide-react';

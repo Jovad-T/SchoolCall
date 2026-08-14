@@ -19,7 +19,12 @@ const DUMMY_LUNCH = "현미밥\n쇠고기미역국\n매콤돼지갈비찜\n계�
 
 export default function ClassroomDisplay() {
   const navigate = useNavigate();
-  const { state, updateState } = useCallState();
+
+  // Settings State
+  const [settings, setSettings] = useState<{grade: string; classNm: string} | null>(null);
+  
+  const classId = settings ? `${settings.grade}-${settings.classNm}` : '';
+  const { state, updateState } = useCallState(classId);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const handleDismissAlert = () => {
@@ -32,8 +37,6 @@ export default function ClassroomDisplay() {
     });
   };
 
-  // Settings State
-  const [settings, setSettings] = useState<{grade: string; classNm: string} | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempSettings, setTempSettings] = useState({
     grade: '2',
