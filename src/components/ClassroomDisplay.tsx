@@ -50,15 +50,11 @@ export default function ClassroomDisplay() {
   const [neisError, setNeisError] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('classroom_settings');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setSettings(parsed);
-        setTempSettings({ ...tempSettings, ...parsed });
-      } catch(e) {
-        setShowSettingsModal(true);
-      }
+    const savedGrade = localStorage.getItem('display_grade');
+    const savedClass = localStorage.getItem('display_class');
+    if (savedGrade && savedClass) {
+      setSettings({ grade: savedGrade, classNm: savedClass });
+      setTempSettings({ grade: savedGrade, classNm: savedClass });
     } else {
       setShowSettingsModal(true);
     }
@@ -79,8 +75,8 @@ export default function ClassroomDisplay() {
         const TYPE = 'json';
         const ATPT_OFCDC_SC_CODE = 'C10';
         const SD_SCHUL_CODE = '7150125';
-        const GRADE = '2';
-        const CLASS_NM = '8';
+        const GRADE = settings.grade;
+        const CLASS_NM = settings.classNm;
 
         const [ttRes, lunchRes] = await Promise.all([
           fetch(`https://open.neis.go.kr/hub/hisTimetable?KEY=${KEY}&Type=${TYPE}&ATPT_OFCDC_SC_CODE=${ATPT_OFCDC_SC_CODE}&SD_SCHUL_CODE=${SD_SCHUL_CODE}&GRADE=${GRADE}&CLASS_NM=${CLASS_NM}&ALL_TI_YMD=${ymd}`),
@@ -127,7 +123,8 @@ export default function ClassroomDisplay() {
   }, []);
 
   const handleSaveSettings = () => {
-    localStorage.setItem('classroom_settings', JSON.stringify(tempSettings));
+    localStorage.setItem('display_grade', tempSettings.grade);
+    localStorage.setItem('display_class', tempSettings.classNm);
     setSettings(tempSettings);
     setShowSettingsModal(false);
   };
@@ -174,7 +171,9 @@ export default function ClassroomDisplay() {
                 <h2 className="text-[#555] uppercase tracking-widest text-xs mb-1">
                   실시간 학급 대시보드
                 </h2>
-                <h1 className="text-4xl font-bold tracking-tighter">우리 반 알림판</h1>
+                <h1 className="text-4xl font-bold tracking-tighter">
+                  {settings ? `${settings.grade}학년 ${settings.classNm}반 알림판` : "우리 반 알림판"}
+                </h1>
               </div>
               <div className="text-right">
                 <div className="text-5xl font-mono font-bold neon-text-green">
@@ -322,21 +321,21 @@ export default function ClassroomDisplay() {
             className="absolute inset-0 bg-black/90 flex items-center justify-center z-50 p-6 backdrop-blur-md"
           >
             <div className="glass-card max-w-md w-full p-8 rounded-3xl border border-[#333]">
-              <h2 className="text-2xl font-bold mb-6 tracking-widest uppercase">System Config</h2>
+              <h2 className="text-2xl font-bold mb-6 tracking-widest uppercase">학급 설정</h2>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">Grade (학년)</label>
+                    <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">학년</label>
                     <select 
                       value={tempSettings.grade}
                       onChange={e => setTempSettings({...tempSettings, grade: e.target.value})}
                       className="w-full bg-[#1A1A1C] p-3 rounded-lg border border-[#333] text-sm focus:border-brand-green outline-none transition-colors text-white"
                     >
-                      {[1, 2, 3, 4, 5, 6].map(g => <option key={g} value={g}>{g}학년</option>)}
+                      {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">Class (반)</label>
+                    <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">반</label>
                     <select 
                       value={tempSettings.classNm}
                       onChange={e => setTempSettings({...tempSettings, classNm: e.target.value})}
@@ -353,14 +352,14 @@ export default function ClassroomDisplay() {
                     onClick={() => setShowSettingsModal(false)}
                     className="flex-1 bg-[#1A1A1C] text-[#555] py-3 rounded-xl font-bold text-xs tracking-widest border border-[#333] hover:text-[#777] hover:bg-[#222] transition-colors"
                   >
-                    CANCEL
+                    취소
                   </button>
                 )}
                 <button 
                   onClick={handleSaveSettings}
                   className="flex-1 bg-brand-green text-black py-3 rounded-xl font-black text-xs tracking-widest shadow-[0_0_15px_rgba(0,255,136,0.3)] hover:brightness-110 transition-all"
                 >
-                  SAVE & APPLY
+                  저장 및 적용
                 </button>
               </div>
             </div>
