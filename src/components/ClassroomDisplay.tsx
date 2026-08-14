@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { useNavigate } from 'react-router-dom';
 import { useCallState, CallState } from '../lib/store';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Utensils, Megaphone, Calendar, Settings, Home, CheckCircle, User, MapPin } from 'lucide-react';
+import { Clock, Utensils, Megaphone, Calendar, Settings, CheckCircle, User, MapPin } from 'lucide-react';
 import clsx from 'clsx';
 
 const DUMMY_TIMETABLE = [
@@ -22,7 +21,6 @@ const DUMMY_LUNCH = "현미밥\n쇠고기미역국\n매콤돼지갈비찜\n계�
 const alertSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
 export default function ClassroomDisplay() {
-  const navigate = useNavigate();
 
   // Settings State
   const [settings, setSettings] = useState<{grade: string; classNm: string} | null>(null);
@@ -238,14 +236,6 @@ export default function ClassroomDisplay() {
 
   return (
     <div className="min-h-screen bg-bg-dark text-[#E0E0E0] grid-bg overflow-hidden relative font-sans flex flex-col">
-      
-      {/* Return button */}
-      <button 
-        onClick={() => navigate('/')}
-        className="absolute top-6 left-6 z-40 flex items-center gap-2 px-4 py-2 rounded-full bg-black/50 border border-[#333] hover:border-[#555] text-[#AAA] hover:text-white transition-colors backdrop-blur text-xs tracking-widest uppercase"
-      >
-        <Home className="w-4 h-4" /> 처음으로 (모드 변경)
-      </button>
 
       
       {inClass && (
