@@ -25,7 +25,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
           {/* 교무실 모드 버튼 */}
           <button
-            onClick={() => navigate('/teacher')}
+            onClick={() => navigate('/office')}
             className="group relative flex flex-col items-center p-10 glass-card rounded-none hover:border-brand-red transition-all duration-300"
           >
             <div className="mb-6 opacity-70 group-hover:opacity-100 group-hover:text-brand-red transition-all">

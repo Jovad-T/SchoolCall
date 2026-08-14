@@ -16,7 +16,7 @@ const PRESET_MESSAGES = [
   "긴급 호출입니다. 즉시 교무실로 오세요"
 ];
 
-export default function TeacherRemote() {
+export default function OfficeRemote() {
   const navigate = useNavigate();
   const [grade, setGrade] = useState('2');
   const [classNm, setClassNm] = useState('8');

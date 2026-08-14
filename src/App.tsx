@@ -3,21 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Home from './components/Home';
-import TeacherRemote from './components/TeacherRemote';
+import OfficeRemote from './components/OfficeRemote';
 import ClassroomDisplay from './components/ClassroomDisplay';
-import Admin from './components/Admin';
+import AdminDashboard from './components/AdminDashboard';
 
 export default function App() {
   return (
-    <HashRouter>
+    <Router>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/teacher" element={<TeacherRemote />} />
+        <Route path="/office" element={<OfficeRemote />} />
         <Route path="/class" element={<ClassroomDisplay />} />
-        <Route path="/admin" element={<Admin />} />
+        <Route path="/admin" element={<AdminDashboard />} />
       </Routes>
-    </HashRouter>
+    </Router>
   );
 }

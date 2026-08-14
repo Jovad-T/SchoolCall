@@ -4,7 +4,7 @@ import { db } from '../lib/firebase';
 import { Upload, Home } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
-export default function Admin() {
+export default function AdminDashboard() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
@@ -80,30 +80,25 @@ export default function Admin() {
         <div className="space-y-4">
           <h2 className="text-brand-red uppercase tracking-[0.2em] text-xs font-bold">Master Admin Only</h2>
           <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white">
-            최고 관리자 페이지
+            전교생 명렬표 관리(마스터)
           </h1>
         </div>
 
-        <div className="glass-card p-10 rounded-2xl border border-brand-red/30">
+        <div className="glass-card p-10 rounded-2xl border border-brand-red/30 flex flex-col items-center justify-center">
           <input 
             type="file" 
             accept=".csv"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            className="hidden"
-          />
-          
-          <button 
-            onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="flex flex-col items-center justify-center gap-4 w-full px-4 py-12 rounded-xl border-2 border-dashed border-[#555] bg-[#111] hover:border-brand-red hover:bg-brand-red/5 text-[#888] hover:text-brand-red transition-all group disabled:opacity-50"
-          >
-            <Upload className="w-10 h-10 group-hover:scale-110 transition-transform" />
-            <div className="text-center">
-              <div className="text-lg font-bold tracking-widest uppercase mb-2">마스터 CSV 명렬표 업로드</div>
-              <div className="text-xs text-[#555] tracking-wider">형식: 학년,반,번호,이름</div>
-            </div>
-          </button>
+            className="block w-full max-w-sm text-sm text-[#AAA]
+              file:mr-4 file:py-3 file:px-6
+              file:rounded-full file:border-0
+              file:text-sm file:font-bold file:tracking-widest
+              file:bg-brand-red file:text-black
+              hover:file:brightness-110 hover:file:cursor-pointer
+              transition-all disabled:opacity-50"
+          />
           
           {uploadStatus && (
             <div className="mt-6 text-center px-4 py-4 bg-[#1A1A1C] border border-brand-green/30 text-brand-green text-sm rounded-lg shadow-lg">
