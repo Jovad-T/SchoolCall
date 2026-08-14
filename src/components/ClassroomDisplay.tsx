@@ -119,6 +119,10 @@ export default function ClassroomDisplay() {
     if (activeAlert) {
       alertSound.currentTime = 0;
       alertSound.play().catch(err => console.warn("오디오 재생 실패 (Autoplay 차단 등):", err));
+      
+      if ((window as any).electronAPI && (window as any).electronAPI.showAppWindow) {
+        (window as any).electronAPI.showAppWindow();
+      }
     }
   }, [activeAlert]);
 

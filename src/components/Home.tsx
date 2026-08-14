@@ -1,3 +1,6 @@
+import React, { useState, useEffect } from 'react';
+import { ref, onValue } from 'firebase/database';
+import { db } from '../lib/firebase';
 import { useNavigate } from 'react-router-dom';
 import { MonitorPlay, Smartphone } from 'lucide-react';
 import { useCallState } from '../lib/store';
@@ -6,10 +9,27 @@ export default function Home() {
   const navigate = useNavigate();
   const { isFirebaseConnected } = useCallState('default');
 
+  const [schoolName, setSchoolName] = useState<string>('우리 학교');
+
+  useEffect(() => {
+    if (!db) return;
+    const nameRef = ref(db, 'school_data/school_name');
+    const nameUnsub = onValue(nameRef, (snapshot) => {
+      if (snapshot.exists() && snapshot.val()) {
+        setSchoolName(snapshot.val());
+      } else {
+        setSchoolName('우리 학교');
+      }
+    });
+    return () => nameUnsub();
+  }, []);
+
+
   return (
     <div className="min-h-screen bg-bg-dark grid-bg flex flex-col items-center justify-center p-6 text-[#E0E0E0] font-sans relative">
       <div className="max-w-3xl w-full text-center space-y-12 mt-10">
         <div className="space-y-4">
+          <h2 className="text-brand-green uppercase tracking-[0.2em] text-sm font-bold mb-3">{schoolName}</h2>
           <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white">
             학생 호출 시스템
           </h1>
