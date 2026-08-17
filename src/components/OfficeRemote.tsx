@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, BellRing, BellOff, User, MessageSquare, Home, XCircle, MapPin } from 'lucide-react';
-import { useCallState, useRoster } from '../lib/store';
+import { useCallState, useLocalRoster } from '../lib/store';
 import clsx from 'clsx';
 
 const DUMMY_STUDENTS = [
@@ -23,7 +23,7 @@ export default function OfficeRemote() {
   
   const classId = `${grade}-${classNm}`;
   const { state, updateState, isFirebaseConnected } = useCallState(classId);
-  const { roster, isLoading } = useRoster(grade, classNm);
+  const { roster, isLoading } = useLocalRoster(grade, classNm);
 
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   

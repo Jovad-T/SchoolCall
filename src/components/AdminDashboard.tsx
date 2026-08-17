@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
+import { setGlobalStudents } from '../lib/store';
 import { Upload, Home, Clock, School } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -78,49 +79,45 @@ export default function AdminDashboard() {
   };
 
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = (event) => {
       try {
         const text = event.target?.result as string;
         const lines = text.split('\n');
-        const groupedData: Record<string, Record<string, string[]>> = {};
+        
+        const parsedStudents = [];
         let studentCount = 0;
-
-        for (const line of lines) {
-          const trimmed = line.trim();
+        
+        // 첫 번째 줄(헤더)은 무시하고, 두 번째 줄부터 파싱
+        for (let i = 1; i < lines.length; i++) {
+          const trimmed = lines[i].trim();
           if (!trimmed) continue;
           
-          const parts = trimmed.split(',');
-          if (parts.length >= 4) {
-            const [g, c, num, name] = parts.map(p => p.trim());
+          // 따옴표 제거 및 쉼표 분리
+          const cleanLine = trimmed.replace(/["']/g, '');
+          const parts = cleanLine.split(',');
+          
+          if (parts.length >= 2) {
+            const id = parts[0].trim();
+            const name = parts[1].trim();
             
-            // 헤더 건너뛰기
-            if (g === '학년' || isNaN(Number(g))) continue;
-            
-            if (!groupedData[g]) {
-              groupedData[g] = {};
+            if (id && name) {
+              parsedStudents.push({ id, name });
+              studentCount++;
             }
-            if (!groupedData[g][c]) {
-              groupedData[g][c] = [];
-            }
-            
-            groupedData[g][c].push(`${num}번 ${name}`);
-            studentCount++;
           }
         }
-
-        if (Object.keys(groupedData).length > 0 && db) {
-          await set(ref(db, 'school_data/students'), groupedData);
-          setUploadStatus(`✅ 마스터 데이터 갱신 완료: 총 ${studentCount}명의 학생 명단이 시스템에 일괄 등록되었습니다.`);
-        } else if (!db) {
-          alert("Firebase 연결이 필요합니다.");
+        
+        if (parsedStudents.length > 0) {
+          setGlobalStudents(parsedStudents); // 전역 상태 및 localStorage 반영
+          setUploadStatus(`✅ 총 ${studentCount}명의 학생 명단이 성공적으로 등록되었습니다.`);
         } else {
-          alert("유효한 CSV 데이터가 없습니다. 형식: '학년,반,번호,이름'");
+          alert("유효한 CSV 데이터가 없습니다. 예시: '학번,이름'");
         }
       } catch (err) {
         console.error(err);
@@ -152,21 +149,36 @@ export default function AdminDashboard() {
           </h1>
         </div>
 
-        <div className="glass-card p-10 rounded-2xl border border-brand-red/30 flex flex-col items-center justify-center">
-          <input 
-            type="file" 
-            accept=".csv"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            disabled={isUploading}
-            className="block w-full max-w-sm text-sm text-[#AAA]
-              file:mr-4 file:py-3 file:px-6
-              file:rounded-full file:border-0
-              file:text-sm file:font-bold file:tracking-widest
-              file:bg-brand-red file:text-black
-              hover:file:brightness-110 hover:file:cursor-pointer
-              transition-all disabled:opacity-50"
-          />
+                <div className="glass-card p-10 rounded-2xl border border-brand-red/30 flex flex-col items-center justify-center">
+          <div className="flex items-center gap-3 mb-6 w-full justify-center">
+            <Upload className="w-6 h-6 text-brand-red" />
+            <h2 className="text-xl font-bold tracking-widest text-white">학생 명단 업로드</h2>
+          </div>
+          
+          <p className="text-[#888] text-xs tracking-wider mb-6 text-center leading-relaxed">
+            💡 학번, 이름 순서로 작성된 CSV 파일을 업로드해 주세요.<br/>
+            <span className="text-[#555] font-mono text-[10px] bg-black/50 px-2 py-1 rounded mt-2 inline-block">
+              예시:<br/>
+              학번,이름<br/>
+              20801,구효진<br/>
+              20802,김학생
+            </span>
+          </p>
+          
+          <div className="relative">
+            <input 
+              type="file" 
+              accept=".csv"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              disabled={isUploading}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+            />
+            <button className="flex items-center gap-2 px-8 py-4 bg-brand-red text-black rounded-xl font-black text-sm tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(255,62,62,0.3)] disabled:opacity-50">
+              <Upload className="w-5 h-5" />
+              📄 CSV 명단 일괄 업로드
+            </button>
+          </div>
           
           {uploadStatus && (
             <div className="mt-6 text-center px-4 py-4 bg-[#1A1A1C] border border-brand-green/30 text-brand-green text-sm rounded-lg shadow-lg">
