@@ -27,8 +27,13 @@ function createWindow() {
     }
   });
 
-  const startUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
-  mainWindow.loadURL(startUrl);
+  const distIndexPath = path.join(__dirname, 'dist', 'index.html');
+  if (fs.existsSync(distIndexPath)) {
+    mainWindow.loadFile(distIndexPath, { hash: '/class' });
+  } else {
+    const startUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
+    mainWindow.loadURL(`${startUrl}/#/class`);
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;

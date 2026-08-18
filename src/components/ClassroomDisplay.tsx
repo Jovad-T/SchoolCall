@@ -3,12 +3,35 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
 import { useCallState, CallState, useClassAnnouncement, useClassTimetable, useClassTimetableImage } from '../lib/store';
 import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Utensils, Megaphone, Calendar, Settings, CheckCircle, User, MapPin } from 'lucide-react';
+import { Clock, Utensils, Megaphone, Calendar, Settings, CheckCircle, User, MapPin, Maximize, Minimize } from 'lucide-react';
 import clsx from 'clsx';
 
 const alertSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
 
 export default function ClassroomDisplay() {
+
+  // Fullscreen State
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   // Settings State
   const [settings, setSettings] = useState<{grade: string; classNm: string} | null>(null);
@@ -72,8 +95,11 @@ export default function ClassroomDisplay() {
             setIsWakeLockActive(false);
           });
         }
-      } catch (err) {
-        console.error('Wake Lock error:', err);
+      } catch (err: any) {
+        // Silently ignore permissions policy errors as it's expected in some iframe/Electron environments
+        if (err.name !== 'NotAllowedError') {
+          console.error('Wake Lock error:', err);
+        }
         setIsWakeLockActive(false);
       }
     };
@@ -251,10 +277,14 @@ export default function ClassroomDisplay() {
   });
 
   return (
-    <div className="min-h-screen bg-black text-white overflow-hidden font-sans relative">
+    <div className="min-h-screen overflow-hidden relative" style={{ backgroundColor: '#1b3a26', color: '#f8f9fa', fontFamily: "'Chalkboard SE', 'Comic Sans MS', 'Gowun Dodum', cursive, sans-serif" }}>
+      {/* Wooden Frame */}
+      <div className="absolute inset-0 border-[16px] md:border-[24px] border-[#4a2e15] z-50 pointer-events-none shadow-[inset_0_0_30px_rgba(0,0,0,0.8)]" />
+      
       <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-[#111] via-black to-black opacity-80" />
-        <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-5 mix-blend-overlay" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(255,255,255,0.1),_transparent_75%)]" />
+        <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/stucco.png')] opacity-20 mix-blend-overlay" />
+        <div className="absolute inset-0 shadow-[inset_0_0_150px_rgba(0,0,0,0.9)] pointer-events-none" />
       </div>
 
       {!settings && (
@@ -274,9 +304,18 @@ export default function ClassroomDisplay() {
       {/* Settings Button */}
       <button 
         onClick={() => setShowSettingsModal(true)}
-        className="absolute top-6 right-6 z-40 p-3 rounded-full bg-neutral-900/50 hover:bg-neutral-800 text-neutral-500 hover:text-brand-green transition-colors backdrop-blur"
+        className="absolute top-6 right-6 z-40 p-3 rounded-full bg-black/40 hover:bg-black/60 text-white/50 hover:text-white transition-colors backdrop-blur border border-white/20"
       >
         <Settings className="w-6 h-6" />
+      </button>
+
+      {/* Fullscreen Toggle Button */}
+      <button 
+        onClick={toggleFullscreen}
+        className="absolute bottom-6 right-6 z-40 p-3 rounded-full bg-black/40 hover:bg-black/60 text-white/50 hover:text-white transition-colors backdrop-blur border border-white/20"
+        title={isFullscreen ? "전체화면 종료" : "전체화면"}
+      >
+        {isFullscreen ? <Minimize className="w-6 h-6" /> : <Maximize className="w-6 h-6" />}
       </button>
 
       <AnimatePresence mode="wait">
@@ -373,20 +412,20 @@ export default function ClassroomDisplay() {
             className="w-full h-screen flex flex-col p-12 lg:p-20 relative z-10"
           >
             {/* Header: Date & Time */}
-            <header className="flex justify-between items-end mb-10 border-b border-[#1A1A1A] pb-8">
+            <header className="flex justify-between items-end mb-10 border-b-4 border-white/20 border-dashed pb-8 px-4">
               <div>
-                <h2 className="text-[#555] uppercase tracking-widest text-xs mb-1">
+                <h2 className="text-white/70 font-bold uppercase tracking-widest text-sm mb-2" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.2)' }}>
                   실시간 학급 대시보드
                 </h2>
-                <h1 className="text-4xl font-bold tracking-tighter">
+                <h1 className="text-5xl font-bold tracking-tighter text-white/95" style={{ textShadow: '2px 2px 4px rgba(255,255,255,0.3)' }}>
                   {settings ? `${settings.grade}학년 ${settings.classNm}반 알림판` : "우리 반 알림판"}
                 </h1>
               </div>
               <div className="text-right">
-                <div className="text-5xl font-black tracking-tighter mb-2 font-mono">
+                <div className="text-6xl font-black tracking-tighter mb-2 text-white/95" style={{ textShadow: '2px 2px 4px rgba(255,255,255,0.3)' }}>
                   {timeString}
                 </div>
-                <div className="text-xs text-[#555] uppercase mt-2">{dateString}</div>
+                <div className="text-sm text-white/70 font-bold uppercase mt-2">{dateString}</div>
               </div>
             </header>
 
@@ -398,35 +437,35 @@ export default function ClassroomDisplay() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full">
                   {/* Left: Timetable */}
                   <div className="flex flex-col gap-4 relative">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 bg-brand-green rounded-full animate-pulse" />
-                      <h3 className="text-sm uppercase font-semibold text-[#888]">오늘의 시간표</h3>
+                    <div className="flex items-center gap-2 mb-2 px-2">
+                      <h3 className="text-lg font-bold text-white/80" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.2)' }}>오늘의 시간표</h3>
                     </div>
                     
                     {timetableImage ? (
-                      <div className="w-full h-full min-h-[300px] flex items-center justify-center bg-[#111] rounded-2xl border border-[#333] overflow-hidden p-2">
+                      <div className="w-full h-full min-h-[300px] flex items-center justify-center bg-black/40 rounded-2xl border-4 border-white/20 border-dashed overflow-hidden p-2">
                         <img src={timetableImage} alt="시간표 이미지" className="object-contain w-full h-full max-h-[500px]" />
                       </div>
                     ) : isLoadingNeis ? (
-                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed h-full flex items-center justify-center">
+                      <div className="text-white/60 p-6 text-center border-4 border-white/20 rounded-xl border-dashed h-full flex items-center justify-center font-bold text-xl">
                         시간표와 급식을 불러오는 중입니다...
                       </div>
                     ) : neisError || timetable.length === 0 ? (
-                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed h-full flex items-center justify-center">
+                      <div className="text-white/60 p-6 text-center border-4 border-white/20 rounded-xl border-dashed h-full flex items-center justify-center font-bold text-xl">
                         오늘은 등록된 시간표가 없습니다.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-3">
+                      <div className="grid grid-cols-1 gap-2">
                         {timetable.map((subject, idx) => (
                           <div 
                             key={idx}
-                            className="glass-card p-5 rounded-xl flex justify-between items-center border-l-4 border-l-brand-green"
+                            className="p-3 md:p-4 flex items-center border-b-2 border-white/20 border-dashed"
+                            style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.2)' }}
                           >
                             <div className="flex items-center gap-6">
-                              <span className="font-mono text-[#555] w-8 text-xl">
-                                {idx + 1}TH
+                              <span className="text-white/70 w-8 text-xl font-bold">
+                                {idx + 1}
                               </span>
-                              <span className="font-bold text-2xl tracking-tight">
+                              <span className="font-bold text-2xl md:text-3xl tracking-tight text-white/95">
                                 {subject}
                               </span>
                             </div>
@@ -438,31 +477,30 @@ export default function ClassroomDisplay() {
 
                   {/* Right: Meals */}
                   <div className="flex flex-col gap-4 relative">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 bg-brand-blue rounded-full animate-pulse" />
-                      <h3 className="text-sm uppercase font-semibold text-[#888]">오늘의 급식</h3>
+                    <div className="flex items-center gap-2 mb-2 px-2">
+                      <h3 className="text-lg font-bold text-white/80" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.2)' }}>오늘의 급식</h3>
                     </div>
 
                     {isLoadingNeis ? (
-                       <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed h-full flex items-center justify-center">
+                       <div className="text-white/60 p-6 text-center border-4 border-white/20 rounded-xl border-dashed h-full flex items-center justify-center font-bold text-xl">
                          시간표와 급식을 불러오는 중입니다...
                        </div>
                     ) : neisError || (lunch.length === 0 && dinner.length === 0) ? (
-                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed h-full flex items-center justify-center">
+                      <div className="text-white/60 p-6 text-center border-4 border-white/20 rounded-xl border-dashed h-full flex items-center justify-center font-bold text-xl">
                         오늘은 등록된 급식이 없습니다.
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 gap-4 h-full">
                         {/* Lunch Block */}
                         {lunch.length > 0 && (
-                          <div className="glass-card p-6 rounded-2xl border-t-4 border-t-brand-blue flex flex-col justify-center relative">
-                            <div className="absolute top-4 left-6 flex items-center gap-2">
-                              <Utensils className="w-4 h-4 text-brand-blue/50" />
-                              <span className="text-brand-blue text-xs font-bold tracking-wider">점심</span>
+                          <div className="p-6 rounded-2xl border-4 border-white/30 border-dashed flex flex-col justify-center relative bg-white/5">
+                            <div className="absolute top-4 left-6 flex items-center gap-2 text-white/80">
+                              <Utensils className="w-5 h-5" />
+                              <span className="text-sm font-bold tracking-wider" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.3)' }}>점심</span>
                             </div>
                             <div className="flex flex-col gap-2 text-center mt-6">
                               {lunch.map((item, idx) => (
-                                <div key={idx} className="text-xl font-bold tracking-tight text-white">
+                                <div key={idx} className="text-xl md:text-2xl font-bold tracking-tight text-white/95" style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.2)' }}>
                                   {item}
                                 </div>
                               ))}
@@ -472,14 +510,14 @@ export default function ClassroomDisplay() {
                         
                         {/* Dinner Block */}
                         {dinner.length > 0 && (
-                          <div className="glass-card p-6 rounded-2xl border-t-4 border-t-brand-blue/60 flex flex-col justify-center relative">
-                            <div className="absolute top-4 left-6 flex items-center gap-2">
-                              <Utensils className="w-4 h-4 text-brand-blue/30" />
-                              <span className="text-brand-blue/60 text-xs font-bold tracking-wider">저녁</span>
+                          <div className="p-6 rounded-2xl border-4 border-white/10 border-dashed flex flex-col justify-center relative bg-white/5">
+                            <div className="absolute top-4 left-6 flex items-center gap-2 text-white/50">
+                              <Utensils className="w-5 h-5" />
+                              <span className="text-sm font-bold tracking-wider">저녁</span>
                             </div>
                             <div className="flex flex-col gap-2 text-center mt-6">
                               {dinner.map((item, idx) => (
-                                <div key={idx} className="text-xl font-bold tracking-tight text-[#CCC]">
+                                <div key={idx} className="text-xl md:text-2xl font-bold tracking-tight text-white/70" style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.1)' }}>
                                   {item}
                                 </div>
                               ))}
@@ -493,12 +531,11 @@ export default function ClassroomDisplay() {
 
                 {/* Bottom: Teacher Announcements */}
                 <div className="flex flex-col gap-4 mt-2">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-2 h-2 bg-brand-red rounded-full animate-pulse" />
-                    <h3 className="text-sm uppercase font-semibold text-[#888]">선생님의 전달사항</h3>
+                  <div className="flex items-center gap-2 mb-2 mt-4 px-2">
+                    <h3 className="text-lg font-bold text-white/80" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.2)' }}>선생님의 전달사항</h3>
                   </div>
                   <div 
-                    className="glass-card p-6 md:p-10 rounded-2xl border-t-4 border-t-brand-red min-h-[160px] flex items-center justify-center relative group cursor-pointer"
+                    className="p-6 md:p-10 rounded-2xl border-4 border-white/40 border-dashed min-h-[220px] flex items-center justify-center relative group cursor-pointer bg-white/5 hover:bg-white/10 transition-colors"
                     onClick={() => {
                       if (!isEditingAnnounce) {
                         setEditAnnounceText(announcement || '');
@@ -508,7 +545,7 @@ export default function ClassroomDisplay() {
                   >
                     {!isEditingAnnounce && (
                       <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="text-xs text-brand-red font-bold bg-[#111] px-3 py-1 rounded-full border border-brand-red/30">클릭하여 수정</span>
+                        <span className="text-sm font-bold text-white bg-black/40 px-3 py-1 rounded-full border border-white/30">클릭하여 분필로 쓰기</span>
                       </div>
                     )}
                     
@@ -518,15 +555,16 @@ export default function ClassroomDisplay() {
                           autoFocus
                           value={editAnnounceText}
                           onChange={e => setEditAnnounceText(e.target.value)}
-                          className="w-full bg-[#0A0A0C] p-4 rounded-xl border border-brand-red text-2xl md:text-3xl font-bold tracking-tight text-white leading-relaxed focus:outline-none resize-none min-h-[120px]"
-                          placeholder="전달사항을 입력하세요..."
+                          className="w-full bg-black/40 p-4 rounded-xl border-2 border-white/50 text-2xl md:text-3xl font-bold tracking-tight text-white leading-relaxed focus:outline-none resize-none min-h-[140px]"
+                          placeholder="전달사항을 적어주세요..."
+                          style={{ fontFamily: "'Chalkboard SE', 'Comic Sans MS', 'Gowun Dodum', cursive, sans-serif" }}
                         />
-                        <div className="flex justify-end gap-2">
+                        <div className="flex justify-end gap-3">
                           <button 
                             onClick={(e) => { e.stopPropagation(); setIsEditingAnnounce(false); }}
-                            className="px-4 py-2 bg-[#222] text-[#888] rounded-lg font-bold text-sm hover:bg-[#333]"
+                            className="px-6 py-2 bg-white/10 text-white rounded-lg font-bold hover:bg-white/20 border border-white/20"
                           >
-                            취소
+                            지우기
                           </button>
                           <button 
                             onClick={(e) => { 
@@ -534,19 +572,19 @@ export default function ClassroomDisplay() {
                               updateAnnouncement(editAnnounceText);
                               setIsEditingAnnounce(false); 
                             }}
-                            className="px-4 py-2 bg-brand-red text-black rounded-lg font-bold text-sm hover:brightness-110"
+                            className="px-6 py-2 bg-white/80 text-black rounded-lg font-bold hover:bg-white"
                           >
-                            저장
+                            적기
                           </button>
                         </div>
                       </div>
                     ) : announcement ? (
-                      <p className="text-2xl md:text-3xl font-bold tracking-tight text-white leading-relaxed whitespace-pre-wrap text-center w-full">
+                      <p className="text-3xl md:text-4xl font-bold tracking-tight text-white/95 leading-relaxed whitespace-pre-wrap text-center w-full" style={{ textShadow: '2px 2px 5px rgba(255,255,255,0.4)' }}>
                         {announcement}
                       </p>
                     ) : (
-                      <p className="text-xl md:text-2xl font-semibold tracking-tight text-[#555] text-center w-full">
-                        오늘 등록된 전달사항이 없습니다. (클릭하여 입력)
+                      <p className="text-2xl font-bold tracking-tight text-white/40 text-center w-full" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.1)' }}>
+                        오늘 등록된 전달사항이 없습니다. (클릭하여 칠판에 적기)
                       </p>
                     )}
                   </div>

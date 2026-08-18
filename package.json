@@ -2,11 +2,39 @@
   "name": "react-example",
   "private": true,
   "version": "0.0.0",
-  "main": "main.js",
+  "main": "main.cjs",
   "type": "module",
+  "build": {
+    "appId": "com.schoolcall.app",
+    "productName": "학교호출앱",
+    "directories": {
+      "output": "dist_installer"
+    },
+    "files": [
+      "dist/**/*",
+      "main.cjs",
+      "preload.js",
+      "public/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "학교호출앱"
+    }
+  },
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "build:win": "vite build && electron-packager . SchoolCallApp --platform=win32 --arch=x64 --out=dist_electron --overwrite",
+    "build:installer": "vite build && electron-builder --win nsis",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
@@ -32,6 +60,9 @@
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "electron-packager": "^17.1.2",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
