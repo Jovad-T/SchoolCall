@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF3366" />
+      <stop offset="100%" stop-color="#FF8A3D" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="100" fill="#F8F9FA" />
+  <g transform="translate(40, 20)">
+    <!-- Speech bubble -->
+    <path d="M 300 70 C 355 70 400 115 400 170 C 400 225 355 270 300 270 C 285 270 270 266 258 260 L 210 280 L 225 235 C 210 218 200 195 200 170 C 200 115 245 70 300 70 Z" fill="url(#grad)" />
+    <!-- Person Head -->
+    <circle cx="180" cy="220" r="60" fill="url(#grad)" />
+    <!-- Hair curve -->
+    <path d="M 140 205 C 160 185 200 185 220 205" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" />
+    <!-- Collar detail -->
+    <path d="M 140 315 C 160 340 200 340 220 315" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" />
+    <!-- Person Body -->
+    <path d="M 80 410 C 80 320 120 295 180 295 C 240 295 280 320 280 410 Z" fill="url(#grad)" />
+  </g>
+</svg>

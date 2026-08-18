@@ -56,7 +56,47 @@ export default function ClassroomDisplay() {
   const [neisError, setNeisError] = useState(false);
 
   
+  
   const [activeAlert, setActiveAlert] = useState<CallState | null>(null);
+  const [isWakeLockActive, setIsWakeLockActive] = useState(false);
+  const wakeLockRef = useRef<any>(null);
+
+  useEffect(() => {
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+          setIsWakeLockActive(true);
+          
+          wakeLockRef.current.addEventListener('release', () => {
+            setIsWakeLockActive(false);
+          });
+        }
+      } catch (err) {
+        console.error('Wake Lock error:', err);
+        setIsWakeLockActive(false);
+      }
+    };
+
+    requestWakeLock();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   
   const [showAnnouncePopup, setShowAnnouncePopup] = useState(false);
   const prevAnnounceRef = useRef<string | undefined>(undefined);
@@ -68,6 +108,15 @@ export default function ClassroomDisplay() {
         alertSound.currentTime = 0;
         alertSound.play().catch(e => console.log('Audio play failed:', e));
         
+        // Trigger Electron window focus/popup if running in Electron
+        if (typeof window !== 'undefined') {
+          if ((window as any).electron?.send) {
+            (window as any).electron.send('trigger-call');
+          } else if ((window as any).ipcRenderer?.send) {
+            (window as any).ipcRenderer.send('trigger-call');
+          }
+        }
+
         const timer = setTimeout(() => {
           setShowAnnouncePopup(false);
         }, 15000);
@@ -90,6 +139,15 @@ export default function ClassroomDisplay() {
       setActiveAlert(state);
       alertSound.currentTime = 0;
       alertSound.play().catch(e => console.log('Audio play failed:', e));
+
+      // Trigger Electron window focus/popup if running in Electron
+      if (typeof window !== 'undefined') {
+        if ((window as any).electron?.send) {
+          (window as any).electron.send('trigger-call');
+        } else if ((window as any).ipcRenderer?.send) {
+          (window as any).ipcRenderer.send('trigger-call');
+        }
+      }
     } else {
       setActiveAlert(null);
     }
