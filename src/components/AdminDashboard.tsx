@@ -81,10 +81,10 @@ export default function AdminDashboard() {
 
 
     
-  const parseAndSaveStudents = (text: string) => {
+  const parseAndSaveStudents = async (text: string) => {
     try {
       const lines = text.split('\n');
-      const parsedStudents = [];
+      const groupedData: Record<string, Record<string, string[]>> = {};
       let studentCount = 0;
       
       for (let i = 0; i < lines.length; i++) {
@@ -112,17 +112,36 @@ export default function AdminDashboard() {
         }
         
         if (id && name && !isNaN(Number(id))) {
-          parsedStudents.push({ id, name });
-          studentCount++;
+          if (id.length >= 4) {
+            const g = id[0];
+            let c = id.substring(1, id.length - 2);
+            if (c.startsWith('0')) c = c.substring(1);
+            const num = parseInt(id.slice(-2));
+            
+            if (!groupedData[g]) groupedData[g] = {};
+            if (!groupedData[g][c]) groupedData[g][c] = [];
+            
+            groupedData[g][c].push(`${num}번 ${name}`);
+            studentCount++;
+          }
         }
       }
       
-      if (parsedStudents.length > 0) {
-        setGlobalStudents(parsedStudents);
-        setUploadStatus(`✅ 총 ${studentCount}명의 학생 명단이 성공적으로 등록되었습니다.`);
+      if (studentCount > 0 && db) {
+        // Sort arrays before saving
+        for (const g in groupedData) {
+          for (const c in groupedData[g]) {
+            groupedData[g][c].sort((a, b) => parseInt(a) - parseInt(b));
+          }
+        }
+        
+        await set(ref(db, 'school_data/students'), groupedData);
+        setUploadStatus(`✅ 총 ${studentCount}명의 학생 명단이 서버(Firebase)에 성공적으로 등록되었습니다.`);
         setTimeout(() => setUploadStatus(null), 5000);
+      } else if (!db) {
+        alert("Firebase가 연결되어 있지 않아 서버에 저장할 수 없습니다.");
       } else {
-        alert("유효한 CSV 데이터가 없습니다. 예시: '학번,이름'");
+        alert("유효한 데이터가 없습니다. 예시: '학번,이름'");
       }
     } catch (err) {
       console.error(err);
@@ -130,24 +149,24 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleManualSubmit = () => {
+  const handleManualSubmit = async () => {
     if (!manualCsvText.trim()) {
       alert('등록할 텍스트를 입력해 주세요.');
       return;
     }
-    parseAndSaveStudents(manualCsvText);
+    await parseAndSaveStudents(manualCsvText);
     setManualCsvText('');
   };
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       if (event.target?.result) {
-        parseAndSaveStudents(event.target.result as string);
+        await parseAndSaveStudents(event.target.result as string);
       }
       setIsUploading(false);
       if (fileInputRef.current) {

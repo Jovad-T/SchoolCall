@@ -94,31 +94,39 @@ export function setGlobalStudents(students: Student[]) {
   listeners.forEach(l => l());
 }
 
+
 export function useLocalRoster(grade: string, classNm: string) {
   const [roster, setRoster] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-        const update = () => {
-      const filtered = globalStudents.filter(s => {
-        if (s.id.length >= 4) {
-          const g = s.id[0];
-          let c = s.id.substring(1, s.id.length - 2);
-          if (c.startsWith('0')) c = c.substring(1);
-          return g === grade && c === classNm;
-        }
-        return false;
-      }).map(s => `${parseInt(s.id.slice(-2))}번 ${s.name}`);
-      
-      setRoster(filtered);
-    };
+    if (!grade || !classNm || !db) {
+      setRoster([]);
+      setIsLoading(false);
+      return;
+    }
 
-    update();
-    listeners.add(update);
-    return () => {
-      listeners.delete(update);
-    };
+    setIsLoading(true);
+    const rosterRef = ref(db, `school_data/students/${grade}/${classNm}`);
+    const unsub = onValue(rosterRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        if (Array.isArray(data)) {
+          setRoster(data);
+        } else {
+          // If stored as object, convert to array and sort
+          const arr = Object.values(data) as string[];
+          setRoster(arr.sort((a, b) => parseInt(a) - parseInt(b)));
+        }
+      } else {
+        setRoster([]);
+      }
+      setIsLoading(false);
+    });
+
+    return () => unsub();
   }, [grade, classNm]);
 
   return { roster, isLoading };
 }
+
