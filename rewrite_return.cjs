@@ -1,161 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { ref, onValue } from 'firebase/database';
-import { db } from '../lib/firebase';
-import { useCallState, CallState, useClassAnnouncement } from '../lib/store';
-import { motion, AnimatePresence } from 'motion/react';
-import { Clock, Utensils, Megaphone, Calendar, Settings, CheckCircle, User, MapPin } from 'lucide-react';
-import clsx from 'clsx';
+const fs = require('fs');
+let content = fs.readFileSync('src/components/ClassroomDisplay.tsx', 'utf8');
 
-const alertSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+const returnRegex = /  return \([\s\S]*\}\;/;
 
-export default function ClassroomDisplay() {
-
-  // Settings State
-  const [settings, setSettings] = useState<{grade: string; classNm: string} | null>(null);
-  
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [tempSettings, setTempSettings] = useState({
-    grade: '2',
-    classNm: '8'
-  });
-
-  // Load Settings
-  useEffect(() => {
-    const saved = localStorage.getItem('school_classroom_settings');
-    if (saved) {
-      const s = JSON.parse(saved);
-      setSettings(s);
-      setTempSettings(s);
-    } else {
-      setShowSettingsModal(true);
-    }
-  }, []);
-
-  const handleSaveSettings = () => {
-    localStorage.setItem('school_classroom_settings', JSON.stringify(tempSettings));
-    setSettings(tempSettings);
-    setShowSettingsModal(false);
-  };
-
-  const classId = settings ? `${settings.grade}-${settings.classNm}` : '';
-  const { state, updateState } = useCallState(classId);
-  const { announcement, updateAnnouncement } = useClassAnnouncement(settings?.grade || '', settings?.classNm || '');
-  const [isEditingAnnounce, setIsEditingAnnounce] = useState(false);
-  const [editAnnounceText, setEditAnnounceText] = useState('');
-  
-  const [currentTime, setCurrentTime] = useState(new Date());
-
-  // Data State
-  const [timetable, setTimetable] = useState<string[]>([]);
-  const [lunch, setLunch] = useState<string[]>([]);
-  const [dinner, setDinner] = useState<string[]>([]);
-  const [isLoadingNeis, setIsLoadingNeis] = useState(false);
-  const [neisError, setNeisError] = useState(false);
-
-  const [activeAlert, setActiveAlert] = useState<CallState | null>(null);
-
-  // Time
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Alert System
-  useEffect(() => {
-    if (state.callStatus && state.studentName) {
-      setActiveAlert(state);
-      alertSound.currentTime = 0;
-      alertSound.play().catch(e => console.log('Audio play failed:', e));
-    } else {
-      setActiveAlert(null);
-    }
-  }, [state]);
-
-  // Neis Data
-  useEffect(() => {
-    if (!settings) return;
-
-    const fetchNeisData = async () => {
-      setIsLoadingNeis(true);
-      setNeisError(false);
-
-      const d = new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
-
-      try {
-        const KEY = 'c9fdeb8328f2452193c8c612a535c484';
-        const TYPE = 'json';
-        const ATPT_OFCDC_SC_CODE = 'C10';
-        const SD_SCHUL_CODE = '7150125';
-        const GRADE = settings.grade;
-        const CLASS_NM = settings.classNm;
-
-        const [ttRes, lunchRes] = await Promise.all([
-          fetch(`https://open.neis.go.kr/hub/hisTimetable?KEY=${KEY}&Type=${TYPE}&ATPT_OFCDC_SC_CODE=${ATPT_OFCDC_SC_CODE}&SD_SCHUL_CODE=${SD_SCHUL_CODE}&GRADE=${GRADE}&CLASS_NM=${CLASS_NM}&ALL_TI_YMD=${ymd}`),
-          fetch(`https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${KEY}&Type=${TYPE}&ATPT_OFCDC_SC_CODE=${ATPT_OFCDC_SC_CODE}&SD_SCHUL_CODE=${SD_SCHUL_CODE}&MLSV_YMD=${ymd}`)
-        ]);
-
-        const ttData = await ttRes.json();
-        const lunchData = await lunchRes.json();
-
-        // Parse Timetable
-        if (ttData.hisTimetable && ttData.hisTimetable[1].row) {
-          const rows = ttData.hisTimetable[1].row;
-          rows.sort((a: any, b: any) => Number(a.PERIO) - Number(b.PERIO));
-          setTimetable(rows.map((r: any) => r.ITRT_CNTNT));
-        } else {
-          setTimetable([]);
-        }
-
-        // Parse Meals
-        if (lunchData.mealServiceDietInfo && lunchData.mealServiceDietInfo[1].row) {
-          const rows = lunchData.mealServiceDietInfo[1].row;
-          
-          let parsedLunch: string[] = [];
-          let parsedDinner: string[] = [];
-          
-          rows.forEach((row: any) => {
-            const rawMenu = row.DDISH_NM;
-            const cleaned = rawMenu
-              .split('<br/>')
-              .map((item: string) => item.replace(/[0-9.]/g, '').replace(/[^가-힣a-zA-Z\s]/g, '').trim())
-              .filter(Boolean);
-            
-            if (row.MMEAL_SC_CODE === '2') {
-              parsedLunch = cleaned;
-            } else if (row.MMEAL_SC_CODE === '3') {
-              parsedDinner = cleaned;
-            }
-          });
-          
-          setLunch(parsedLunch);
-          setDinner(parsedDinner);
-        } else {
-          setLunch([]);
-          setDinner([]);
-        }
-      } catch (err) {
-        setNeisError(true);
-      } finally {
-        setIsLoadingNeis(false);
-      }
-    };
-
-    fetchNeisData();
-  }, [settings]);
-
-  const timeString = currentTime.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-
-  const dateString = currentTime.toLocaleDateString('ko-KR', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric'
-  });
-
+const newReturn = `
   return (
     <div className="min-h-screen bg-black text-white overflow-hidden font-sans relative">
       <div className="absolute inset-0 z-0">
@@ -202,7 +50,7 @@ export default function ClassroomDisplay() {
                   실시간 학급 대시보드
                 </h2>
                 <h1 className="text-4xl font-bold tracking-tighter">
-                  {settings ? `${settings.grade}학년 ${settings.classNm}반 알림판` : "우리 반 알림판"}
+                  {settings ? \`\${settings.grade}학년 \${settings.classNm}반 알림판\` : "우리 반 알림판"}
                 </h1>
               </div>
               <div className="text-right">
@@ -271,7 +119,7 @@ export default function ClassroomDisplay() {
                         오늘은 등록된 급식이 없습니다.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-4 h-full">
+                      <div className="grid grid-rows-2 gap-4 h-full">
                         {/* Lunch Block */}
                         {lunch.length > 0 && (
                           <div className="glass-card p-6 rounded-2xl border-t-4 border-t-brand-blue flex flex-col justify-center relative">
@@ -316,56 +164,14 @@ export default function ClassroomDisplay() {
                     <div className="w-2 h-2 bg-brand-red rounded-full animate-pulse" />
                     <h3 className="text-sm uppercase font-semibold text-[#888]">선생님의 전달사항</h3>
                   </div>
-                  <div 
-                    className="glass-card p-6 md:p-10 rounded-2xl border-t-4 border-t-brand-red min-h-[160px] flex items-center justify-center relative group cursor-pointer"
-                    onClick={() => {
-                      if (!isEditingAnnounce) {
-                        setEditAnnounceText(announcement || '');
-                        setIsEditingAnnounce(true);
-                      }
-                    }}
-                  >
-                    {!isEditingAnnounce && (
-                      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="text-xs text-brand-red font-bold bg-[#111] px-3 py-1 rounded-full border border-brand-red/30">클릭하여 수정</span>
-                      </div>
-                    )}
-                    
-                    {isEditingAnnounce ? (
-                      <div className="w-full flex flex-col gap-3">
-                        <textarea
-                          autoFocus
-                          value={editAnnounceText}
-                          onChange={e => setEditAnnounceText(e.target.value)}
-                          className="w-full bg-[#0A0A0C] p-4 rounded-xl border border-brand-red text-2xl md:text-3xl font-bold tracking-tight text-white leading-relaxed focus:outline-none resize-none min-h-[120px]"
-                          placeholder="전달사항을 입력하세요..."
-                        />
-                        <div className="flex justify-end gap-2">
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); setIsEditingAnnounce(false); }}
-                            className="px-4 py-2 bg-[#222] text-[#888] rounded-lg font-bold text-sm hover:bg-[#333]"
-                          >
-                            취소
-                          </button>
-                          <button 
-                            onClick={(e) => { 
-                              e.stopPropagation(); 
-                              updateAnnouncement(editAnnounceText);
-                              setIsEditingAnnounce(false); 
-                            }}
-                            className="px-4 py-2 bg-brand-red text-black rounded-lg font-bold text-sm hover:brightness-110"
-                          >
-                            저장
-                          </button>
-                        </div>
-                      </div>
-                    ) : announcement ? (
+                  <div className="glass-card p-6 md:p-10 rounded-2xl border-t-4 border-t-brand-red min-h-[160px] flex items-center justify-center relative">
+                    {announcement ? (
                       <p className="text-2xl md:text-3xl font-bold tracking-tight text-white leading-relaxed whitespace-pre-wrap text-center w-full">
                         {announcement}
                       </p>
                     ) : (
                       <p className="text-xl md:text-2xl font-semibold tracking-tight text-[#555] text-center w-full">
-                        오늘 등록된 전달사항이 없습니다. (클릭하여 입력)
+                        오늘 등록된 전달사항이 없습니다.
                       </p>
                     )}
                   </div>
@@ -401,7 +207,7 @@ export default function ClassroomDisplay() {
                 transition={{ duration: 0.5, repeat: Infinity }}
               >
                 {activeAlert.studentName}
-              </motion.h2>
+              </motion.div>
               
               <motion.div 
                 className="bg-black/80 px-12 py-6 rounded-full border-4 border-[#ff073a] shadow-[0_0_30px_rgba(255,7,58,0.5)]"
@@ -482,4 +288,10 @@ export default function ClassroomDisplay() {
       </AnimatePresence>
     </div>
   );
-}
+};
+`;
+
+const index = content.indexOf('  return (');
+content = content.substring(0, index) + newReturn;
+
+fs.writeFileSync('src/components/ClassroomDisplay.tsx', content);
