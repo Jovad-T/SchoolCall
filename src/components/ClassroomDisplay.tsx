@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { useCallState, CallState, useClassAnnouncement } from '../lib/store';
+import { useCallState, CallState, useClassAnnouncement, useClassTimetable, useClassTimetableImage } from '../lib/store';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, Utensils, Megaphone, Calendar, Settings, CheckCircle, User, MapPin } from 'lucide-react';
 import clsx from 'clsx';
@@ -40,12 +40,15 @@ export default function ClassroomDisplay() {
   const classId = settings ? `${settings.grade}-${settings.classNm}` : '';
   const { state, updateState } = useCallState(classId);
   const { announcement, updateAnnouncement } = useClassAnnouncement(settings?.grade || '', settings?.classNm || '');
+  const { customTimetable } = useClassTimetable(settings?.grade || '', settings?.classNm || '');
+  const { timetableImage } = useClassTimetableImage(settings?.grade || '', settings?.classNm || '');
   const [isEditingAnnounce, setIsEditingAnnounce] = useState(false);
   const [editAnnounceText, setEditAnnounceText] = useState('');
   
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // Data State
+  const [neisTimetable, setNeisTimetable] = useState<string[]>([]);
   const [timetable, setTimetable] = useState<string[]>([]);
   const [lunch, setLunch] = useState<string[]>([]);
   const [dinner, setDinner] = useState<string[]>([]);
@@ -102,9 +105,9 @@ export default function ClassroomDisplay() {
         if (ttData.hisTimetable && ttData.hisTimetable[1].row) {
           const rows = ttData.hisTimetable[1].row;
           rows.sort((a: any, b: any) => Number(a.PERIO) - Number(b.PERIO));
-          setTimetable(rows.map((r: any) => r.ITRT_CNTNT));
+          setNeisTimetable(rows.map((r: any) => r.ITRT_CNTNT));
         } else {
-          setTimetable([]);
+          setNeisTimetable([]);
         }
 
         // Parse Meals
@@ -143,6 +146,18 @@ export default function ClassroomDisplay() {
 
     fetchNeisData();
   }, [settings]);
+
+  useEffect(() => {
+    const dayOfWeek = currentTime.getDay();
+    if (dayOfWeek >= 1 && dayOfWeek <= 5 && customTimetable && customTimetable[dayOfWeek.toString()]) {
+      const customDayTt = customTimetable[dayOfWeek.toString()].filter((sub: string) => sub.trim() !== '');
+      if (customDayTt.length > 0) {
+        setTimetable(customDayTt);
+        return;
+      }
+    }
+    setTimetable(neisTimetable);
+  }, [neisTimetable, customTimetable, currentTime]);
 
   const timeString = currentTime.toLocaleTimeString('en-US', {
     hour: '2-digit',
@@ -226,12 +241,16 @@ export default function ClassroomDisplay() {
                       <h3 className="text-sm uppercase font-semibold text-[#888]">오늘의 시간표</h3>
                     </div>
                     
-                    {isLoadingNeis ? (
-                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed">
+                    {timetableImage ? (
+                      <div className="w-full h-full min-h-[300px] flex items-center justify-center bg-[#111] rounded-2xl border border-[#333] overflow-hidden p-2">
+                        <img src={timetableImage} alt="시간표 이미지" className="object-contain w-full h-full max-h-[500px]" />
+                      </div>
+                    ) : isLoadingNeis ? (
+                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed h-full flex items-center justify-center">
                         시간표와 급식을 불러오는 중입니다...
                       </div>
                     ) : neisError || timetable.length === 0 ? (
-                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed">
+                      <div className="text-[#555] p-6 text-center border border-[#333] rounded-xl border-dashed h-full flex items-center justify-center">
                         오늘은 등록된 시간표가 없습니다.
                       </div>
                     ) : (

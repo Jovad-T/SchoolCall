@@ -1,8 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { setGlobalStudents } from '../lib/store';
-import { Upload, Home, Clock, School } from 'lucide-react';
+import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage } from '../lib/store';
+import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function AdminDashboard() {
@@ -19,6 +19,94 @@ export default function AdminDashboard() {
 
   const [schoolName, setSchoolName] = useState<string>('');
   const [schoolNameStatus, setSchoolNameStatus] = useState<string | null>(null);
+
+  const { structure, isLoading: isStructureLoading } = useSchoolStructure();
+  const [ttGrade, setTtGrade] = useState<string>('');
+  const [ttClassNm, setTtClassNm] = useState<string>('');
+  const [ttStatus, setTtStatus] = useState<string | null>(null);
+
+  const availableGrades = Object.keys(structure).sort((a, b) => Number(a) - Number(b));
+  const availableClasses = ttGrade ? (structure[ttGrade] || []).sort((a, b) => Number(a) - Number(b)) : [];
+
+  useEffect(() => {
+    if (!isStructureLoading && availableGrades.length > 0) {
+      if (!availableGrades.includes(ttGrade)) {
+        setTtGrade(availableGrades[0]);
+      } else if (availableClasses.length > 0 && !availableClasses.includes(ttClassNm)) {
+        setTtClassNm(availableClasses[0]);
+      }
+    }
+  }, [structure, ttGrade, ttClassNm, isStructureLoading, availableGrades, availableClasses]);
+
+  
+  const { customTimetable, updateCustomTimetable } = useClassTimetable(ttGrade, ttClassNm);
+  const { timetableImage, updateTimetableImage } = useClassTimetableImage(ttGrade, ttClassNm);
+  const [imageFile, setImageFile] = useState<string | null>(null);
+  
+  useEffect(() => {
+    setImageFile(timetableImage || null);
+  }, [timetableImage, ttGrade, ttClassNm]);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        alert("이미지 크기는 2MB 이하여야 합니다.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setImageFile(event.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveImageTimetable = async () => {
+    await updateTimetableImage(imageFile);
+    setTtStatus("✅ 시간표 이미지가 저장되었습니다.");
+    setTimeout(() => setTtStatus(null), 3000);
+  };
+
+  const [localTimetable, setLocalTimetable] = useState<Record<string, string[]>>({
+    "1": Array(7).fill(""),
+    "2": Array(7).fill(""),
+    "3": Array(7).fill(""),
+    "4": Array(7).fill(""),
+    "5": Array(7).fill("")
+  });
+
+  useEffect(() => {
+    if (customTimetable && Object.keys(customTimetable).length > 0) {
+      // Ensure all 5 days exist
+      const merged = { ...localTimetable };
+      for (let i = 1; i <= 5; i++) {
+        merged[i.toString()] = customTimetable[i.toString()] || Array(7).fill("");
+      }
+      setLocalTimetable(merged);
+    } else {
+      setLocalTimetable({
+        "1": Array(7).fill(""),
+        "2": Array(7).fill(""),
+        "3": Array(7).fill(""),
+        "4": Array(7).fill(""),
+        "5": Array(7).fill("")
+      });
+    }
+  }, [customTimetable, ttGrade, ttClassNm]);
+
+  const handleTimetableChange = (day: string, periodIndex: number, value: string) => {
+    const newTt = { ...localTimetable };
+    newTt[day][periodIndex] = value;
+    setLocalTimetable(newTt);
+  };
+
+  const handleSaveTimetable = async () => {
+    await updateCustomTimetable(localTimetable);
+    setTtStatus("✅ 시간표가 저장되었습니다.");
+    setTimeout(() => setTtStatus(null), 3000);
+  };
+
 
 
   useEffect(() => {
@@ -281,6 +369,127 @@ export default function AdminDashboard() {
           {schoolNameStatus && (
             <div className="w-full text-center px-4 py-4 bg-[#1A1A1C] border border-brand-green/30 text-brand-green text-sm rounded-lg shadow-lg">
               {schoolNameStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Class Timetable Management */}
+        <div className="glass-card p-10 rounded-2xl border border-brand-green/30 flex flex-col items-center w-full mb-12">
+          <div className="flex items-center gap-3 mb-6 w-full justify-center">
+            <Calendar className="w-6 h-6 text-brand-green" />
+            <h2 className="text-xl font-bold tracking-widest text-white">각 반 시간표 직접 입력</h2>
+          </div>
+          <p className="text-[#888] text-xs tracking-wider mb-8 text-center">
+            이 곳에 입력한 시간표가 교실 TV에 최우선으로 반영됩니다. 비워두면 나이스(NEIS) 데이터를 가져옵니다.
+          </p>
+
+          <div className="flex items-center gap-4 w-full max-w-md mb-8">
+            <div className="flex-1">
+              <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">학년</label>
+              <select 
+                value={ttGrade}
+                onChange={e => setTtGrade(e.target.value)}
+                className="w-full bg-[#1A1A1C] p-3 rounded-lg border border-[#444] text-white focus:border-brand-green outline-none transition-colors"
+              >
+                {availableGrades.map(g => <option key={g} value={g}>{g}학년</option>)}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">반</label>
+              <select 
+                value={ttClassNm}
+                onChange={e => setTtClassNm(e.target.value)}
+                className="w-full bg-[#1A1A1C] p-3 rounded-lg border border-[#444] text-white focus:border-brand-green outline-none transition-colors"
+              >
+                {availableClasses.map(c => <option key={c} value={c}>{c}반</option>)}
+              </select>
+            </div>
+          </div>
+
+          
+          <div className="w-full max-w-md bg-[#111] p-6 rounded-xl border border-[#333] mb-8">
+            <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+              <ImageIcon className="w-4 h-4 text-brand-green" /> 
+              시간표 이미지 등록 (우선 적용)
+            </h3>
+            <p className="text-[#888] text-[10px] mb-4">
+              이미지를 등록하면 아래의 텍스트 시간표나 나이스(NEIS) 시간표 대신 이미지가 교실에 출력됩니다.
+            </p>
+            
+            <div className="flex flex-col gap-4">
+              {imageFile ? (
+                <div className="relative w-full aspect-video bg-black rounded-lg border border-[#444] overflow-hidden group">
+                  <img src={imageFile} alt="시간표 미리보기" className="w-full h-full object-contain" />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <button 
+                      onClick={() => setImageFile(null)}
+                      className="flex items-center gap-2 bg-brand-red text-black px-4 py-2 rounded-lg font-bold text-xs"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      삭제하기
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative w-full h-32 border-2 border-dashed border-[#444] rounded-lg hover:border-brand-green transition-colors flex flex-col items-center justify-center cursor-pointer">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <ImageIcon className="w-8 h-8 text-[#555] mb-2" />
+                  <span className="text-[#888] text-xs font-bold">클릭하여 이미지 파일 선택</span>
+                </div>
+              )}
+              
+              <button 
+                onClick={handleSaveImageTimetable}
+                className="w-full bg-[#1A1A1C] text-brand-green border border-brand-green/50 py-3 rounded-lg font-bold text-xs tracking-widest hover:bg-brand-green hover:text-black transition-colors mt-2"
+              >
+                이미지 설정 저장/적용
+              </button>
+            </div>
+          </div>
+
+          <div className="w-full overflow-x-auto custom-scrollbar">
+
+            <div className="min-w-[600px] mb-8">
+              <div className="grid grid-cols-6 gap-2 mb-2">
+                <div className="text-center text-[#555] font-bold text-xs">교시</div>
+                {['월', '화', '수', '목', '금'].map((d, i) => (
+                  <div key={i} className="text-center text-white font-bold text-sm bg-[#222] py-2 rounded-lg">{d}</div>
+                ))}
+              </div>
+              
+              {Array.from({length: 7}).map((_, pIdx) => (
+                <div key={pIdx} className="grid grid-cols-6 gap-2 mb-2 items-center">
+                  <div className="text-center text-brand-green font-bold text-xs">{pIdx + 1}교시</div>
+                  {[1, 2, 3, 4, 5].map((d) => (
+                    <input
+                      key={d}
+                      type="text"
+                      value={localTimetable[d.toString()]?.[pIdx] || ''}
+                      onChange={(e) => handleTimetableChange(d.toString(), pIdx, e.target.value)}
+                      className="w-full bg-[#1A1A1C] p-2 rounded-lg border border-[#444] text-white outline-none focus:border-brand-green text-center text-sm"
+                      placeholder="과목명"
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button 
+            onClick={handleSaveTimetable}
+            className="w-full max-w-md bg-brand-green text-black py-4 rounded-xl font-black text-sm tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(0,255,136,0.3)]"
+          >
+            선택 학급 시간표 저장
+          </button>
+          
+          {ttStatus && (
+            <div className="mt-6 w-full max-w-md text-center px-4 py-4 bg-[#1A1A1C] border border-brand-green/30 text-brand-green text-sm rounded-lg shadow-lg">
+              {ttStatus}
             </div>
           )}
         </div>

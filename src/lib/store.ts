@@ -194,3 +194,65 @@ export function useClassAnnouncement(grade: string, classNm: string) {
 
   return { announcement, updateAnnouncement };
 }
+
+export function useClassTimetable(grade: string, classNm: string) {
+  const [customTimetable, setCustomTimetable] = useState<Record<string, string[]>>({});
+
+  useEffect(() => {
+    if (!grade || !classNm || !db) {
+      setCustomTimetable({});
+      return;
+    }
+
+    const ttRef = ref(db, `school_data/timetables/${grade}/${classNm}`);
+    const unsub = onValue(ttRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setCustomTimetable(snapshot.val());
+      } else {
+        setCustomTimetable({});
+      }
+    });
+
+    return () => unsub();
+  }, [grade, classNm]);
+
+  const updateCustomTimetable = async (newTimetable: Record<string, string[]>) => {
+    if (!grade || !classNm || !db) return;
+    await set(ref(db, `school_data/timetables/${grade}/${classNm}`), newTimetable);
+  };
+
+  return { customTimetable, updateCustomTimetable };
+}
+
+export function useClassTimetableImage(grade: string, classNm: string) {
+  const [timetableImage, setTimetableImage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!grade || !classNm || !db) {
+      setTimetableImage(null);
+      return;
+    }
+
+    const imgRef = ref(db, `school_data/timetable_images/${grade}/${classNm}`);
+    const unsub = onValue(imgRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setTimetableImage(snapshot.val());
+      } else {
+        setTimetableImage(null);
+      }
+    });
+
+    return () => unsub();
+  }, [grade, classNm]);
+
+  const updateTimetableImage = async (base64Str: string | null) => {
+    if (!grade || !classNm || !db) return;
+    if (base64Str) {
+      await set(ref(db, `school_data/timetable_images/${grade}/${classNm}`), base64Str);
+    } else {
+      await set(ref(db, `school_data/timetable_images/${grade}/${classNm}`), null);
+    }
+  };
+
+  return { timetableImage, updateTimetableImage };
+}
