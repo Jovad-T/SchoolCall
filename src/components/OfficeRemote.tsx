@@ -1,4 +1,3 @@
-import { io } from "socket.io-client";
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, ArrowLeft, BellRing, BellOff, User, MessageSquare, Home, XCircle, MapPin } from 'lucide-react';
@@ -18,7 +17,6 @@ const PRESET_MESSAGES = [
 ];
 
 
-const socket = io(window.location.origin);
 
 export default function OfficeRemote() {
   const navigate = useNavigate();

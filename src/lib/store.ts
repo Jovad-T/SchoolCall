@@ -24,10 +24,8 @@ export function useCallState(classId: string) {
 
   useEffect(() => {
     if (!classId) return;
-
     if (db) {
-      // Firebase Realtime Database 연동 (반별 분리)
-      const callRef = ref(db, `calls/${classId}`);
+      const callRef = ref(db, `classes/${classId}/callState`);
       const unsub = onValue(callRef, (snapshot) => {
         if (snapshot.exists()) {
           setState(snapshot.val() as CallState);
@@ -37,34 +35,15 @@ export function useCallState(classId: string) {
       });
       return () => unsub();
     } else {
-      // Firebase가 없을 경우 Local BroadcastChannel 통신 (반별 분리)
-      const channel = new BroadcastChannel(`call_app_sync_${classId}`);
-      const handleMessage = (e: MessageEvent) => {
-        setState(e.data);
-      };
-      channel.addEventListener('message', handleMessage);
-      
-      const saved = localStorage.getItem(`callState_${classId}`);
-      if (saved) setState(JSON.parse(saved));
-      else setState(defaultState);
-      
-      return () => {
-        channel.removeEventListener('message', handleMessage);
-        channel.close();
-      };
+      // Fallback
+      setState(defaultState);
     }
   }, [classId]);
 
-  const updateState = async (newState: CallState) => {
+  const updateState = async (newState: CallState | null) => {
     if (!classId) return;
     if (db) {
-      await set(ref(db, `calls/${classId}`), newState);
-    } else {
-      setState(newState);
-      const channel = new BroadcastChannel(`call_app_sync_${classId}`);
-      channel.postMessage(newState);
-      localStorage.setItem(`callState_${classId}`, JSON.stringify(newState));
-      channel.close();
+      await set(ref(db, `classes/${classId}/callState`), newState || defaultState);
     }
   };
 

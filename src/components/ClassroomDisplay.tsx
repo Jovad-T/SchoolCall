@@ -1,5 +1,4 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { io } from "socket.io-client";
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
@@ -99,7 +98,7 @@ export default function ClassroomDisplay() {
   const classNm = paramClassNm || settings?.classNm || '';
   const classId = grade && classNm ? `${grade}-${classNm}` : '';
   const { state, updateState } = useCallState(classId);
-  const { announcement, updateAnnouncement } = useClassAnnouncement(grade, classNm);
+  const { announcement, updateAnnouncement, lastUpdatedAt } = useClassAnnouncement(grade, classNm);
   const { customTimetable } = useClassTimetable(grade, classNm);
   const { timetableImage } = useClassTimetableImage(grade, classNm);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -107,6 +106,34 @@ export default function ClassroomDisplay() {
   const { customMeal } = useCustomMeal(ymd);
   const [isEditingAnnounce, setIsEditingAnnounce] = useState(false);
   const [editAnnounceText, setEditAnnounceText] = useState('');
+
+  // Trigger electron popup when Call State changes (and is active)
+  const previousStateRef = useRef(state);
+  useEffect(() => {
+    if (state.studentName && state.message && state.studentName !== previousStateRef.current.studentName) {
+      if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer) {
+        (window as any).electron.ipcRenderer.send('trigger-my-call');
+      }
+    }
+    previousStateRef.current = state;
+  }, [state]);
+
+  // Trigger electron popup when Announcement changes
+  const prevUpdatedAtRef = useRef(lastUpdatedAt);
+  useEffect(() => {
+    if (lastUpdatedAt > 0 && lastUpdatedAt !== prevUpdatedAtRef.current) {
+      setShowAnnouncePopup(true);
+      if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer) {
+        (window as any).electron.ipcRenderer.send('trigger-my-call');
+      }
+      const timer = setTimeout(() => {
+        setShowAnnouncePopup(false);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+    prevUpdatedAtRef.current = lastUpdatedAt;
+  }, [lastUpdatedAt]);
+
   
   
 
@@ -166,23 +193,6 @@ export default function ClassroomDisplay() {
   
   const [showAnnouncePopup, setShowAnnouncePopup] = useState(false);
 
-  useEffect(() => {
-    const socket = io(window.location.origin);
-    
-    socket.on("receive-notification", (data) => {
-      if (data && data.text) {
-        updateAnnouncement(data.text);
-        if (window.electron) {
-          window.electron.ipcRenderer.send('trigger-my-call');
-        }
-      }
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [updateAnnouncement]);
-
   const prevAnnounceRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -194,10 +204,8 @@ export default function ClassroomDisplay() {
         
         // Trigger Electron window focus/popup if running in Electron
         if (typeof window !== 'undefined') {
-          if ((window as any).electron?.send) {
-            (window as any).electron.send('trigger-my-call');
-          } else if ((window as any).ipcRenderer?.send) {
-            (window as any).ipcRenderer.send('trigger-my-call');
+          if ((window as any).electron?.ipcRenderer) {
+            (window as any).electron.ipcRenderer.send('trigger-my-call');
           }
         }
 
@@ -226,10 +234,8 @@ export default function ClassroomDisplay() {
 
       // Trigger Electron window focus/popup if running in Electron
       if (typeof window !== 'undefined') {
-        if ((window as any).electron?.send) {
-          (window as any).electron.send('trigger-my-call');
-        } else if ((window as any).ipcRenderer?.send) {
-          (window as any).ipcRenderer.send('trigger-my-call');
+        if ((window as any).electron?.ipcRenderer) {
+          (window as any).electron.ipcRenderer.send('trigger-my-call');
         }
       }
     } else {
