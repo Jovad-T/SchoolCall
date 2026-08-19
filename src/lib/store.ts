@@ -286,3 +286,40 @@ export function useCustomMeal(date: string) {
 
   return { customMeal, updateCustomMeal };
 }
+
+export type RoomSchedule = {
+  dayOfWeek: number;
+  period: number;
+  subject: string;
+  time: string;
+};
+
+export type Room = {
+  id: string;
+  teacherName: string;
+  schedule: RoomSchedule[];
+};
+
+export function useRooms() {
+  const [rooms, setRooms] = useState<Room[]>([]);
+  
+  useEffect(() => {
+    if (!db) return;
+    const roomsRef = ref(db, 'school_data/rooms');
+    const unsub = onValue(roomsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setRooms(snapshot.val());
+      } else {
+        setRooms([]);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const updateRooms = async (newRooms: Room[]) => {
+    if (!db) return;
+    await set(ref(db, 'school_data/rooms'), newRooms);
+  };
+
+  return { rooms, updateRooms };
+}

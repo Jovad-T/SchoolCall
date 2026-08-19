@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, BellRing, BellOff, User, MessageSquare, Home, XCircle, MapPin } from 'lucide-react';
+import { Send, ArrowLeft, BellRing, BellOff, User, MessageSquare, Home, XCircle, MapPin } from 'lucide-react';
 import { useCallState, useLocalRoster, useSchoolStructure, useClassAnnouncement } from '../lib/store';
 import clsx from 'clsx';
 
@@ -263,9 +263,10 @@ export default function OfficeRemote() {
             <button
               onClick={handleSaveAnnouncement}
               disabled={isCalling}
-              className="w-full bg-[#1A1A1C] text-white py-2 rounded-lg font-bold text-xs hover:bg-[#222] border border-[#333] transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg font-bold text-xs shadow-[0_0_15px_rgba(59,130,246,0.5)] active:scale-95 transition-all"
             >
-              전달사항 업데이트
+              전달사항 보내기
+              <Send className="w-4 h-4" />
             </button>
           </div>
         </section>

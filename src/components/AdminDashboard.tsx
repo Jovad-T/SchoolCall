@@ -1,10 +1,49 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal } from '../lib/store';
+import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal, useRooms } from '../lib/store';
 import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Tesseract from 'tesseract.js';
+
+
+const TimetableCell = ({ value, onChange }: { value: string, onChange: (val: string) => void }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  
+  // Extract subject and teacher
+  const parts = value.split(/[\/\n]/);
+  const subject = parts[0]?.trim() || '';
+  const teacher = parts.slice(1).join('/').trim() || '';
+
+  if (isEditing) {
+    return (
+      <textarea
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => setIsEditing(false)}
+        className="w-full bg-[#1A1A1C] p-3 rounded-xl border border-brand-green text-white outline-none text-center text-sm min-h-[4rem] resize-none break-keep whitespace-pre-wrap"
+        placeholder="과목명/교사명"
+      />
+    );
+  }
+
+  return (
+    <div 
+      onClick={() => setIsEditing(true)}
+      className="w-full bg-[#1A1A1C] p-3 rounded-xl border border-[#444] hover:border-brand-green cursor-text flex flex-col justify-center items-center min-h-[4rem] transition-colors"
+    >
+      {value ? (
+        <>
+          <span className="font-bold text-white text-sm break-keep text-center leading-tight">{subject}</span>
+          {teacher && <span className="text-[11px] text-white/70 mt-1 break-keep text-center">{teacher}</span>}
+        </>
+      ) : (
+        <span className="text-[#555] text-[10px]">입력</span>
+      )}
+    </div>
+  );
+};
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -54,6 +93,9 @@ export default function AdminDashboard() {
   const [isExtractingUrl, setIsExtractingUrl] = useState(false);
   
   const [isExtractingTt, setIsExtractingTt] = useState(false);
+  const [isExtractingTeacher, setIsExtractingTeacher] = useState(false);
+  const [teacherTtStatus, setTeacherTtStatus] = useState<string | null>(null);
+  const { rooms, updateRooms } = useRooms();
 
   useEffect(() => {
     if (customMeal && customMeal.date === mealDate) {
@@ -66,36 +108,59 @@ export default function AdminDashboard() {
     }
   }, [customMeal, mealDate]);
 
-  const handleMealImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleMealImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert("파일 크기는 4MB 이하여야 합니다.");
+    if (file.size > 10 * 1024 * 1024) {
+      alert("파일 크기는 10MB 이하여야 합니다.");
       return;
     }
 
     setIsExtractingMeal(true);
-    setMealStatus("Tesseract OCR로 이미지 속 한글을 인식하고 있습니다...");
+    let text = '';
 
     try {
-      // 1. Tesseract OCR
-      const worker = await Tesseract.createWorker('kor', 1, {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            setMealStatus(`OCR 인식 중... ${Math.round(m.progress * 100)}%`);
+      if (file.type === 'application/pdf') {
+        setMealStatus("PDF 파일에서 텍스트를 추출하고 있습니다...");
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const pdfRes = await fetch('/api/parse-pdf', {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!pdfRes.ok) {
+            const errData = await pdfRes.json().catch(() => ({}));
+            throw new Error(errData.error || `서버 응답 오류: ${pdfRes.status}`);
           }
+          const pdfData = await pdfRes.json();
+          text = pdfData.text;
+        } catch (err: any) {
+          throw new Error("PDF 텍스트 추출 단계 실패: " + err.message);
         }
-      });
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
+      } else {
+        setMealStatus("Tesseract OCR로 이미지 속 한글을 인식하고 있습니다...");
+        const worker = await Tesseract.createWorker('kor', 1, {
+          logger: m => {
+            if (m.status === 'recognizing text') {
+              setMealStatus(`OCR 인식 중... ${Math.round(m.progress * 100)}%`);
+            }
+          }
+        });
+        const { data: { text: ocrText } } = await worker.recognize(file);
+        text = ocrText;
+        await worker.terminate();
+      }
 
       if (!text || text.trim() === '') {
         throw new Error("글자를 인식하지 못했습니다.");
       }
 
       // 2. Refine using AI API/IPC
-      setMealStatus("AI가 인식된 글자를 식단표 형식으로 정제하고 있습니다...");
+      setMealStatus("AI가 인식된 텍스트를 식단표 형식으로 정제하고 있습니다...");
       let data;
       if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
         data = await (window as any).electron.invoke('refine-meal-text', { text, date: mealDate });
@@ -105,7 +170,14 @@ export default function AdminDashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text, date: mealDate })
         });
-        if (!res.ok) throw new Error("API 요청 실패");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || "API 요청 실패";
+          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
+            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
+          }
+          throw new Error(errMsg);
+        }
         data = await res.json();
       }
 
@@ -121,14 +193,111 @@ export default function AdminDashboard() {
         }
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error("Meal OCR extraction error:", err);
-      setMealStatus("❌ 분석 중 오류가 발생했습니다.");
+      setMealStatus(`❌ 분석 실패: ${err.message || '알 수 없는 오류가 발생했습니다.'}`);
     } finally {
       setIsExtractingMeal(false);
       setTimeout(() => setMealStatus(null), 5000);
     }
   };
+
+  
+  const handleExtractTeacherSchedule = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      alert("파일 크기는 4MB 이하여야 합니다.");
+      return;
+    }
+
+    setIsExtractingTeacher(true);
+    setTeacherTtStatus("AI 모델이 이미지를 분석하여 교사별 시간표를 추출하고 있습니다... (약 10~20초 소요)");
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64Str = event.target?.result as string;
+        const [mimeTypeInfo, base64Data] = base64Str.split(',');
+        const mimeType = mimeTypeInfo.split(':')[1].split(';')[0];
+
+        try {
+          const res = await fetch('/api/extract-teacher-schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64: base64Data, mimeType })
+          });
+          
+          if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || "API 요청 실패";
+          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
+            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
+          }
+          throw new Error(errMsg);
+        }
+          const extractedData = await res.json();
+          
+          if (Array.isArray(extractedData) && extractedData.length > 0) {
+            // Mapping Logic
+            let newRooms = [...rooms];
+            let matchedCount = 0;
+            const mappedTeachers = new Set();
+            
+            extractedData.forEach(item => {
+               // Find teacher in rooms
+               const roomIndex = newRooms.findIndex(r => r.teacherName === item.teacherName);
+               if (roomIndex !== -1) {
+                  const scheduleItem = newRooms[roomIndex].schedule || [];
+                  
+                  // Map period to time string based on global 'schedule' state
+                  let timeStr = "";
+                  if (schedule.length >= item.period) {
+                     const slot = schedule[item.period - 1];
+                     timeStr = `${slot.start}~${slot.end}`;
+                  } else {
+                     // Fallback mapping
+                     const defaultTimes = ["09:00~09:50", "10:00~10:50", "11:00~11:50", "12:00~12:50", "14:00~14:50", "15:00~15:50", "16:00~16:50", "17:00~17:50", "18:00~18:50"];
+                     timeStr = defaultTimes[item.period - 1] || "";
+                  }
+                  
+                  // Check if this specific period is already in the teacher's schedule to prevent duplicate push if ran multiple times
+                  const existingIdx = scheduleItem.findIndex(s => s.dayOfWeek === item.dayOfWeek && s.period === item.period);
+                  if (existingIdx !== -1) {
+                      scheduleItem[existingIdx] = { dayOfWeek: item.dayOfWeek, period: item.period, subject: item.subject, time: timeStr };
+                  } else {
+                      scheduleItem.push({ dayOfWeek: item.dayOfWeek, period: item.period, subject: item.subject, time: timeStr });
+                  }
+                  
+                  newRooms[roomIndex].schedule = scheduleItem;
+                  mappedTeachers.add(item.teacherName);
+               }
+            });
+            
+            await updateRooms(newRooms);
+            setTeacherTtStatus(`✅ 총 ${mappedTeachers.size}명의 선생님 시간표가 성공적으로 연동되었습니다.`);
+          } else {
+            setTeacherTtStatus("⚠️ 이미지에서 교사 시간표 정보를 찾지 못했습니다.");
+          }
+        } catch (err) {
+          console.error("AI extraction error:", err);
+          setTeacherTtStatus("❌ AI 분석 중 오류가 발생했습니다.");
+        } finally {
+          setIsExtractingTeacher(false);
+          setTimeout(() => setTeacherTtStatus(null), 5000);
+          if (e.target) e.target.value = '';
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      setIsExtractingTeacher(false);
+      setTeacherTtStatus("❌ 파일 처리 중 오류가 발생했습니다.");
+      setTimeout(() => setTeacherTtStatus(null), 5000);
+    }
+  };
+
 
   const handleMealUrlExtraction = async () => {
     if (!mealUrl.trim()) {
@@ -149,7 +318,14 @@ export default function AdminDashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: mealUrl, date: mealDate })
         });
-        if (!res.ok) throw new Error("API 요청 실패");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || "API 요청 실패";
+          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
+            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
+          }
+          throw new Error(errMsg);
+        }
         data = await res.json();
       }
 
@@ -252,7 +428,14 @@ export default function AdminDashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text })
         });
-        if (!res.ok) throw new Error("API 요청 실패");
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error || "API 요청 실패";
+          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
+            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
+          }
+          throw new Error(errMsg);
+        }
         data = await res.json();
       }
 
@@ -483,7 +666,7 @@ export default function AdminDashboard() {
         <Home className="w-4 h-4" /> 홈으로
       </button>
 
-      <div className="max-w-xl w-full text-center space-y-12">
+      <div className="max-w-5xl w-full text-center space-y-12">
         <div className="space-y-4">
           <h2 className="text-brand-red uppercase tracking-[0.2em] text-xs font-bold">Master Admin Only</h2>
           <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white">
@@ -677,27 +860,26 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="w-full overflow-x-auto custom-scrollbar">
-
-            <div className="min-w-[600px] mb-8">
-              <div className="grid grid-cols-6 gap-2 mb-2">
-                <div className="text-center text-[#555] font-bold text-xs">교시</div>
-                {['월', '화', '수', '목', '금'].map((d, i) => (
-                  <div key={i} className="text-center text-white font-bold text-sm bg-[#222] py-2 rounded-lg">{d}</div>
+          <div className="w-full overflow-x-auto scrollbar-hide">
+            {/* 시원한 넓은 레이아웃으로 변경 (최소 너비를 확보하여 모바일에서도 깨지지 않고 스와이프 가능) */}
+            <div className="min-w-[800px] mb-8 w-full">
+              <div className="grid grid-cols-6 gap-3 mb-3">
+                <div className="text-center text-[#555] font-bold text-xs self-center">교시</div>
+                {['월요일', '화요일', '수요일', '목요일', '금요일'].map((d, i) => (
+                  <div key={i} className="text-center text-white font-bold text-sm bg-[#222] py-3 rounded-xl shadow-inner">{d}</div>
                 ))}
               </div>
               
               {Array.from({length: 7}).map((_, pIdx) => (
-                <div key={pIdx} className="grid grid-cols-6 gap-2 mb-2 items-center">
-                  <div className="text-center text-brand-green font-bold text-xs">{pIdx + 1}교시</div>
+                <div key={pIdx} className="grid grid-cols-6 gap-3 mb-3 items-stretch">
+                  <div className="text-center text-brand-green font-bold text-sm self-center bg-brand-green/10 py-3 rounded-xl border border-brand-green/20">
+                    {pIdx + 1}교시
+                  </div>
                   {[1, 2, 3, 4, 5].map((d) => (
-                    <input
+                    <TimetableCell
                       key={d}
-                      type="text"
                       value={localTimetable[d.toString()]?.[pIdx] || ''}
-                      onChange={(e) => handleTimetableChange(d.toString(), pIdx, e.target.value)}
-                      className="w-full bg-[#1A1A1C] p-2 rounded-lg border border-[#444] text-white outline-none focus:border-brand-green text-center text-sm"
-                      placeholder="과목명"
+                      onChange={(val) => handleTimetableChange(d.toString(), pIdx, val)}
                     />
                   ))}
                 </div>
@@ -717,6 +899,46 @@ export default function AdminDashboard() {
               {ttStatus}
             </div>
           )}
+        </div>
+
+        
+        {/* 교사 시간표 자동 매핑 */}
+        <div className="glass-card p-10 rounded-2xl border border-purple-500/30 flex flex-col items-center w-full mb-12">
+          <div className="flex items-center gap-3 mb-6 w-full justify-center">
+            <School className="w-6 h-6 text-purple-500" />
+            <h2 className="text-xl font-bold tracking-widest text-white">교사 시간표 자동 매핑 (Vision AI)</h2>
+          </div>
+          <p className="text-[#888] text-xs tracking-wider mb-8 text-center">
+            학교 전체 또는 반 시간표 이미지를 업로드하면 AI가 분석하여<br/>
+            등록된 선생님들의 개별 시간표에 자동으로 매핑해 줍니다.
+          </p>
+
+          <div className="w-full max-w-xl mx-auto flex flex-col items-center">
+            <div className="relative w-full h-24 mb-4 border-2 border-dashed border-[#444] hover:border-purple-500 rounded-xl bg-[#111] transition-colors flex items-center justify-center cursor-pointer group">
+              <input 
+                type="file" 
+                accept="image/png, image/jpeg" 
+                onChange={handleExtractTeacherSchedule}
+                disabled={isExtractingTeacher}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+              />
+              <div className="flex flex-col items-center gap-2 text-[#666] group-hover:text-purple-500 transition-colors">
+                {isExtractingTeacher ? (
+                  <span className="animate-pulse flex items-center gap-2 font-bold"><Wand2 className="w-5 h-5 animate-spin"/> AI 분석 중...</span>
+                ) : (
+                  <>
+                    <ImageIcon className="w-6 h-6" />
+                    <span className="text-xs font-bold tracking-widest">시간표 이미지 첨부 (.png, .jpg)</span>
+                  </>
+                )}
+              </div>
+            </div>
+            {teacherTtStatus && (
+              <div className="w-full text-center px-4 py-3 bg-[#1A1A1C] border border-purple-500/30 text-purple-400 text-sm rounded-lg shadow-lg">
+                {teacherTtStatus}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Meal Management */}
@@ -792,13 +1014,13 @@ export default function AdminDashboard() {
               <div className="relative flex-1">
                 <input 
                   type="file" 
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   onChange={handleMealImageUpload}
                   disabled={isExtractingMeal}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
                 />
                 <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
-                  {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 이미지 첨부 및 OCR 추출</>}
+                  {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 이미지/PDF 첨부 및 추출</>}
                 </button>
               </div>
               

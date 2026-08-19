@@ -50,6 +50,8 @@
     "firebase": "^12.17.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "multer": "^2.2.0",
+    "pdf-parse": "1.1.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.18.2",
@@ -60,6 +62,7 @@
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "electron": "^43.4.0",

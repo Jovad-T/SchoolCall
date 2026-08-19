@@ -67,6 +67,16 @@ export default function Home() {
             <p className="text-[#555] text-xs tracking-widest">수신 전용 화면</p>
           </button>
         </div>
+
+        {/* 시스템 관리자 버튼 */}
+        <div className="flex justify-center mt-8">
+          <button
+            onClick={() => navigate('/admin')}
+            className="text-[#666] hover:text-white text-xs font-bold tracking-widest transition-colors flex items-center gap-2 px-4 py-2 border border-transparent hover:border-[#444] rounded-full"
+          >
+            시스템 관리자 대시보드
+          </button>
+        </div>
       </div>
     </div>
   );
