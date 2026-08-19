@@ -1,8 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage } from '../lib/store';
-import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal } from '../lib/store';
+import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export default function AdminDashboard() {
@@ -42,6 +42,89 @@ export default function AdminDashboard() {
   const { customTimetable, updateCustomTimetable } = useClassTimetable(ttGrade, ttClassNm);
   const { timetableImage, updateTimetableImage } = useClassTimetableImage(ttGrade, ttClassNm);
   const [imageFile, setImageFile] = useState<string | null>(null);
+
+  const { customMeal, updateCustomMeal } = useCustomMeal();
+  const [isExtractingMeal, setIsExtractingMeal] = useState(false);
+  const [mealDate, setMealDate] = useState(new Date().toISOString().split('T')[0].replace(/-/g, ''));
+  const [mealStatus, setMealStatus] = useState<string | null>(null);
+  const [localMeal, setLocalMeal] = useState<{lunch: string, dinner: string}>({lunch: '', dinner: ''});
+
+  useEffect(() => {
+    if (customMeal && customMeal.date === mealDate) {
+      setLocalMeal({
+        lunch: customMeal.lunch.join('\n'),
+        dinner: customMeal.dinner.join('\n')
+      });
+    } else {
+      setLocalMeal({lunch: '', dinner: ''});
+    }
+  }, [customMeal, mealDate]);
+
+  const handleMealImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      alert("파일 크기는 4MB 이하여야 합니다.");
+      return;
+    }
+
+    setIsExtractingMeal(true);
+    setMealStatus("AI가 메뉴를 분석하고 있습니다...");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const result = event.target?.result as string;
+      const base64 = result.split(',')[1];
+      const mimeType = file.type;
+
+      try {
+        let data;
+        // Electron 앱인지 Web 환경인지 확인 후 분기
+        if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
+          data = await (window as any).electron.invoke('extract-meal', { base64, mimeType });
+        } else {
+          const res = await fetch('/api/extract-meal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64, mimeType })
+          });
+          if (!res.ok) throw new Error("API 요청 실패");
+          data = await res.json();
+        }
+
+        if (data) {
+          setLocalMeal({
+            lunch: data.lunch?.join('\n') || '',
+            dinner: data.dinner?.join('\n') || ''
+          });
+          setMealStatus("✅ 분석이 완료되었습니다. 내역을 확인하고 저장해주세요.");
+        }
+      } catch (err) {
+        console.error("Meal extraction error:", err);
+        setMealStatus("❌ 분석 중 오류가 발생했습니다.");
+      } finally {
+        setIsExtractingMeal(false);
+        setTimeout(() => setMealStatus(null), 5000);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveMeal = async () => {
+    if (!localMeal.lunch.trim() && !localMeal.dinner.trim()) {
+      await updateCustomMeal(null);
+      setMealStatus("✅ 급식 정보가 초기화(삭제)되었습니다. (나이스 데이터 사용)");
+    } else {
+      await updateCustomMeal({
+        date: mealDate,
+        lunch: localMeal.lunch.split('\n').map(s => s.trim()).filter(Boolean),
+        dinner: localMeal.dinner.split('\n').map(s => s.trim()).filter(Boolean)
+      });
+      setMealStatus("✅ 급식 정보가 성공적으로 저장되었습니다. (교실 화면에 우선 적용됩니다)");
+    }
+    setTimeout(() => setMealStatus(null), 3000);
+  };
   
   useEffect(() => {
     setImageFile(timetableImage || null);
@@ -490,6 +573,84 @@ export default function AdminDashboard() {
           {ttStatus && (
             <div className="mt-6 w-full max-w-md text-center px-4 py-4 bg-[#1A1A1C] border border-brand-green/30 text-brand-green text-sm rounded-lg shadow-lg">
               {ttStatus}
+            </div>
+          )}
+        </div>
+
+        {/* Meal Management */}
+        <div className="glass-card p-10 rounded-2xl border border-yellow-500/30 flex flex-col items-center w-full mb-12">
+          <div className="flex items-center gap-3 mb-6 w-full justify-center">
+            <Utensils className="w-6 h-6 text-yellow-500" />
+            <h2 className="text-xl font-bold tracking-widest text-white">오늘의 급식 직접/자동 입력</h2>
+          </div>
+          <p className="text-[#888] text-xs tracking-wider mb-8 text-center">
+            급식 식단표 이미지(그림, 사진 등)를 첨부하면 AI가 메뉴를 자동으로 추출합니다.<br/>
+            이 곳에 저장된 식단이 나이스(NEIS) 데이터보다 교실에 우선적으로 표시됩니다.
+          </p>
+
+          <div className="w-full flex gap-3 mb-8 items-center justify-center">
+            <label className="text-[10px] uppercase text-[#777] font-bold tracking-wider">적용 날짜 (YYYYMMDD)</label>
+            <input 
+              type="text"
+              value={mealDate}
+              onChange={(e) => setMealDate(e.target.value)}
+              className="w-40 bg-[#1A1A1C] p-3 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 transition-colors text-center text-sm font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mb-8">
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-bold text-yellow-500 flex justify-between">
+                점심 메뉴
+                <span className="text-[10px] text-[#666] font-normal">엔터로 구분</span>
+              </label>
+              <textarea
+                value={localMeal.lunch}
+                onChange={e => setLocalMeal({...localMeal, lunch: e.target.value})}
+                className="w-full h-40 bg-[#1A1A1C] p-4 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 resize-none font-bold text-lg"
+                placeholder="예:&#10;현미밥&#10;김치찌개&#10;돈까스"
+              />
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-bold text-yellow-500 flex justify-between">
+                저녁 메뉴
+                <span className="text-[10px] text-[#666] font-normal">엔터로 구분</span>
+              </label>
+              <textarea
+                value={localMeal.dinner}
+                onChange={e => setLocalMeal({...localMeal, dinner: e.target.value})}
+                className="w-full h-40 bg-[#1A1A1C] p-4 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 resize-none font-bold text-lg"
+                placeholder="선택사항"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-4 w-full">
+            <div className="relative flex-1">
+              <input 
+                type="file" 
+                accept="image/*,application/pdf"
+                onChange={handleMealImageUpload}
+                disabled={isExtractingMeal}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+              />
+              <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
+                {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 첨부 및 AI 자동 추출</>}
+              </button>
+            </div>
+            
+            <button 
+              onClick={handleSaveMeal}
+              className="flex-1 bg-yellow-500 text-black py-4 rounded-xl font-black text-sm tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)]"
+            >
+              급식 메뉴 저장 / 적용
+            </button>
+          </div>
+
+          {mealStatus && (
+            <div className="mt-6 w-full text-center px-4 py-4 bg-[#1A1A1C] border border-yellow-500/30 text-yellow-500 text-sm rounded-lg shadow-lg">
+              {mealStatus}
             </div>
           )}
         </div>

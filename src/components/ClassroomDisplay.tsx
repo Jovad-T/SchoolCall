@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { useCallState, CallState, useClassAnnouncement, useClassTimetable, useClassTimetableImage } from '../lib/store';
+import { useCallState, CallState, useClassAnnouncement, useClassTimetable, useClassTimetableImage, useCustomMeal } from '../lib/store';
 import { motion, AnimatePresence } from 'motion/react';
 import { Clock, Utensils, Megaphone, Calendar, Settings, CheckCircle, User, MapPin, Maximize, Minimize } from 'lucide-react';
 import clsx from 'clsx';
@@ -65,6 +65,7 @@ export default function ClassroomDisplay() {
   const { announcement, updateAnnouncement } = useClassAnnouncement(settings?.grade || '', settings?.classNm || '');
   const { customTimetable } = useClassTimetable(settings?.grade || '', settings?.classNm || '');
   const { timetableImage } = useClassTimetableImage(settings?.grade || '', settings?.classNm || '');
+  const { customMeal } = useCustomMeal();
   const [isEditingAnnounce, setIsEditingAnnounce] = useState(false);
   const [editAnnounceText, setEditAnnounceText] = useState('');
   
@@ -190,6 +191,12 @@ export default function ClassroomDisplay() {
       const d = new Date();
       const ymd = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 
+      // Custom Meal 확인
+      if (customMeal && customMeal.date === ymd) {
+        setLunch(customMeal.lunch || []);
+        setDinner(customMeal.dinner || []);
+      }
+
       try {
         const KEY = 'c9fdeb8328f2452193c8c612a535c484';
         const TYPE = 'json';
@@ -216,31 +223,33 @@ export default function ClassroomDisplay() {
         }
 
         // Parse Meals
-        if (lunchData.mealServiceDietInfo && lunchData.mealServiceDietInfo[1].row) {
-          const rows = lunchData.mealServiceDietInfo[1].row;
-          
-          let parsedLunch: string[] = [];
-          let parsedDinner: string[] = [];
-          
-          rows.forEach((row: any) => {
-            const rawMenu = row.DDISH_NM;
-            const cleaned = rawMenu
-              .split('<br/>')
-              .map((item: string) => item.replace(/[0-9.]/g, '').replace(/[^가-힣a-zA-Z\s]/g, '').trim())
-              .filter(Boolean);
+        if (!customMeal || customMeal.date !== ymd) {
+          if (lunchData.mealServiceDietInfo && lunchData.mealServiceDietInfo[1].row) {
+            const rows = lunchData.mealServiceDietInfo[1].row;
             
-            if (row.MMEAL_SC_CODE === '2') {
-              parsedLunch = cleaned;
-            } else if (row.MMEAL_SC_CODE === '3') {
-              parsedDinner = cleaned;
-            }
-          });
-          
-          setLunch(parsedLunch);
-          setDinner(parsedDinner);
-        } else {
-          setLunch([]);
-          setDinner([]);
+            let parsedLunch: string[] = [];
+            let parsedDinner: string[] = [];
+            
+            rows.forEach((row: any) => {
+              const rawMenu = row.DDISH_NM;
+              const cleaned = rawMenu
+                .split('<br/>')
+                .map((item: string) => item.replace(/[0-9.]/g, '').replace(/[^가-힣a-zA-Z\s]/g, '').trim())
+                .filter(Boolean);
+              
+              if (row.MMEAL_SC_CODE === '2') {
+                parsedLunch = cleaned;
+              } else if (row.MMEAL_SC_CODE === '3') {
+                parsedDinner = cleaned;
+              }
+            });
+            
+            setLunch(parsedLunch);
+            setDinner(parsedDinner);
+          } else {
+            setLunch([]);
+            setDinner([]);
+          }
         }
       } catch (err) {
         setNeisError(true);
@@ -490,17 +499,24 @@ export default function ClassroomDisplay() {
                         오늘은 등록된 급식이 없습니다.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-4 h-full">
+                      <div className="flex flex-col 2xl:flex-row gap-4 h-full overflow-x-auto pb-2 custom-scrollbar">
                         {/* Lunch Block */}
                         {lunch.length > 0 && (
-                          <div className="p-6 rounded-2xl border-4 border-white/30 border-dashed flex flex-col justify-center relative bg-white/5">
+                          <div className="flex-1 min-w-[240px] p-6 rounded-2xl border-4 border-white/30 border-dashed flex flex-col justify-center relative bg-white/5">
                             <div className="absolute top-4 left-6 flex items-center gap-2 text-white/80">
                               <Utensils className="w-5 h-5" />
                               <span className="text-sm font-bold tracking-wider" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.3)' }}>점심</span>
                             </div>
                             <div className="flex flex-col gap-2 text-center mt-6">
                               {lunch.map((item, idx) => (
-                                <div key={idx} className="text-xl md:text-2xl font-bold tracking-tight text-white/95" style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.2)' }}>
+                                <div 
+                                  key={idx} 
+                                  className={clsx(
+                                    "font-bold text-white/95 whitespace-nowrap",
+                                    item.length >= 7 ? "text-base md:text-lg tracking-tighter" : "text-xl md:text-2xl tracking-tight"
+                                  )}
+                                  style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.2)' }}
+                                >
                                   {item}
                                 </div>
                               ))}
@@ -510,14 +526,21 @@ export default function ClassroomDisplay() {
                         
                         {/* Dinner Block */}
                         {dinner.length > 0 && (
-                          <div className="p-6 rounded-2xl border-4 border-white/10 border-dashed flex flex-col justify-center relative bg-white/5">
+                          <div className="flex-1 min-w-[240px] p-6 rounded-2xl border-4 border-white/10 border-dashed flex flex-col justify-center relative bg-white/5">
                             <div className="absolute top-4 left-6 flex items-center gap-2 text-white/50">
                               <Utensils className="w-5 h-5" />
                               <span className="text-sm font-bold tracking-wider">저녁</span>
                             </div>
                             <div className="flex flex-col gap-2 text-center mt-6">
                               {dinner.map((item, idx) => (
-                                <div key={idx} className="text-xl md:text-2xl font-bold tracking-tight text-white/70" style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.1)' }}>
+                                <div 
+                                  key={idx} 
+                                  className={clsx(
+                                    "font-bold text-white/70 whitespace-nowrap",
+                                    item.length >= 7 ? "text-base md:text-lg tracking-tighter" : "text-xl md:text-2xl tracking-tight"
+                                  )}
+                                  style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.1)' }}
+                                >
                                   {item}
                                 </div>
                               ))}

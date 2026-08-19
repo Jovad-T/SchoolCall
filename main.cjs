@@ -1,10 +1,13 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { GoogleGenAI, Type } = require('@google/genai');
 
 let mainWindow;
+let tray = null;
+let hideTimeout = null;
 
-function createWindow() {
-  const fs = require('fs');
+function getIconPath() {
   const possibleIcons = [
     path.join(__dirname, 'public', 'icon.ico'),
     path.join(__dirname, 'public', 'icon.png'),
@@ -12,13 +15,18 @@ function createWindow() {
     path.join(__dirname, 'icon.ico'),
     path.join(__dirname, 'icon.png')
   ];
-  
-  const iconPath = possibleIcons.find(p => fs.existsSync(p)) || possibleIcons[1];
+  return possibleIcons.find(p => fs.existsSync(p)) || possibleIcons[1];
+}
+
+function createWindow() {
+  const iconPath = getIconPath();
 
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     fullscreen: true,
+    fullscreenable: true,
+    resizable: true,
     icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -38,9 +46,57 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'Escape') {
+      if (mainWindow.isFullScreen()) {
+        mainWindow.setFullScreen(false);
+      }
+      mainWindow.hide();
+      event.preventDefault();
+    }
+  });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  tray = new Tray(path.join(__dirname, 'public', 'icon.ico'));
+  tray.setToolTip('학교 호출 앱');
+
+  const contextMenu = Menu.buildFromTemplate([
+    { 
+      label: '열기', 
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.focus();
+        } else {
+          createWindow();
+        }
+      } 
+    },
+    { 
+      label: '종료', 
+      click: () => {
+        app.quit();
+      } 
+    }
+  ]);
+  
+  tray.setContextMenu(contextMenu);
+  
+  tray.on('click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    } else {
+      createWindow();
+    }
+  });
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -57,10 +113,14 @@ app.on('activate', () => {
 // 호출 및 전달사항 이벤트 수신 시 윈도우 강제 최상단 전체화면 팝업 처리
 ipcMain.on('trigger-call', () => {
   if (mainWindow) {
-    mainWindow.show();
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+    }
+
     if (mainWindow.isMinimized()) {
       mainWindow.restore();
     }
+    mainWindow.show();
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
     mainWindow.setFullScreen(true);
     mainWindow.focus();
@@ -71,5 +131,49 @@ ipcMain.on('trigger-call', () => {
         mainWindow.setAlwaysOnTop(false);
       }
     }, 2000);
+
+    // 1분 뒤 자동 숨김 처리
+    hideTimeout = setTimeout(() => {
+      if (mainWindow) {
+        mainWindow.setFullScreen(false);
+        mainWindow.hide();
+      }
+    }, 60000);
+  }
+});
+
+// AI 자동 추출 IPC 핸들러 (Gemini API 호출)
+ipcMain.handle('extract-meal', async (event, { base64, mimeType }) => {
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' }
+      }
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: [
+        { inlineData: { data: base64, mimeType } },
+        { text: "Extract the lunch and dinner menu from this image or document. Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names." }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
+            dinner: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["lunch", "dinner"]
+        }
+      }
+    });
+    
+    return JSON.parse(response.text);
+  } catch (err) {
+    console.error('AI Extraction Error:', err);
+    throw err;
   }
 });

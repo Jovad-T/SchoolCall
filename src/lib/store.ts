@@ -256,3 +256,33 @@ export function useClassTimetableImage(grade: string, classNm: string) {
 
   return { timetableImage, updateTimetableImage };
 }
+
+export type CustomMeal = {
+  date: string;
+  lunch: string[];
+  dinner: string[];
+};
+
+export function useCustomMeal() {
+  const [customMeal, setCustomMeal] = useState<CustomMeal | null>(null);
+
+  useEffect(() => {
+    if (!db) return;
+    const mealRef = ref(db, `school_data/custom_meal`);
+    const unsub = onValue(mealRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setCustomMeal(snapshot.val() as CustomMeal);
+      } else {
+        setCustomMeal(null);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const updateCustomMeal = async (meal: CustomMeal | null) => {
+    if (!db) return;
+    await set(ref(db, `school_data/custom_meal`), meal);
+  };
+
+  return { customMeal, updateCustomMeal };
+}
