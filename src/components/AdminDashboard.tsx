@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
 import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal, useRooms } from '../lib/store';
+import { extractTimetableFromImage, extractTeacherScheduleFromImage, extractMealFromImageOrText } from '../lib/gemini';
 import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Tesseract from 'tesseract.js';
@@ -118,68 +119,10 @@ export default function AdminDashboard() {
     }
 
     setIsExtractingMeal(true);
-    let text = '';
+    setMealStatus("Gemini AI가 식단표를 분석하여 메뉴를 추출하고 있습니다... (약 5~10초)");
 
     try {
-      if (file.type === 'application/pdf') {
-        setMealStatus("PDF 파일에서 텍스트를 추출하고 있습니다...");
-        try {
-          const formData = new FormData();
-          formData.append('file', file);
-          
-          const pdfRes = await fetch('/api/parse-pdf', {
-            method: 'POST',
-            body: formData
-          });
-          
-          if (!pdfRes.ok) {
-            const errData = await pdfRes.json().catch(() => ({}));
-            throw new Error(errData.error || `서버 응답 오류: ${pdfRes.status}`);
-          }
-          const pdfData = await pdfRes.json();
-          text = pdfData.text;
-        } catch (err: any) {
-          throw new Error("PDF 텍스트 추출 단계 실패: " + err.message);
-        }
-      } else {
-        setMealStatus("Tesseract OCR로 이미지 속 한글을 인식하고 있습니다...");
-        const worker = await Tesseract.createWorker('kor', 1, {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              setMealStatus(`OCR 인식 중... ${Math.round(m.progress * 100)}%`);
-            }
-          }
-        });
-        const { data: { text: ocrText } } = await worker.recognize(file);
-        text = ocrText;
-        await worker.terminate();
-      }
-
-      if (!text || text.trim() === '') {
-        throw new Error("글자를 인식하지 못했습니다.");
-      }
-
-      // 2. Refine using AI API/IPC
-      setMealStatus("AI가 인식된 텍스트를 식단표 형식으로 정제하고 있습니다...");
-      let data;
-      if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
-        data = await (window as any).electron.invoke('refine-meal-text', { text, date: mealDate });
-      } else {
-        const res = await fetch('/api/refine-meal-text', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, date: mealDate })
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errMsg = errData.error || "API 요청 실패";
-          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
-            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
-          }
-          throw new Error(errMsg);
-        }
-        data = await res.json();
-      }
+      const data = await extractMealFromImageOrText(file, mealDate);
 
       if (data) {
         if ((!data.lunch || data.lunch.length === 0) && (!data.dinner || data.dinner.length === 0)) {
@@ -192,109 +135,78 @@ export default function AdminDashboard() {
            setMealStatus("✅ 추출 및 정제가 완료되었습니다. 내역을 확인하고 저장해주세요.");
         }
       }
-
     } catch (err: any) {
-      console.error("Meal OCR extraction error:", err);
+      console.error("Meal extraction error:", err);
       setMealStatus(`❌ 분석 실패: ${err.message || '알 수 없는 오류가 발생했습니다.'}`);
     } finally {
       setIsExtractingMeal(false);
       setTimeout(() => setMealStatus(null), 5000);
+      if (e.target) e.target.value = '';
     }
   };
 
-  
   const handleExtractTeacherSchedule = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert("파일 크기는 4MB 이하여야 합니다.");
+    if (file.size > 10 * 1024 * 1024) {
+      alert("파일 크기는 10MB 이하여야 합니다.");
       return;
     }
 
     setIsExtractingTeacher(true);
-    setTeacherTtStatus("AI 모델이 이미지를 분석하여 교사별 시간표를 추출하고 있습니다... (약 10~20초 소요)");
+    setTeacherTtStatus("Gemini AI가 이미지를 분석하여 교사별 시간표를 추출하고 있습니다... (약 5~10초 소요)");
 
     try {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const base64Str = event.target?.result as string;
-        const [mimeTypeInfo, base64Data] = base64Str.split(',');
-        const mimeType = mimeTypeInfo.split(':')[1].split(';')[0];
-
-        try {
-          const res = await fetch('/api/extract-teacher-schedule', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64: base64Data, mimeType })
-          });
-          
-          if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errMsg = errData.error || "API 요청 실패";
-          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
-            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
-          }
-          throw new Error(errMsg);
-        }
-          const extractedData = await res.json();
-          
-          if (Array.isArray(extractedData) && extractedData.length > 0) {
-            // Mapping Logic
-            let newRooms = [...rooms];
-            let matchedCount = 0;
-            const mappedTeachers = new Set();
-            
-            extractedData.forEach(item => {
-               // Find teacher in rooms
-               const roomIndex = newRooms.findIndex(r => r.teacherName === item.teacherName);
-               if (roomIndex !== -1) {
-                  const scheduleItem = newRooms[roomIndex].schedule || [];
-                  
-                  // Map period to time string based on global 'schedule' state
-                  let timeStr = "";
-                  if (schedule.length >= item.period) {
-                     const slot = schedule[item.period - 1];
-                     timeStr = `${slot.start}~${slot.end}`;
-                  } else {
-                     // Fallback mapping
-                     const defaultTimes = ["09:00~09:50", "10:00~10:50", "11:00~11:50", "12:00~12:50", "14:00~14:50", "15:00~15:50", "16:00~16:50", "17:00~17:50", "18:00~18:50"];
-                     timeStr = defaultTimes[item.period - 1] || "";
-                  }
-                  
-                  // Check if this specific period is already in the teacher's schedule to prevent duplicate push if ran multiple times
-                  const existingIdx = scheduleItem.findIndex(s => s.dayOfWeek === item.dayOfWeek && s.period === item.period);
-                  if (existingIdx !== -1) {
-                      scheduleItem[existingIdx] = { dayOfWeek: item.dayOfWeek, period: item.period, subject: item.subject, time: timeStr };
-                  } else {
-                      scheduleItem.push({ dayOfWeek: item.dayOfWeek, period: item.period, subject: item.subject, time: timeStr });
-                  }
-                  
-                  newRooms[roomIndex].schedule = scheduleItem;
-                  mappedTeachers.add(item.teacherName);
-               }
-            });
-            
-            await updateRooms(newRooms);
-            setTeacherTtStatus(`✅ 총 ${mappedTeachers.size}명의 선생님 시간표가 성공적으로 연동되었습니다.`);
-          } else {
-            setTeacherTtStatus("⚠️ 이미지에서 교사 시간표 정보를 찾지 못했습니다.");
-          }
-        } catch (err) {
-          console.error("AI extraction error:", err);
-          setTeacherTtStatus("❌ AI 분석 중 오류가 발생했습니다.");
-        } finally {
-          setIsExtractingTeacher(false);
-          setTimeout(() => setTeacherTtStatus(null), 5000);
-          if (e.target) e.target.value = '';
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error(err);
+      const extractedData = await extractTeacherScheduleFromImage(file);
+      
+      if (Array.isArray(extractedData) && extractedData.length > 0) {
+        // Mapping Logic
+        let newRooms = [...rooms];
+        let matchedCount = 0;
+        const mappedTeachers = new Set();
+        
+        extractedData.forEach(item => {
+           // Find teacher in rooms
+           const roomIndex = newRooms.findIndex(r => r.teacherName === item.teacherName);
+           if (roomIndex !== -1) {
+              const scheduleItem = newRooms[roomIndex].schedule || [];
+              
+              // Map period to time string based on global 'schedule' state
+              let timeStr = "";
+              if (schedule.length >= item.period) {
+                 const slot = schedule[item.period - 1];
+                 timeStr = `${slot.start}~${slot.end}`;
+              } else {
+                 // Fallback mapping
+                 const defaultTimes = ["09:00~09:50", "10:00~10:50", "11:00~11:50", "12:00~12:50", "14:00~14:50", "15:00~15:50", "16:00~16:50", "17:00~17:50", "18:00~18:50"];
+                 timeStr = defaultTimes[item.period - 1] || "";
+              }
+              
+              const existingIdx = scheduleItem.findIndex(s => s.dayOfWeek === item.dayOfWeek && s.period === item.period);
+              if (existingIdx !== -1) {
+                  scheduleItem[existingIdx] = { dayOfWeek: item.dayOfWeek, period: item.period, subject: item.subject, time: timeStr };
+              } else {
+                  scheduleItem.push({ dayOfWeek: item.dayOfWeek, period: item.period, subject: item.subject, time: timeStr });
+              }
+              
+              newRooms[roomIndex].schedule = scheduleItem;
+              mappedTeachers.add(item.teacherName);
+           }
+        });
+        
+        await updateRooms(newRooms);
+        setTeacherTtStatus(`✅ 총 ${mappedTeachers.size}명의 선생님 시간표가 성공적으로 연동되었습니다.`);
+      } else {
+        setTeacherTtStatus("⚠️ 이미지에서 교사 시간표 정보를 찾지 못했습니다.");
+      }
+    } catch (err: any) {
+      console.error("AI extraction error:", err);
+      setTeacherTtStatus(`❌ AI 분석 중 오류: ${err?.message || "알 수 없는 오류"}`);
+    } finally {
       setIsExtractingTeacher(false);
-      setTeacherTtStatus("❌ 파일 처리 중 오류가 발생했습니다.");
       setTimeout(() => setTeacherTtStatus(null), 5000);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -313,20 +225,20 @@ export default function AdminDashboard() {
       if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
         data = await (window as any).electron.invoke('extract-meal-url', { url: mealUrl, date: mealDate });
       } else {
-        const res = await fetch('/api/extract-meal-url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: mealUrl, date: mealDate })
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errMsg = errData.error || "API 요청 실패";
-          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
-            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
+        try {
+          const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(mealUrl)}`);
+          if (proxyRes.ok) {
+            const proxyData = await proxyRes.json();
+            if (proxyData.contents) {
+              data = await extractMealFromImageOrText(proxyData.contents, mealDate);
+            }
           }
-          throw new Error(errMsg);
+        } catch (e) {
+          console.warn("CORS proxy fetch failed:", e);
         }
-        data = await res.json();
+        if (!data) {
+          throw new Error("브라우저 환경에서는 외부 URL 직접 접근이 제한될 수 있습니다. 식단표 이미지 파일 업로드 기능을 이용해 주세요.");
+        }
       }
 
       if (data) {
@@ -393,51 +305,17 @@ export default function AdminDashboard() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert("파일 크기는 4MB 이하여야 합니다.");
+    if (file.size > 10 * 1024 * 1024) {
+      alert("파일 크기는 10MB 이하여야 합니다.");
       return;
     }
 
     setIsExtractingTt(true);
-    setTtStatus("Tesseract OCR로 시간표 이미지 속 한글을 인식하고 있습니다...");
+    setTtStatus("Gemini AI가 시간표 이미지를 분석하여 과목을 추출하고 있습니다... (약 5~10초)");
 
     try {
-      // 1. Tesseract OCR
-      const worker = await Tesseract.createWorker('kor', 1, {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            setTtStatus(`OCR 인식 중... ${Math.round(m.progress * 100)}%`);
-          }
-        }
-      });
-      const { data: { text } } = await worker.recognize(file);
-      await worker.terminate();
-
-      if (!text || text.trim() === '') {
-        throw new Error("글자를 인식하지 못했습니다.");
-      }
-
-      // 2. Refine using AI API/IPC
-      setTtStatus("AI가 인식된 글자를 시간표 형식으로 정제하고 있습니다...");
-      let data;
-      if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
-        data = await (window as any).electron.invoke('refine-timetable-text', { text });
-      } else {
-        const res = await fetch('/api/refine-timetable-text', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          const errMsg = errData.error || "API 요청 실패";
-          if (res.status === 503 || errMsg.includes('high demand') || errMsg.includes('503')) {
-            throw new Error("AI 모델 요청량이 많아 일시적으로 지연되고 있습니다. 잠시 후 다시 시도해 주세요.");
-          }
-          throw new Error(errMsg);
-        }
-        data = await res.json();
-      }
+      // 100% Client-side Gemini Multimodal Extraction (no backend API route needed)
+      const data = await extractTimetableFromImage(file);
 
       if (data && typeof data === 'object') {
         const merged = { ...localTimetable };
@@ -445,19 +323,25 @@ export default function AdminDashboard() {
           if (data[i.toString()] && Array.isArray(data[i.toString()])) {
              const arr = data[i.toString()];
              const padded = Array(7).fill("");
-             for(let j=0; j<7 && j<arr.length; j++) padded[j] = arr[j];
+             for (let j = 0; j < 7 && j < arr.length; j++) {
+               padded[j] = arr[j] || "";
+             }
              merged[i.toString()] = padded;
           }
         }
         setLocalTimetable(merged);
         setTtStatus("✅ 시간표 추출 및 정제가 완료되었습니다. 내역을 확인 후 저장해주세요.");
+      } else {
+        throw new Error("유효한 시간표 데이터를 추출하지 못했습니다.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Timetable extraction error:", err);
-      setTtStatus("❌ 분석 중 오류가 발생했습니다.");
+      const errMsg = err?.message || "분석 중 오류가 발생했습니다.";
+      setTtStatus(`❌ ${errMsg}`);
     } finally {
       setIsExtractingTt(false);
       setTimeout(() => setTtStatus(null), 5000);
+      if (e.target) e.target.value = '';
     }
   };
 
