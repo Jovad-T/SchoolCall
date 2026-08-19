@@ -72,11 +72,13 @@ export default function ClassroomDisplay() {
   const { announcement, updateAnnouncement } = useClassAnnouncement(settings?.grade || '', settings?.classNm || '');
   const { customTimetable } = useClassTimetable(settings?.grade || '', settings?.classNm || '');
   const { timetableImage } = useClassTimetableImage(settings?.grade || '', settings?.classNm || '');
-  const { customMeal } = useCustomMeal();
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const ymd = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
+  const { customMeal } = useCustomMeal(ymd);
   const [isEditingAnnounce, setIsEditingAnnounce] = useState(false);
   const [editAnnounceText, setEditAnnounceText] = useState('');
   
-  const [currentTime, setCurrentTime] = useState(new Date());
+  
 
   // Data State
   const [neisTimetable, setNeisTimetable] = useState<string[]>([]);
@@ -266,7 +268,7 @@ export default function ClassroomDisplay() {
     };
 
     fetchNeisData();
-  }, [settings]);
+  }, [settings, customMeal]);
 
   useEffect(() => {
     const dayOfWeek = currentTime.getDay();

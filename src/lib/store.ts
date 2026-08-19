@@ -263,12 +263,12 @@ export type CustomMeal = {
   dinner: string[];
 };
 
-export function useCustomMeal() {
+export function useCustomMeal(date: string) {
   const [customMeal, setCustomMeal] = useState<CustomMeal | null>(null);
 
   useEffect(() => {
-    if (!db) return;
-    const mealRef = ref(db, `school_data/custom_meal`);
+    if (!db || !date) return;
+    const mealRef = ref(db, `school_data/meals/${date}`);
     const unsub = onValue(mealRef, (snapshot) => {
       if (snapshot.exists()) {
         setCustomMeal(snapshot.val() as CustomMeal);
@@ -277,11 +277,11 @@ export function useCustomMeal() {
       }
     });
     return () => unsub();
-  }, []);
+  }, [date]);
 
   const updateCustomMeal = async (meal: CustomMeal | null) => {
-    if (!db) return;
-    await set(ref(db, `school_data/custom_meal`), meal);
+    if (!db || !date) return;
+    await set(ref(db, `school_data/meals/${date}`), meal);
   };
 
   return { customMeal, updateCustomMeal };

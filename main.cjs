@@ -258,3 +258,79 @@ ${html.substring(0, 100000)}`,
     throw err;
   }
 });
+
+// AI OCR 텍스트 기반 급식 정제 IPC 핸들러
+ipcMain.handle('refine-meal-text', async (event, { text, date }) => {
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' }
+      }
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: `Here is raw OCR text extracted from a school meal schedule. Extract the lunch and dinner menu for the date ${date} (Format: YYYYMMDD). 
+Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names.
+If the menu for the specific date is not found in the text, return empty arrays.
+Raw OCR Text:
+${text.substring(0, 50000)}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
+            dinner: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["lunch", "dinner"]
+        }
+      }
+    });
+    
+    return JSON.parse(response.text);
+  } catch (err) {
+    console.error('AI OCR Refine Error:', err);
+    throw err;
+  }
+});
+
+// AI OCR 텍스트 기반 시간표 정제 IPC 핸들러
+ipcMain.handle('refine-timetable-text', async (event, { text }) => {
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' }
+      }
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
+If a period is empty, use an empty string "".
+Raw OCR Text:
+${text.substring(0, 50000)}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            "1": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "2": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "3": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "4": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "5": { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["1", "2", "3", "4", "5"]
+        }
+      }
+    });
+    
+    return JSON.parse(response.text);
+  } catch (err) {
+    console.error('AI Timetable Refine Error:', err);
+    throw err;
+  }
+});

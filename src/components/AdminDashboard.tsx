@@ -4,6 +4,7 @@ import { db } from '../lib/firebase';
 import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal } from '../lib/store';
 import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import Tesseract from 'tesseract.js';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -43,9 +44,10 @@ export default function AdminDashboard() {
   const { timetableImage, updateTimetableImage } = useClassTimetableImage(ttGrade, ttClassNm);
   const [imageFile, setImageFile] = useState<string | null>(null);
 
-  const { customMeal, updateCustomMeal } = useCustomMeal();
+  const [mealDate, setMealDate] = useState(new Date().toISOString().split("T")[0].replace(/-/g, ""));
+  const { customMeal, updateCustomMeal } = useCustomMeal(mealDate);
   const [isExtractingMeal, setIsExtractingMeal] = useState(false);
-  const [mealDate, setMealDate] = useState(new Date().toISOString().split('T')[0].replace(/-/g, ''));
+  
   const [mealStatus, setMealStatus] = useState<string | null>(null);
   const [localMeal, setLocalMeal] = useState<{lunch: string, dinner: string}>({lunch: '', dinner: ''});
   const [mealUrl, setMealUrl] = useState('');
@@ -74,45 +76,58 @@ export default function AdminDashboard() {
     }
 
     setIsExtractingMeal(true);
-    setMealStatus("AI가 메뉴를 분석하고 있습니다...");
+    setMealStatus("Tesseract OCR로 이미지 속 한글을 인식하고 있습니다...");
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const result = event.target?.result as string;
-      const base64 = result.split(',')[1];
-      const mimeType = file.type;
-
-      try {
-        let data;
-        // Electron 앱인지 Web 환경인지 확인 후 분기
-        if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
-          data = await (window as any).electron.invoke('extract-meal', { base64, mimeType });
-        } else {
-          const res = await fetch('/api/extract-meal', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64, mimeType })
-          });
-          if (!res.ok) throw new Error("API 요청 실패");
-          data = await res.json();
+    try {
+      // 1. Tesseract OCR
+      const worker = await Tesseract.createWorker('kor', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setMealStatus(`OCR 인식 중... ${Math.round(m.progress * 100)}%`);
+          }
         }
+      });
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
 
-        if (data) {
-          setLocalMeal({
-            lunch: data.lunch?.join('\n') || '',
-            dinner: data.dinner?.join('\n') || ''
-          });
-          setMealStatus("✅ 분석이 완료되었습니다. 내역을 확인하고 저장해주세요.");
-        }
-      } catch (err) {
-        console.error("Meal extraction error:", err);
-        setMealStatus("❌ 분석 중 오류가 발생했습니다.");
-      } finally {
-        setIsExtractingMeal(false);
-        setTimeout(() => setMealStatus(null), 5000);
+      if (!text || text.trim() === '') {
+        throw new Error("글자를 인식하지 못했습니다.");
       }
-    };
-    reader.readAsDataURL(file);
+
+      // 2. Refine using AI API/IPC
+      setMealStatus("AI가 인식된 글자를 식단표 형식으로 정제하고 있습니다...");
+      let data;
+      if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
+        data = await (window as any).electron.invoke('refine-meal-text', { text, date: mealDate });
+      } else {
+        const res = await fetch('/api/refine-meal-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, date: mealDate })
+        });
+        if (!res.ok) throw new Error("API 요청 실패");
+        data = await res.json();
+      }
+
+      if (data) {
+        if ((!data.lunch || data.lunch.length === 0) && (!data.dinner || data.dinner.length === 0)) {
+           setMealStatus("⚠️ 날짜에 해당하는 식단 정보를 찾지 못했습니다.");
+        } else {
+           setLocalMeal({
+             lunch: data.lunch?.join('\n') || '',
+             dinner: data.dinner?.join('\n') || ''
+           });
+           setMealStatus("✅ 추출 및 정제가 완료되었습니다. 내역을 확인하고 저장해주세요.");
+        }
+      }
+
+    } catch (err) {
+      console.error("Meal OCR extraction error:", err);
+      setMealStatus("❌ 분석 중 오류가 발생했습니다.");
+    } finally {
+      setIsExtractingMeal(false);
+      setTimeout(() => setMealStatus(null), 5000);
+    }
   };
 
   const handleMealUrlExtraction = async () => {
@@ -208,51 +223,59 @@ export default function AdminDashboard() {
     }
 
     setIsExtractingTt(true);
-    setTtStatus("AI가 시간표를 분석하고 있습니다...");
+    setTtStatus("Tesseract OCR로 시간표 이미지 속 한글을 인식하고 있습니다...");
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const result = event.target?.result as string;
-      const base64 = result.split(',')[1];
-      const mimeType = file.type;
-
-      try {
-        let data;
-        if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
-          data = await (window as any).electron.invoke('extract-timetable', { base64, mimeType });
-        } else {
-          const res = await fetch('/api/extract-timetable', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64, mimeType })
-          });
-          if (!res.ok) throw new Error("API 요청 실패");
-          data = await res.json();
-        }
-
-        if (data && typeof data === 'object') {
-          const merged = { ...localTimetable };
-          for (let i = 1; i <= 5; i++) {
-            if (data[i.toString()] && Array.isArray(data[i.toString()])) {
-               const arr = data[i.toString()];
-               // Ensure length 7
-               const padded = Array(7).fill("");
-               for(let j=0; j<7 && j<arr.length; j++) padded[j] = arr[j];
-               merged[i.toString()] = padded;
-            }
+    try {
+      // 1. Tesseract OCR
+      const worker = await Tesseract.createWorker('kor', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setTtStatus(`OCR 인식 중... ${Math.round(m.progress * 100)}%`);
           }
-          setLocalTimetable(merged);
-          setTtStatus("✅ 시간표 텍스트 추출이 완료되었습니다. 내역을 확인 후 저장해주세요.");
         }
-      } catch (err) {
-        console.error("Timetable extraction error:", err);
-        setTtStatus("❌ 분석 중 오류가 발생했습니다.");
-      } finally {
-        setIsExtractingTt(false);
-        setTimeout(() => setTtStatus(null), 5000);
+      });
+      const { data: { text } } = await worker.recognize(file);
+      await worker.terminate();
+
+      if (!text || text.trim() === '') {
+        throw new Error("글자를 인식하지 못했습니다.");
       }
-    };
-    reader.readAsDataURL(file);
+
+      // 2. Refine using AI API/IPC
+      setTtStatus("AI가 인식된 글자를 시간표 형식으로 정제하고 있습니다...");
+      let data;
+      if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
+        data = await (window as any).electron.invoke('refine-timetable-text', { text });
+      } else {
+        const res = await fetch('/api/refine-timetable-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        if (!res.ok) throw new Error("API 요청 실패");
+        data = await res.json();
+      }
+
+      if (data && typeof data === 'object') {
+        const merged = { ...localTimetable };
+        for (let i = 1; i <= 5; i++) {
+          if (data[i.toString()] && Array.isArray(data[i.toString()])) {
+             const arr = data[i.toString()];
+             const padded = Array(7).fill("");
+             for(let j=0; j<7 && j<arr.length; j++) padded[j] = arr[j];
+             merged[i.toString()] = padded;
+          }
+        }
+        setLocalTimetable(merged);
+        setTtStatus("✅ 시간표 추출 및 정제가 완료되었습니다. 내역을 확인 후 저장해주세요.");
+      }
+    } catch (err) {
+      console.error("Timetable extraction error:", err);
+      setTtStatus("❌ 분석 중 오류가 발생했습니다.");
+    } finally {
+      setIsExtractingTt(false);
+      setTimeout(() => setTtStatus(null), 5000);
+    }
   };
 
   const [localTimetable, setLocalTimetable] = useState<Record<string, string[]>>({
@@ -643,13 +666,13 @@ export default function AdminDashboard() {
             <div className="relative w-full">
               <input 
                 type="file" 
-                accept="image/*,application/pdf"
+                accept="image/*"
                 onChange={handleTtAiExtraction}
                 disabled={isExtractingTt}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
               />
               <button className="w-full flex items-center justify-center gap-2 py-4 bg-brand-green/20 text-brand-green border border-brand-green/50 hover:bg-brand-green hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
-                {isExtractingTt ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 시간표 이미지(PDF)로 자동 텍스트 추출</>}
+                {isExtractingTt ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 시간표 이미지 첨부 및 OCR 추출</>}
               </button>
             </div>
           </div>
@@ -769,13 +792,13 @@ export default function AdminDashboard() {
               <div className="relative flex-1">
                 <input 
                   type="file" 
-                  accept="image/*,application/pdf"
+                  accept="image/*"
                   onChange={handleMealImageUpload}
                   disabled={isExtractingMeal}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
                 />
                 <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
-                  {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 파일 첨부 추출</>}
+                  {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 이미지 첨부 및 OCR 추출</>}
                 </button>
               </div>
               

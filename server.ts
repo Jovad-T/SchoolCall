@@ -133,6 +133,84 @@ ${html.substring(0, 100000)}`,
     }
   });
 
+  app.post("/api/refine-meal-text", async (req, res) => {
+    try {
+      const { text, date } = req.body;
+      
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' }
+        }
+      });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.7-flash",
+        contents: `Here is raw OCR text extracted from a school meal schedule. Extract the lunch and dinner menu for the date ${date} (Format: YYYYMMDD). 
+Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names.
+If the menu for the specific date is not found in the text, return empty arrays.
+Raw OCR Text:
+${text.substring(0, 50000)}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
+              dinner: { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["lunch", "dinner"]
+          }
+        }
+      });
+
+      res.json(JSON.parse(response.text));
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/refine-timetable-text", async (req, res) => {
+    try {
+      const { text } = req.body;
+      
+      const ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: { 'User-Agent': 'aistudio-build' }
+        }
+      });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.7-flash",
+        contents: `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
+If a period is empty, use an empty string "".
+Raw OCR Text:
+${text.substring(0, 50000)}`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              "1": { type: Type.ARRAY, items: { type: Type.STRING } },
+              "2": { type: Type.ARRAY, items: { type: Type.STRING } },
+              "3": { type: Type.ARRAY, items: { type: Type.STRING } },
+              "4": { type: Type.ARRAY, items: { type: Type.STRING } },
+              "5": { type: Type.ARRAY, items: { type: Type.STRING } }
+            },
+            required: ["1", "2", "3", "4", "5"]
+          }
+        }
+      });
+
+      res.json(JSON.parse(response.text));
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
