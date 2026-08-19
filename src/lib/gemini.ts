@@ -54,7 +54,7 @@ export async function extractTimetableFromImage(
   const { base64Data, mimeType } = await fileToBase64(file);
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     contents: [
       {
         inlineData: {
@@ -127,7 +127,7 @@ export async function refineTimetableText(
   const ai = getGeminiClient();
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     contents: `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
 If a period is empty, use an empty string "".
 Raw OCR Text:
@@ -170,7 +170,7 @@ export async function extractTeacherScheduleFromImage(
   const { base64Data, mimeType } = await fileToBase64(file);
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     contents: [
       {
         inlineData: {
@@ -233,7 +233,7 @@ export async function extractMealFromImageOrText(
   }
 
   const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
     contents,
     config: {
       responseMimeType: "application/json",

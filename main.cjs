@@ -153,7 +153,7 @@ ipcMain.handle('extract-meal', async (event, { base64, mimeType }) => {
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.6-flash",
       contents: [
         { inlineData: { data: base64, mimeType } },
         { text: "Extract the lunch and dinner menu from this image or document. Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names." }
@@ -189,7 +189,7 @@ ipcMain.handle('extract-timetable', async (event, { base64, mimeType }) => {
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.6-flash",
       contents: [
         { inlineData: { data: base64, mimeType } },
         { text: "Extract the weekly school timetable from this image/document. Return a JSON object with keys '1', '2', '3', '4', '5' representing Monday to Friday. Each key should have an array of exactly 7 strings representing the subjects for periods 1 to 7. If a period is empty, use an empty string. Ignore times and teachers, just the subject names." }
@@ -233,7 +233,7 @@ ipcMain.handle('extract-meal-url', async (event, { url, date }) => {
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.6-flash",
       contents: `Extract the lunch and dinner menu for the date ${date} (Format: YYYYMMDD) from the following school webpage HTML. 
 Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names.
 If the menu for the specific date is not found in the HTML, return empty arrays.
@@ -270,7 +270,7 @@ ipcMain.handle('refine-meal-text', async (event, { text, date }) => {
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.6-flash",
       contents: `Here is raw OCR text extracted from a school meal schedule. Extract the lunch and dinner menu for the date ${date} (Format: YYYYMMDD). 
 Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names.
 If the menu for the specific date is not found in the text, return empty arrays.
@@ -307,7 +307,7 @@ ipcMain.handle('refine-timetable-text', async (event, { text }) => {
     });
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.6-flash",
       contents: `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
 If a period is empty, use an empty string "".
 Raw OCR Text:
