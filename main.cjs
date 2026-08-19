@@ -177,3 +177,84 @@ ipcMain.handle('extract-meal', async (event, { base64, mimeType }) => {
     throw err;
   }
 });
+
+// AI 시간표 추출 IPC 핸들러
+ipcMain.handle('extract-timetable', async (event, { base64, mimeType }) => {
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' }
+      }
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: [
+        { inlineData: { data: base64, mimeType } },
+        { text: "Extract the weekly school timetable from this image/document. Return a JSON object with keys '1', '2', '3', '4', '5' representing Monday to Friday. Each key should have an array of exactly 7 strings representing the subjects for periods 1 to 7. If a period is empty, use an empty string. Ignore times and teachers, just the subject names." }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            "1": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "2": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "3": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "4": { type: Type.ARRAY, items: { type: Type.STRING } },
+            "5": { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["1", "2", "3", "4", "5"]
+        }
+      }
+    });
+    
+    return JSON.parse(response.text);
+  } catch (err) {
+    console.error('AI Timetable Extraction Error:', err);
+    throw err;
+  }
+});
+
+// AI URL 급식 추출 IPC 핸들러
+ipcMain.handle('extract-meal-url', async (event, { url, date }) => {
+  try {
+    const fetchRes = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    });
+    const html = await fetchRes.text();
+
+    const ai = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: { 'User-Agent': 'aistudio-build' }
+      }
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.7-flash",
+      contents: `Extract the lunch and dinner menu for the date ${date} (Format: YYYYMMDD) from the following school webpage HTML. 
+Return a JSON object with 'lunch' and 'dinner' arrays containing strings of food items. Ignore times, dates, or nutritional info. Just the food names.
+If the menu for the specific date is not found in the HTML, return empty arrays.
+HTML Content:
+${html.substring(0, 100000)}`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
+            dinner: { type: Type.ARRAY, items: { type: Type.STRING } }
+          },
+          required: ["lunch", "dinner"]
+        }
+      }
+    });
+    
+    return JSON.parse(response.text);
+  } catch (err) {
+    console.error('AI URL Extraction Error:', err);
+    throw err;
+  }
+});

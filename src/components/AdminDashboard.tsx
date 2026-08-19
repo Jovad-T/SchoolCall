@@ -48,6 +48,10 @@ export default function AdminDashboard() {
   const [mealDate, setMealDate] = useState(new Date().toISOString().split('T')[0].replace(/-/g, ''));
   const [mealStatus, setMealStatus] = useState<string | null>(null);
   const [localMeal, setLocalMeal] = useState<{lunch: string, dinner: string}>({lunch: '', dinner: ''});
+  const [mealUrl, setMealUrl] = useState('');
+  const [isExtractingUrl, setIsExtractingUrl] = useState(false);
+  
+  const [isExtractingTt, setIsExtractingTt] = useState(false);
 
   useEffect(() => {
     if (customMeal && customMeal.date === mealDate) {
@@ -111,6 +115,49 @@ export default function AdminDashboard() {
     reader.readAsDataURL(file);
   };
 
+  const handleMealUrlExtraction = async () => {
+    if (!mealUrl.trim()) {
+      alert("학교 급식 페이지의 URL 링크를 입력해주세요.");
+      return;
+    }
+
+    setIsExtractingUrl(true);
+    setMealStatus("입력하신 링크에서 식단 정보를 찾고 있습니다...");
+
+    try {
+      let data;
+      if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
+        data = await (window as any).electron.invoke('extract-meal-url', { url: mealUrl, date: mealDate });
+      } else {
+        const res = await fetch('/api/extract-meal-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: mealUrl, date: mealDate })
+        });
+        if (!res.ok) throw new Error("API 요청 실패");
+        data = await res.json();
+      }
+
+      if (data) {
+        if ((!data.lunch || data.lunch.length === 0) && (!data.dinner || data.dinner.length === 0)) {
+           setMealStatus("⚠️ 해당 날짜의 식단 정보를 찾지 못했습니다. 날짜나 링크를 확인해주세요.");
+        } else {
+           setLocalMeal({
+             lunch: data.lunch?.join('\n') || '',
+             dinner: data.dinner?.join('\n') || ''
+           });
+           setMealStatus("✅ 링크에서 급식 정보 추출이 완료되었습니다. 내용을 확인하고 저장해주세요.");
+        }
+      }
+    } catch (err) {
+      console.error("Meal URL extraction error:", err);
+      setMealStatus("❌ 링크 분석 중 오류가 발생했습니다. (보안이 걸려있는 페이지이거나 접속할 수 없는 링크일 수 있습니다)");
+    } finally {
+      setIsExtractingUrl(false);
+      setTimeout(() => setMealStatus(null), 5000);
+    }
+  };
+
   const handleSaveMeal = async () => {
     if (!localMeal.lunch.trim() && !localMeal.dinner.trim()) {
       await updateCustomMeal(null);
@@ -149,6 +196,63 @@ export default function AdminDashboard() {
     await updateTimetableImage(imageFile);
     setTtStatus("✅ 시간표 이미지가 저장되었습니다.");
     setTimeout(() => setTtStatus(null), 3000);
+  };
+
+  const handleTtAiExtraction = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 4 * 1024 * 1024) {
+      alert("파일 크기는 4MB 이하여야 합니다.");
+      return;
+    }
+
+    setIsExtractingTt(true);
+    setTtStatus("AI가 시간표를 분석하고 있습니다...");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const result = event.target?.result as string;
+      const base64 = result.split(',')[1];
+      const mimeType = file.type;
+
+      try {
+        let data;
+        if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
+          data = await (window as any).electron.invoke('extract-timetable', { base64, mimeType });
+        } else {
+          const res = await fetch('/api/extract-timetable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ base64, mimeType })
+          });
+          if (!res.ok) throw new Error("API 요청 실패");
+          data = await res.json();
+        }
+
+        if (data && typeof data === 'object') {
+          const merged = { ...localTimetable };
+          for (let i = 1; i <= 5; i++) {
+            if (data[i.toString()] && Array.isArray(data[i.toString()])) {
+               const arr = data[i.toString()];
+               // Ensure length 7
+               const padded = Array(7).fill("");
+               for(let j=0; j<7 && j<arr.length; j++) padded[j] = arr[j];
+               merged[i.toString()] = padded;
+            }
+          }
+          setLocalTimetable(merged);
+          setTtStatus("✅ 시간표 텍스트 추출이 완료되었습니다. 내역을 확인 후 저장해주세요.");
+        }
+      } catch (err) {
+        console.error("Timetable extraction error:", err);
+        setTtStatus("❌ 분석 중 오류가 발생했습니다.");
+      } finally {
+        setIsExtractingTt(false);
+        setTimeout(() => setTtStatus(null), 5000);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const [localTimetable, setLocalTimetable] = useState<Record<string, string[]>>({
@@ -535,6 +639,21 @@ export default function AdminDashboard() {
             </div>
           </div>
 
+          <div className="w-full max-w-md mb-8">
+            <div className="relative w-full">
+              <input 
+                type="file" 
+                accept="image/*,application/pdf"
+                onChange={handleTtAiExtraction}
+                disabled={isExtractingTt}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+              />
+              <button className="w-full flex items-center justify-center gap-2 py-4 bg-brand-green/20 text-brand-green border border-brand-green/50 hover:bg-brand-green hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
+                {isExtractingTt ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 시간표 이미지(PDF)로 자동 텍스트 추출</>}
+              </button>
+            </div>
+          </div>
+
           <div className="w-full overflow-x-auto custom-scrollbar">
 
             <div className="min-w-[600px] mb-8">
@@ -626,26 +745,47 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-4 w-full">
-            <div className="relative flex-1">
-              <input 
-                type="file" 
-                accept="image/*,application/pdf"
-                onChange={handleMealImageUpload}
-                disabled={isExtractingMeal}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
-              />
-              <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
-                {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 첨부 및 AI 자동 추출</>}
+          <div className="flex flex-col gap-4 w-full">
+            <div className="flex flex-col md:flex-row gap-4 w-full">
+              <div className="flex-1 flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="학교 홈페이지 급식 게시판 링크(URL) 입력" 
+                  value={mealUrl}
+                  onChange={(e) => setMealUrl(e.target.value)}
+                  className="w-full bg-black/40 p-4 rounded-xl border border-yellow-500/50 text-white outline-none focus:border-yellow-500 transition-colors text-sm"
+                />
+                <button 
+                  onClick={handleMealUrlExtraction} 
+                  disabled={isExtractingUrl} 
+                  className="flex items-center justify-center gap-2 px-6 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isExtractingUrl ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 링크 추출</>}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-4 w-full">
+              <div className="relative flex-1">
+                <input 
+                  type="file" 
+                  accept="image/*,application/pdf"
+                  onChange={handleMealImageUpload}
+                  disabled={isExtractingMeal}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
+                />
+                <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
+                  {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 파일 첨부 추출</>}
+                </button>
+              </div>
+              
+              <button 
+                onClick={handleSaveMeal}
+                className="flex-1 bg-yellow-500 text-black py-4 rounded-xl font-black text-sm tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)]"
+              >
+                급식 메뉴 최종 저장 및 적용
               </button>
             </div>
-            
-            <button 
-              onClick={handleSaveMeal}
-              className="flex-1 bg-yellow-500 text-black py-4 rounded-xl font-black text-sm tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)]"
-            >
-              급식 메뉴 저장 / 적용
-            </button>
           </div>
 
           {mealStatus && (

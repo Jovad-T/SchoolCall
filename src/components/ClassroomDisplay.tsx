@@ -34,12 +34,14 @@ export default function ClassroomDisplay() {
   };
 
   // Settings State
-  const [settings, setSettings] = useState<{grade: string; classNm: string} | null>(null);
+  const [settings, setSettings] = useState<{grade: string; classNm: string; subtitle?: string; mainTitle?: string} | null>(null);
   
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempSettings, setTempSettings] = useState({
     grade: '2',
-    classNm: '8'
+    classNm: '8',
+    subtitle: '실시간 학급 대시보드',
+    mainTitle: ''
   });
 
   // Load Settings
@@ -48,7 +50,12 @@ export default function ClassroomDisplay() {
     if (saved) {
       const s = JSON.parse(saved);
       setSettings(s);
-      setTempSettings(s);
+      setTempSettings({
+        grade: s.grade || '2',
+        classNm: s.classNm || '8',
+        subtitle: s.subtitle !== undefined ? s.subtitle : '실시간 학급 대시보드',
+        mainTitle: s.mainTitle || ''
+      });
     } else {
       setShowSettingsModal(true);
     }
@@ -424,10 +431,10 @@ export default function ClassroomDisplay() {
             <header className="flex justify-between items-end mb-10 border-b-4 border-white/20 border-dashed pb-8 px-4">
               <div>
                 <h2 className="text-white/70 font-bold uppercase tracking-widest text-sm mb-2" style={{ textShadow: '1px 1px 2px rgba(255,255,255,0.2)' }}>
-                  실시간 학급 대시보드
+                  {settings?.subtitle || "실시간 학급 대시보드"}
                 </h2>
                 <h1 className="text-5xl font-bold tracking-tighter text-white/95" style={{ textShadow: '2px 2px 4px rgba(255,255,255,0.3)' }}>
-                  {settings ? `${settings.grade}학년 ${settings.classNm}반 알림판` : "우리 반 알림판"}
+                  {settings?.mainTitle || (settings ? `${settings.grade}학년 ${settings.classNm}반 알림판` : "우리 반 알림판")}
                 </h1>
               </div>
               <div className="text-right">
@@ -463,23 +470,24 @@ export default function ClassroomDisplay() {
                         오늘은 등록된 시간표가 없습니다.
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 gap-2">
-                        {timetable.map((subject, idx) => (
-                          <div 
-                            key={idx}
-                            className="p-3 md:p-4 flex items-center border-b-2 border-white/20 border-dashed"
-                            style={{ textShadow: '1px 1px 3px rgba(255,255,255,0.2)' }}
-                          >
-                            <div className="flex items-center gap-6">
-                              <span className="text-white/70 w-8 text-xl font-bold">
-                                {idx + 1}
-                              </span>
-                              <span className="font-bold text-2xl md:text-3xl tracking-tight text-white/95">
-                                {subject}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="flex flex-wrap gap-4 justify-center items-start pt-2">
+                        {timetable.map((subject, idx) => {
+                           const colors = ['#fef08a', '#fbcfe8', '#bfdbfe', '#bbf7d0', '#fcd34d', '#e9d5ff', '#fed7aa'];
+                           const rots = ['-rotate-2', 'rotate-3', '-rotate-3', 'rotate-2', '-rotate-1', 'rotate-1', '-rotate-2'];
+                           return (
+                             <motion.div 
+                               key={idx} 
+                               whileHover={{ scale: 1.05, rotate: 0, zIndex: 10 }}
+                               className={clsx("relative w-[110px] h-[110px] md:w-[130px] md:h-[130px] p-3 shadow-lg flex flex-col items-center justify-center transition-all", rots[idx % 7])} 
+                               style={{ backgroundColor: colors[idx % 7], color: '#333', boxShadow: '2px 4px 10px rgba(0,0,0,0.4)' }}
+                             >
+                               {/* Tape effect */}
+                               <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-5 bg-white/40 backdrop-blur-sm -rotate-2 border border-white/20 shadow-sm" />
+                               <span className="text-[#666] font-bold text-sm mb-1">{idx + 1}교시</span>
+                               <span className="text-xl md:text-2xl font-black tracking-tighter text-[#111]">{subject}</span>
+                             </motion.div>
+                           )
+                        })}
                       </div>
                     )}
                   </div>
@@ -652,6 +660,27 @@ export default function ClassroomDisplay() {
                       {Array.from({length: 15}, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
                     </select>
                   </div>
+                </div>
+                
+                <div className="mt-4">
+                  <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">상단 소제목 (기본: 실시간 학급 대시보드)</label>
+                  <input
+                    type="text"
+                    value={tempSettings.subtitle}
+                    onChange={e => setTempSettings({...tempSettings, subtitle: e.target.value})}
+                    placeholder="실시간 학급 대시보드"
+                    className="w-full bg-[#1A1A1C] p-3 rounded-lg border border-[#333] text-sm focus:border-brand-green outline-none transition-colors text-white"
+                  />
+                </div>
+                <div className="mt-4">
+                  <label className="text-[10px] uppercase text-[#777] font-bold mb-2 block tracking-wider">메인 타이틀 (기본: O학년 O반 알림판)</label>
+                  <input
+                    type="text"
+                    value={tempSettings.mainTitle}
+                    onChange={e => setTempSettings({...tempSettings, mainTitle: e.target.value})}
+                    placeholder={`${tempSettings.grade}학년 ${tempSettings.classNm}반 알림판`}
+                    className="w-full bg-[#1A1A1C] p-3 rounded-lg border border-[#333] text-sm focus:border-brand-green outline-none transition-colors text-white"
+                  />
                 </div>
               </div>
 
