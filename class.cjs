@@ -62,9 +62,9 @@ function createWindow() {
   const isDev = process.env.NODE_ENV !== 'production';
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000/#class');
+    mainWindow.loadURL('http://localhost:3000/#tv-setup');
   } else {
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'class' });
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'tv-setup' });
   }
 
   mainWindow.on('closed', () => {
@@ -96,7 +96,16 @@ function showPopup() {
   }, 60000);
 }
 
+
 app.whenReady().then(() => {
+  if (app.isPackaged) {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      openAsHidden: true,
+      args: ['--hidden']
+    });
+  }
+
   createWindow();
 
   tray = new Tray(path.join(__dirname, 'public', 'icon.png'));
@@ -118,7 +127,7 @@ app.on('activate', () => {
   }
 });
 
-ipcMain.on('trigger-call', () => {
+ipcMain.on('trigger-my-call', () => {
   if (scheduledShowTimeout) {
     clearTimeout(scheduledShowTimeout);
     scheduledShowTimeout = null;

@@ -1,3 +1,4 @@
+import { io } from "socket.io-client";
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, ArrowLeft, BellRing, BellOff, User, MessageSquare, Home, XCircle, MapPin } from 'lucide-react';
@@ -15,6 +16,9 @@ const PRESET_MESSAGES = [
   "프린트물을 챙겨가세요",
   "긴급 호출입니다. 즉시 교무실로 오세요"
 ];
+
+
+const socket = io(window.location.origin);
 
 export default function OfficeRemote() {
   const navigate = useNavigate();
@@ -35,6 +39,7 @@ export default function OfficeRemote() {
 
   const handleSaveAnnouncement = () => {
     updateAnnouncement(announcementInput);
+    socket.emit("send-notification", { text: announcementInput });
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
   };

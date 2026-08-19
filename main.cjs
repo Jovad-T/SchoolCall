@@ -111,7 +111,7 @@ app.on('activate', () => {
 });
 
 // 호출 및 전달사항 이벤트 수신 시 윈도우 강제 최상단 전체화면 팝업 처리
-ipcMain.on('trigger-call', () => {
+ipcMain.on('trigger-my-call', () => {
   if (mainWindow) {
     if (hideTimeout) {
       clearTimeout(hideTimeout);

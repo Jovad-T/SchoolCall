@@ -1,3 +1,5 @@
+import { useParams, useNavigate } from 'react-router-dom';
+import { io } from "socket.io-client";
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
@@ -31,6 +33,9 @@ const formatSubjectName = (name: string) => {
 };
 
 export default function ClassroomDisplay() {
+  const params = useParams();
+  const paramGrade = params.grade;
+  const paramClassNm = params.classNm;
 
   // Fullscreen State
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -89,11 +94,14 @@ export default function ClassroomDisplay() {
     setShowSettingsModal(false);
   };
 
-  const classId = settings ? `${settings.grade}-${settings.classNm}` : '';
+  
+  const grade = paramGrade || settings?.grade || '';
+  const classNm = paramClassNm || settings?.classNm || '';
+  const classId = grade && classNm ? `${grade}-${classNm}` : '';
   const { state, updateState } = useCallState(classId);
-  const { announcement, updateAnnouncement } = useClassAnnouncement(settings?.grade || '', settings?.classNm || '');
-  const { customTimetable } = useClassTimetable(settings?.grade || '', settings?.classNm || '');
-  const { timetableImage } = useClassTimetableImage(settings?.grade || '', settings?.classNm || '');
+  const { announcement, updateAnnouncement } = useClassAnnouncement(grade, classNm);
+  const { customTimetable } = useClassTimetable(grade, classNm);
+  const { timetableImage } = useClassTimetableImage(grade, classNm);
   const [currentTime, setCurrentTime] = useState(new Date());
   const ymd = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
   const { customMeal } = useCustomMeal(ymd);
@@ -157,6 +165,24 @@ export default function ClassroomDisplay() {
 
   
   const [showAnnouncePopup, setShowAnnouncePopup] = useState(false);
+
+  useEffect(() => {
+    const socket = io(window.location.origin);
+    
+    socket.on("receive-notification", (data) => {
+      if (data && data.text) {
+        updateAnnouncement(data.text);
+        if (window.electron) {
+          window.electron.ipcRenderer.send('trigger-my-call');
+        }
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [updateAnnouncement]);
+
   const prevAnnounceRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -169,9 +195,9 @@ export default function ClassroomDisplay() {
         // Trigger Electron window focus/popup if running in Electron
         if (typeof window !== 'undefined') {
           if ((window as any).electron?.send) {
-            (window as any).electron.send('trigger-call');
+            (window as any).electron.send('trigger-my-call');
           } else if ((window as any).ipcRenderer?.send) {
-            (window as any).ipcRenderer.send('trigger-call');
+            (window as any).ipcRenderer.send('trigger-my-call');
           }
         }
 
@@ -201,9 +227,9 @@ export default function ClassroomDisplay() {
       // Trigger Electron window focus/popup if running in Electron
       if (typeof window !== 'undefined') {
         if ((window as any).electron?.send) {
-          (window as any).electron.send('trigger-call');
+          (window as any).electron.send('trigger-my-call');
         } else if ((window as any).ipcRenderer?.send) {
-          (window as any).ipcRenderer.send('trigger-call');
+          (window as any).ipcRenderer.send('trigger-my-call');
         }
       }
     } else {
@@ -398,6 +424,20 @@ export default function ClassroomDisplay() {
                   <span className="text-[#aaa]">{activeAlert.location}</span>
                 </p>
               </motion.div>
+
+      {/* TV Setup Reset Button */}
+      {paramGrade && paramClassNm && (
+        <button
+          onClick={() => {
+            localStorage.removeItem('tvClassInfo');
+            window.location.hash = '#/tv-setup';
+          }}
+          className="fixed bottom-4 right-4 bg-black/40 hover:bg-red-500/80 text-white/50 hover:text-white px-3 py-1 rounded-lg text-[10px] font-bold border border-white/10 hover:border-red-500 transition-all z-50 backdrop-blur-md"
+        >
+          교실 재설정
+        </button>
+      )}
+
               
               {activeAlert.teacherName && (
                 <div className="mt-12 text-2xl text-[#888] font-bold tracking-widest uppercase">

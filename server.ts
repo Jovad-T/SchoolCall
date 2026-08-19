@@ -1,4 +1,6 @@
 import express from "express";
+import { createServer as createHttpServer } from "http";
+import { Server } from "socket.io";
 import multer from "multer";
 import path from "path";
 import { createServer as createViteServer } from "vite";
@@ -300,9 +302,32 @@ ${text.substring(0, 50000)}`,
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  
+  const httpServer = createHttpServer(app);
+  const io = new Server(httpServer, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    }
+  });
+
+  io.on("connection", (socket) => {
+    console.log("Client connected:", socket.id);
+    
+    socket.on("send-notification", (data) => {
+      console.log("Received notification:", data);
+      io.emit("receive-notification", data);
+    });
+
+    socket.on("disconnect", () => {
+      console.log("Client disconnected:", socket.id);
+    });
+  });
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
+
 }
 
 startServer();
