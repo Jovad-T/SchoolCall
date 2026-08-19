@@ -111,6 +111,8 @@ export default function ClassroomDisplay() {
   const previousStateRef = useRef(state);
   useEffect(() => {
     if (state.studentName && state.message && state.studentName !== previousStateRef.current.studentName) {
+      alertSound.currentTime = 0;
+      alertSound.play().catch(e => console.log('Audio play failed:', e));
       if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer) {
         (window as any).electron.ipcRenderer.send('trigger-my-call');
       }
@@ -123,6 +125,8 @@ export default function ClassroomDisplay() {
   useEffect(() => {
     if (lastUpdatedAt > 0 && lastUpdatedAt !== prevUpdatedAtRef.current) {
       setShowAnnouncePopup(true);
+      alertSound.currentTime = 0;
+      alertSound.play().catch(e => console.log('Audio play failed:', e));
       if (typeof window !== 'undefined' && (window as any).electron?.ipcRenderer) {
         (window as any).electron.ipcRenderer.send('trigger-my-call');
       }
@@ -227,17 +231,8 @@ export default function ClassroomDisplay() {
 
   // Alert System
   useEffect(() => {
-    if (state.callStatus && state.studentName) {
+    if (state.studentName) {
       setActiveAlert(state);
-      alertSound.currentTime = 0;
-      alertSound.play().catch(e => console.log('Audio play failed:', e));
-
-      // Trigger Electron window focus/popup if running in Electron
-      if (typeof window !== 'undefined') {
-        if ((window as any).electron?.ipcRenderer) {
-          (window as any).electron.ipcRenderer.send('trigger-my-call');
-        }
-      }
     } else {
       setActiveAlert(null);
     }

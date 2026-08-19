@@ -37,7 +37,6 @@ export default function OfficeRemote() {
 
   const handleSaveAnnouncement = () => {
     updateAnnouncement(announcementInput);
-    socket.emit("send-notification", { text: announcementInput });
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2000);
   };

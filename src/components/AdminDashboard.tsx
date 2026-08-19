@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import Tesseract from 'tesseract.js';
 
 
-const TimetableCell = ({ value, onChange }: { value: string, onChange: (val: string) => void }) => {
+const TimetableCell: React.FC<{ value: string, onChange: (val: string) => void }> = ({ value, onChange }) => {
   const [isEditing, setIsEditing] = useState(false);
   
   // Extract subject and teacher

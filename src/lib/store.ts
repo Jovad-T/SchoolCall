@@ -147,17 +147,23 @@ export function useSchoolStructure() {
 
 export function useClassAnnouncement(grade: string, classNm: string) {
   const [announcement, setAnnouncement] = useState<string>('');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number>(0);
 
   useEffect(() => {
     if (!grade || !classNm || !db) {
       setAnnouncement('');
       return;
     }
-
-    const annRef = ref(db, `school_data/announcements/${grade}/${classNm}`);
+    const annRef = ref(db, `classes/${grade}-${classNm}/announcement`);
     const unsub = onValue(annRef, (snapshot) => {
       if (snapshot.exists()) {
-        setAnnouncement(snapshot.val());
+        const data = snapshot.val();
+        if (typeof data === 'string') {
+          setAnnouncement(data);
+        } else if (data && typeof data === 'object') {
+          setAnnouncement(data.text || '');
+          setLastUpdatedAt(data.updatedAt || 0);
+        }
       } else {
         setAnnouncement('');
       }
@@ -168,10 +174,13 @@ export function useClassAnnouncement(grade: string, classNm: string) {
 
   const updateAnnouncement = async (newAnnouncement: string) => {
     if (!grade || !classNm || !db) return;
-    await set(ref(db, `school_data/announcements/${grade}/${classNm}`), newAnnouncement);
+    await set(ref(db, `classes/${grade}-${classNm}/announcement`), {
+      text: newAnnouncement,
+      updatedAt: Date.now()
+    });
   };
 
-  return { announcement, updateAnnouncement };
+  return { announcement, updateAnnouncement, lastUpdatedAt };
 }
 
 export function useClassTimetable(grade: string, classNm: string) {
