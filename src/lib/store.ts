@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, update } from 'firebase/database';
 
 export type CallState = {
   callStatus: boolean;
@@ -273,6 +273,55 @@ export function useCustomMeal(date: string) {
   };
 
   return { customMeal, updateCustomMeal };
+}
+
+export function useAllCustomMeals() {
+  const [allMeals, setAllMeals] = useState<Record<string, CustomMeal>>({});
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (!db) {
+      setIsLoading(false);
+      return;
+    }
+    const mealsRef = ref(db, 'school_data/meals');
+    const unsub = onValue(mealsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setAllMeals(snapshot.val() as Record<string, CustomMeal>);
+      } else {
+        setAllMeals({});
+      }
+      setIsLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  const saveMultipleCustomMeals = async (meals: CustomMeal[]) => {
+    if (!db || meals.length === 0) return;
+    const updates: Record<string, any> = {};
+    meals.forEach((m) => {
+      if (m && m.date) {
+        updates[`school_data/meals/${m.date}`] = {
+          date: m.date,
+          lunch: m.lunch || [],
+          dinner: m.dinner || []
+        };
+      }
+    });
+    await update(ref(db), updates);
+  };
+
+  const deleteCustomMeal = async (date: string) => {
+    if (!db || !date) return;
+    await set(ref(db, `school_data/meals/${date}`), null);
+  };
+
+  const clearAllCustomMeals = async () => {
+    if (!db) return;
+    await set(ref(db, 'school_data/meals'), null);
+  };
+
+  return { allMeals, isLoading, saveMultipleCustomMeals, deleteCustomMeal, clearAllCustomMeals };
 }
 
 export type RoomSchedule = {

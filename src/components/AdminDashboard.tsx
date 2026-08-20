@@ -1,11 +1,27 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
-import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal, useRooms } from '../lib/store';
-import { extractTimetableFromImage, extractTeacherScheduleFromImage, extractMealFromImageOrText } from '../lib/gemini';
-import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2 } from 'lucide-react';
+import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal, useAllCustomMeals, useRooms } from '../lib/store';
+import { extractTimetableFromImage, extractTeacherScheduleFromImage, extractMealFromImageOrText, extractAllMealsFromImageOrText, ExtractedMealItem } from '../lib/gemini';
+import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2, Plus, Check, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Tesseract from 'tesseract.js';
+
+function formatDateWithDay(dateStr: string) {
+  if (!dateStr || dateStr.length !== 8) return dateStr;
+  const y = dateStr.substring(0, 4);
+  const m = dateStr.substring(4, 6);
+  const d = dateStr.substring(6, 8);
+  const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+  try {
+    const dateObj = new Date(`${y}-${m}-${d}`);
+    const dayIndex = dateObj.getDay();
+    const dayName = isNaN(dayIndex) ? '' : dayNames[dayIndex];
+    return `${y}.${m}.${d} (${dayName})`;
+  } catch {
+    return `${y}.${m}.${d}`;
+  }
+}
 
 
 const TimetableCell: React.FC<{ value: string, onChange: (val: string) => void }> = ({ value, onChange }) => {
@@ -86,7 +102,12 @@ export default function AdminDashboard() {
 
   const [mealDate, setMealDate] = useState(new Date().toISOString().split("T")[0].replace(/-/g, ""));
   const { customMeal, updateCustomMeal } = useCustomMeal(mealDate);
+  const { allMeals, saveMultipleCustomMeals, deleteCustomMeal, clearAllCustomMeals } = useAllCustomMeals();
+  const [extractedMeals, setExtractedMeals] = useState<ExtractedMealItem[]>([]);
   const [isExtractingMeal, setIsExtractingMeal] = useState(false);
+  const [isSavingBulkMeals, setIsSavingBulkMeals] = useState(false);
+  const [mealFilterKeyword, setMealFilterKeyword] = useState('');
+  const [showSavedMealsList, setShowSavedMealsList] = useState(false);
   
   const [mealStatus, setMealStatus] = useState<string | null>(null);
   const [localMeal, setLocalMeal] = useState<{lunch: string, dinner: string}>({lunch: '', dinner: ''});
@@ -101,46 +122,48 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (customMeal && customMeal.date === mealDate) {
       setLocalMeal({
-        lunch: customMeal.lunch.join('\n'),
-        dinner: customMeal.dinner.join('\n')
+        lunch: customMeal.lunch ? customMeal.lunch.join('\n') : '',
+        dinner: customMeal.dinner ? customMeal.dinner.join('\n') : ''
       });
     } else {
       setLocalMeal({lunch: '', dinner: ''});
     }
   }, [customMeal, mealDate]);
 
-    const handleMealImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMealImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert("파일 크기는 10MB 이하여야 합니다.");
+    if (file.size > 15 * 1024 * 1024) {
+      alert("파일 크기는 15MB 이하여야 합니다.");
       return;
     }
 
     setIsExtractingMeal(true);
-    setMealStatus("Gemini AI가 식단표를 분석하여 메뉴를 추출하고 있습니다... (약 5~10초)");
+    setMealStatus("Gemini AI가 식단표를 분석하여 모든 날짜의 메뉴를 추출하고 있습니다... (약 5~15초)");
 
     try {
-      const data = await extractMealFromImageOrText(file, mealDate);
+      const list = await extractAllMealsFromImageOrText(file, mealDate);
 
-      if (data) {
-        if ((!data.lunch || data.lunch.length === 0) && (!data.dinner || data.dinner.length === 0)) {
-           setMealStatus("⚠️ 날짜에 해당하는 식단 정보를 찾지 못했습니다.");
-        } else {
-           setLocalMeal({
-             lunch: data.lunch?.join('\n') || '',
-             dinner: data.dinner?.join('\n') || ''
-           });
-           setMealStatus("✅ 추출 및 정제가 완료되었습니다. 내역을 확인하고 저장해주세요.");
+      if (list && list.length > 0) {
+        setExtractedMeals(list);
+        const match = list.find(m => m.date === mealDate) || list[0];
+        if (match) {
+          setMealDate(match.date);
+          setLocalMeal({
+            lunch: match.lunch.join('\n'),
+            dinner: match.dinner.join('\n')
+          });
         }
+        setMealStatus(`✅ 총 ${list.length}일치의 식단 데이터가 추출되었습니다! 아래 목록에서 검토 후 '전체 식단 일괄 저장'을 눌러주세요.`);
+      } else {
+        setMealStatus("⚠️ 식단표 이미지에서 유효한 날짜별 식단 정보를 찾지 못했습니다.");
       }
     } catch (err: any) {
       console.error("Meal extraction error:", err);
       setMealStatus(`❌ 분석 실패: ${err.message || '알 수 없는 오류가 발생했습니다.'}`);
     } finally {
       setIsExtractingMeal(false);
-      setTimeout(() => setMealStatus(null), 5000);
       if (e.target) e.target.value = '';
     }
   };
@@ -221,44 +244,117 @@ export default function AdminDashboard() {
     setMealStatus("입력하신 링크에서 식단 정보를 찾고 있습니다...");
 
     try {
-      let data;
+      let list: ExtractedMealItem[] = [];
       if (typeof window !== 'undefined' && (window as any).electron?.invoke) {
-        data = await (window as any).electron.invoke('extract-meal-url', { url: mealUrl, date: mealDate });
+        const data = await (window as any).electron.invoke('extract-meal-url', { url: mealUrl, date: mealDate });
+        if (data) {
+          list = [{ date: mealDate, lunch: data.lunch || [], dinner: data.dinner || [] }];
+        }
       } else {
         try {
           const proxyRes = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(mealUrl)}`);
           if (proxyRes.ok) {
             const proxyData = await proxyRes.json();
             if (proxyData.contents) {
-              data = await extractMealFromImageOrText(proxyData.contents, mealDate);
+              list = await extractAllMealsFromImageOrText(proxyData.contents, mealDate);
             }
           }
         } catch (e) {
           console.warn("CORS proxy fetch failed:", e);
         }
-        if (!data) {
+        if (!list || list.length === 0) {
           throw new Error("브라우저 환경에서는 외부 URL 직접 접근이 제한될 수 있습니다. 식단표 이미지 파일 업로드 기능을 이용해 주세요.");
         }
       }
 
-      if (data) {
-        if ((!data.lunch || data.lunch.length === 0) && (!data.dinner || data.dinner.length === 0)) {
-           setMealStatus("⚠️ 해당 날짜의 식단 정보를 찾지 못했습니다. 날짜나 링크를 확인해주세요.");
-        } else {
-           setLocalMeal({
-             lunch: data.lunch?.join('\n') || '',
-             dinner: data.dinner?.join('\n') || ''
-           });
-           setMealStatus("✅ 링크에서 급식 정보 추출이 완료되었습니다. 내용을 확인하고 저장해주세요.");
+      if (list && list.length > 0) {
+        setExtractedMeals(list);
+        const match = list.find(m => m.date === mealDate) || list[0];
+        if (match) {
+          setMealDate(match.date);
+          setLocalMeal({
+            lunch: match.lunch.join('\n'),
+            dinner: match.dinner.join('\n')
+          });
         }
+        setMealStatus(`✅ 링크에서 총 ${list.length}일치의 급식 정보를 추출했습니다. 목록을 확인 후 일괄 저장해주세요.`);
+      } else {
+        setMealStatus("⚠️ 해당 링크에서 유효한 식단 정보를 찾지 못했습니다.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Meal URL extraction error:", err);
-      setMealStatus("❌ 링크 분석 중 오류가 발생했습니다. (보안이 걸려있는 페이지이거나 접속할 수 없는 링크일 수 있습니다)");
+      setMealStatus(`❌ 링크 분석 오류: ${err.message || '알 수 없는 오류가 발생했습니다.'}`);
     } finally {
       setIsExtractingUrl(false);
-      setTimeout(() => setMealStatus(null), 5000);
     }
+  };
+
+  const handleSaveAllExtractedMeals = async () => {
+    if (extractedMeals.length === 0) {
+      alert("저장할 추출 식단이 없습니다.");
+      return;
+    }
+    setIsSavingBulkMeals(true);
+    try {
+      await saveMultipleCustomMeals(extractedMeals);
+      setMealStatus(`✅ 총 ${extractedMeals.length}일치의 급식 정보가 Firebase에 일괄 저장되었습니다. 교실 TV 화면에 즉시 우선 적용됩니다.`);
+      setTimeout(() => setMealStatus(null), 5000);
+    } catch (err: any) {
+      console.error("Batch meal save error:", err);
+      setMealStatus(`❌ 일괄 저장 중 오류 발생: ${err?.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsSavingBulkMeals(false);
+    }
+  };
+
+  const handleSaveSingleExtractedMeal = async (item: ExtractedMealItem) => {
+    try {
+      await saveMultipleCustomMeals([item]);
+      setMealStatus(`✅ ${formatDateWithDay(item.date)} 급식 정보가 저장되었습니다.`);
+      setTimeout(() => setMealStatus(null), 3000);
+    } catch (err: any) {
+      alert(`저장 오류: ${err?.message || '알 수 없는 오류'}`);
+    }
+  };
+
+  const handleExtractedMealDateChange = (index: number, newDate: string) => {
+    const updated = [...extractedMeals];
+    updated[index] = {
+      ...updated[index],
+      date: newDate.replace(/[^0-9]/g, '')
+    };
+    setExtractedMeals(updated);
+  };
+
+  const handleExtractedMealMenuChange = (index: number, type: 'lunch' | 'dinner', text: string) => {
+    const updated = [...extractedMeals];
+    updated[index] = {
+      ...updated[index],
+      [type]: text.split('\n').map(s => s.trim()).filter(Boolean)
+    };
+    setExtractedMeals(updated);
+  };
+
+  const handleRemoveExtractedMeal = (index: number) => {
+    setExtractedMeals(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddExtractedMealRow = () => {
+    let nextDate = new Date().toISOString().split("T")[0].replace(/-/g, "");
+    if (extractedMeals.length > 0) {
+      const lastDate = extractedMeals[extractedMeals.length - 1].date;
+      if (lastDate && lastDate.length === 8) {
+        const y = parseInt(lastDate.substring(0, 4), 10);
+        const m = parseInt(lastDate.substring(4, 6), 10) - 1;
+        const d = parseInt(lastDate.substring(6, 8), 10);
+        const nextDateObj = new Date(y, m, d + 1);
+        const yStr = nextDateObj.getFullYear().toString();
+        const mStr = String(nextDateObj.getMonth() + 1).padStart(2, '0');
+        const dStr = String(nextDateObj.getDate()).padStart(2, '0');
+        nextDate = `${yStr}${mStr}${dStr}`;
+      }
+    }
+    setExtractedMeals(prev => [...prev, { date: nextDate, lunch: [], dinner: [] }]);
   };
 
   const handleSaveMeal = async () => {
@@ -271,7 +367,7 @@ export default function AdminDashboard() {
         lunch: localMeal.lunch.split('\n').map(s => s.trim()).filter(Boolean),
         dinner: localMeal.dinner.split('\n').map(s => s.trim()).filter(Boolean)
       });
-      setMealStatus("✅ 급식 정보가 성공적으로 저장되었습니다. (교실 화면에 우선 적용됩니다)");
+      setMealStatus(`✅ ${formatDateWithDay(mealDate)} 급식 정보가 성공적으로 저장되었습니다. (교실 화면에 우선 적용됩니다)`);
     }
     setTimeout(() => setMealStatus(null), 3000);
   };
@@ -827,73 +923,17 @@ export default function AdminDashboard() {
 
         {/* Meal Management */}
         <div className="glass-card p-10 rounded-2xl border border-yellow-500/30 flex flex-col items-center w-full mb-12">
-          <div className="flex items-center gap-3 mb-6 w-full justify-center">
+          <div className="flex items-center gap-3 mb-4 w-full justify-center">
             <Utensils className="w-6 h-6 text-yellow-500" />
-            <h2 className="text-xl font-bold tracking-widest text-white">오늘의 급식 직접/자동 입력</h2>
+            <h2 className="text-xl font-bold tracking-widest text-white">오늘 및 월간 급식 관리 (Vision AI)</h2>
           </div>
-          <p className="text-[#888] text-xs tracking-wider mb-8 text-center">
-            급식 식단표 이미지(그림, 사진 등)를 첨부하면 AI가 메뉴를 자동으로 추출합니다.<br/>
-            이 곳에 저장된 식단이 나이스(NEIS) 데이터보다 교실에 우선적으로 표시됩니다.
+          <p className="text-[#888] text-xs tracking-wider mb-8 text-center leading-relaxed">
+            한 달 치 식단표 이미지(그림, 사진, PDF 등)를 첨부하면 AI가 <span className="text-yellow-400 font-bold">모든 날짜의 점심/저녁 메뉴</span>를 한 번에 추출합니다.<br/>
+            추출된 목록을 확인 및 수정한 후 일괄 저장하면 교실 화면에 나이스(NEIS) 데이터보다 우선 표시됩니다.
           </p>
 
-          <div className="w-full flex gap-3 mb-8 items-center justify-center">
-            <label className="text-[10px] uppercase text-[#777] font-bold tracking-wider">적용 날짜 (YYYYMMDD)</label>
-            <input 
-              type="text"
-              value={mealDate}
-              onChange={(e) => setMealDate(e.target.value)}
-              className="w-40 bg-[#1A1A1C] p-3 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 transition-colors text-center text-sm font-mono"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mb-8">
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-bold text-yellow-500 flex justify-between">
-                점심 메뉴
-                <span className="text-[10px] text-[#666] font-normal">엔터로 구분</span>
-              </label>
-              <textarea
-                value={localMeal.lunch}
-                onChange={e => setLocalMeal({...localMeal, lunch: e.target.value})}
-                className="w-full h-40 bg-[#1A1A1C] p-4 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 resize-none font-bold text-lg"
-                placeholder="예:&#10;현미밥&#10;김치찌개&#10;돈까스"
-              />
-            </div>
-            
-            <div className="flex flex-col gap-3">
-              <label className="text-sm font-bold text-yellow-500 flex justify-between">
-                저녁 메뉴
-                <span className="text-[10px] text-[#666] font-normal">엔터로 구분</span>
-              </label>
-              <textarea
-                value={localMeal.dinner}
-                onChange={e => setLocalMeal({...localMeal, dinner: e.target.value})}
-                className="w-full h-40 bg-[#1A1A1C] p-4 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 resize-none font-bold text-lg"
-                placeholder="선택사항"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-4 w-full">
-            <div className="flex flex-col md:flex-row gap-4 w-full">
-              <div className="flex-1 flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="학교 홈페이지 급식 게시판 링크(URL) 입력" 
-                  value={mealUrl}
-                  onChange={(e) => setMealUrl(e.target.value)}
-                  className="w-full bg-black/40 p-4 rounded-xl border border-yellow-500/50 text-white outline-none focus:border-yellow-500 transition-colors text-sm"
-                />
-                <button 
-                  onClick={handleMealUrlExtraction} 
-                  disabled={isExtractingUrl} 
-                  className="flex items-center justify-center gap-2 px-6 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50 whitespace-nowrap"
-                >
-                  {isExtractingUrl ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 링크 추출</>}
-                </button>
-              </div>
-            </div>
-
+          {/* Top Upload & URL Extraction Controls */}
+          <div className="flex flex-col gap-4 w-full mb-8">
             <div className="flex flex-col md:flex-row gap-4 w-full">
               <div className="relative flex-1">
                 <input 
@@ -903,25 +943,386 @@ export default function AdminDashboard() {
                   disabled={isExtractingMeal}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
                 />
-                <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-500 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50">
-                  {isExtractingMeal ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-5 h-5"/> 식단표 이미지/PDF 첨부 및 추출</>}
+                <button className="w-full flex items-center justify-center gap-2 py-4 bg-yellow-500/20 text-yellow-400 border border-yellow-500/50 hover:bg-yellow-500 hover:text-black font-bold text-sm tracking-widest rounded-xl transition-all disabled:opacity-50 shadow-[0_0_15px_rgba(234,179,8,0.15)]">
+                  {isExtractingMeal ? (
+                    <span className="animate-pulse flex items-center gap-2">
+                      <Wand2 className="w-5 h-5 animate-spin"/> 한 달 치 식단 전체 분석 중...
+                    </span>
+                  ) : (
+                    <>
+                      <Wand2 className="w-5 h-5"/> 월간 식단표 이미지/PDF 첨부 및 전체 날짜 추출
+                    </>
+                  )}
                 </button>
               </div>
-              
-              <button 
-                onClick={handleSaveMeal}
-                className="flex-1 bg-yellow-500 text-black py-4 rounded-xl font-black text-sm tracking-widest hover:brightness-110 transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)]"
-              >
-                급식 메뉴 최종 저장 및 적용
-              </button>
+            </div>
+
+            <div className="flex flex-col md:flex-row gap-4 w-full">
+              <div className="flex-1 flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="학교 홈페이지 급식 게시판 링크(URL) 입력" 
+                  value={mealUrl}
+                  onChange={(e) => setMealUrl(e.target.value)}
+                  className="w-full bg-black/40 p-3 rounded-xl border border-yellow-500/30 text-white outline-none focus:border-yellow-500 transition-colors text-sm"
+                />
+                <button 
+                  onClick={handleMealUrlExtraction} 
+                  disabled={isExtractingUrl} 
+                  className="flex items-center justify-center gap-2 px-6 bg-yellow-500/10 text-yellow-500 border border-yellow-500/30 hover:bg-yellow-500 hover:text-black font-bold text-xs tracking-widest rounded-xl transition-all disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isExtractingUrl ? <span className="animate-pulse">분석 중...</span> : <><Wand2 className="w-4 h-4"/> 링크 추출</>}
+                </button>
+              </div>
             </div>
           </div>
 
           {mealStatus && (
-            <div className="mt-6 w-full text-center px-4 py-4 bg-[#1A1A1C] border border-yellow-500/30 text-yellow-500 text-sm rounded-lg shadow-lg">
+            <div className="mb-8 w-full text-center px-4 py-4 bg-[#1A1A1C] border border-yellow-500/30 text-yellow-400 text-sm rounded-lg shadow-lg">
               {mealStatus}
             </div>
           )}
+
+          {/* Section: Extracted Meals List View (Monthly Review) */}
+          {extractedMeals.length > 0 ? (
+            <div className="w-full bg-[#111113] p-6 rounded-2xl border border-yellow-500/40 flex flex-col gap-6 mb-8">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-[#333] pb-4">
+                <div className="flex items-center gap-3">
+                  <span className="px-3 py-1 bg-yellow-500 text-black text-xs font-black rounded-full uppercase tracking-wider">
+                    AI 추출 완료
+                  </span>
+                  <h3 className="text-lg font-bold text-white">
+                    추출된 식단 목록 <span className="text-yellow-400">({extractedMeals.length}일치)</span>
+                  </h3>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  <button
+                    onClick={handleAddExtractedMealRow}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-[#222] hover:bg-[#333] text-gray-200 border border-[#444] rounded-lg text-xs font-bold transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-yellow-400" /> 날짜 추가
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm("추출된 식단 목록을 모두 비우시겠습니까?")) {
+                        setExtractedMeals([]);
+                      }
+                    }}
+                    className="px-3 py-2 bg-[#222] hover:bg-[#333] text-gray-400 hover:text-red-400 border border-[#444] rounded-lg text-xs font-bold transition-colors"
+                  >
+                    목록 비우기
+                  </button>
+                  <button
+                    onClick={handleSaveAllExtractedMeals}
+                    disabled={isSavingBulkMeals}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-yellow-500 hover:bg-yellow-400 text-black font-black text-xs tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(234,179,8,0.3)] disabled:opacity-50"
+                  >
+                    {isSavingBulkMeals ? (
+                      <span className="animate-pulse">저장 중...</span>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" /> 전체 식단 일괄 Firebase 저장 ({extractedMeals.length}일치)
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Filter / Search bar */}
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="날짜(예: 202608) 또는 메뉴 검색 필터..."
+                  value={mealFilterKeyword}
+                  onChange={(e) => setMealFilterKeyword(e.target.value)}
+                  className="w-full max-w-xs bg-[#1A1A1C] px-3 py-2 rounded-lg border border-[#444] text-xs text-white outline-none focus:border-yellow-500 transition-colors"
+                />
+                {mealFilterKeyword && (
+                  <button
+                    onClick={() => setMealFilterKeyword('')}
+                    className="text-xs text-gray-400 hover:text-white"
+                  >
+                    초기화
+                  </button>
+                )}
+              </div>
+
+              {/* List of Extracted Meals */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto pr-1">
+                {extractedMeals
+                  .filter((m) => {
+                    if (!mealFilterKeyword.trim()) return true;
+                    const kw = mealFilterKeyword.toLowerCase();
+                    return (
+                      m.date.includes(kw) ||
+                      m.lunch.some((l) => l.toLowerCase().includes(kw)) ||
+                      m.dinner.some((d) => d.toLowerCase().includes(kw))
+                    );
+                  })
+                  .map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-[#18181B] p-4 rounded-xl border border-[#333] hover:border-yellow-500/40 flex flex-col gap-3 transition-colors"
+                    >
+                      <div className="flex items-center justify-between border-b border-[#2A2A2E] pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs font-bold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded border border-yellow-500/20">
+                            {formatDateWithDay(item.date)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={item.date}
+                            onChange={(e) => handleExtractedMealDateChange(idx, e.target.value)}
+                            className="w-24 bg-[#111] px-2 py-1 rounded text-center text-xs font-mono border border-[#444] text-gray-200 outline-none focus:border-yellow-500"
+                            placeholder="YYYYMMDD"
+                            title="날짜 수정 (YYYYMMDD)"
+                          />
+                          <button
+                            onClick={() => handleRemoveExtractedMeal(idx)}
+                            className="p-1 hover:bg-red-500/20 text-gray-400 hover:text-red-400 rounded transition-colors"
+                            title="해당 날짜 삭제"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Lunch input */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-[11px] font-bold text-yellow-400">
+                          <span>점심(중식)</span>
+                          <span className="text-[10px] text-gray-400 font-normal">
+                            {item.lunch.length}개 메뉴
+                          </span>
+                        </div>
+                        <textarea
+                          rows={3}
+                          value={item.lunch.join('\n')}
+                          onChange={(e) => handleExtractedMealMenuChange(idx, 'lunch', e.target.value)}
+                          placeholder="점심 메뉴 (엔터 구분)"
+                          className="w-full bg-[#121214] p-2.5 rounded-lg border border-[#3A3A3E] text-white outline-none focus:border-yellow-500 text-xs font-sans resize-none leading-relaxed"
+                        />
+                      </div>
+
+                      {/* Dinner input */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-center text-[11px] font-bold text-gray-300">
+                          <span>저녁(석식)</span>
+                          <span className="text-[10px] text-gray-400 font-normal">
+                            {item.dinner.length > 0 ? `${item.dinner.length}개 메뉴` : '없음'}
+                          </span>
+                        </div>
+                        <textarea
+                          rows={2}
+                          value={item.dinner.join('\n')}
+                          onChange={(e) => handleExtractedMealMenuChange(idx, 'dinner', e.target.value)}
+                          placeholder="저녁 메뉴 (선택사항)"
+                          className="w-full bg-[#121214] p-2 rounded-lg border border-[#3A3A3E] text-gray-200 outline-none focus:border-yellow-500 text-xs font-sans resize-none leading-relaxed"
+                        />
+                      </div>
+
+                      <div className="mt-auto pt-2 flex justify-end">
+                        <button
+                          onClick={() => handleSaveSingleExtractedMeal(item)}
+                          className="px-3 py-1 bg-yellow-500/10 hover:bg-yellow-500 hover:text-black text-yellow-400 border border-yellow-500/30 rounded text-[10px] font-bold transition-colors"
+                        >
+                          이 날짜만 저장
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+
+              {/* Bottom Batch Save Button */}
+              <div className="flex justify-center pt-2">
+                <button
+                  onClick={handleSaveAllExtractedMeals}
+                  disabled={isSavingBulkMeals}
+                  className="w-full max-w-md py-4 bg-yellow-500 hover:bg-yellow-400 text-black rounded-xl font-black text-sm tracking-widest transition-all shadow-[0_0_20px_rgba(234,179,8,0.3)] disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isSavingBulkMeals ? (
+                    <span className="animate-pulse">Firebase 일괄 저장 중...</span>
+                  ) : (
+                    <>
+                      <Check className="w-5 h-5" /> 추출된 전체 식단 일괄 Firebase 저장 ({extractedMeals.length}일치)
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full bg-[#141416] p-6 rounded-xl border border-[#333] mb-8 text-center text-gray-400 text-xs leading-relaxed">
+              💡 <span className="text-yellow-400 font-bold">월간 식단표 이미지 첨부</span>를 누르면, AI가 한 달 치 모든 날짜의 메뉴를 자동 분석하여 목록으로 표시합니다.
+            </div>
+          )}
+
+          {/* Section: Single Date Direct Manual Editor */}
+          <div className="w-full bg-[#141416] p-6 rounded-xl border border-[#333] flex flex-col gap-6 mb-6">
+            <div className="flex items-center justify-between border-b border-[#2A2A2E] pb-3">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-yellow-500" />
+                개별 날짜 직접 확인 및 수정
+              </h3>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] uppercase text-[#777] font-bold tracking-wider">적용 날짜</label>
+                <input 
+                  type="text"
+                  value={mealDate}
+                  onChange={(e) => setMealDate(e.target.value)}
+                  className="w-32 bg-[#1A1A1C] p-2 rounded-lg border border-[#444] text-white outline-none focus:border-yellow-500 transition-colors text-center text-xs font-mono"
+                  placeholder="YYYYMMDD"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-yellow-500 flex justify-between">
+                  점심 메뉴
+                  <span className="text-[10px] text-[#666] font-normal">엔터로 구분</span>
+                </label>
+                <textarea
+                  value={localMeal.lunch}
+                  onChange={e => setLocalMeal({...localMeal, lunch: e.target.value})}
+                  className="w-full h-32 bg-[#1A1A1C] p-3 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 resize-none font-medium text-sm leading-relaxed"
+                  placeholder="예:&#10;현미밥&#10;김치찌개&#10;돈까스"
+                />
+              </div>
+              
+              <div className="flex flex-col gap-2">
+                <label className="text-xs font-bold text-gray-300 flex justify-between">
+                  저녁 메뉴
+                  <span className="text-[10px] text-[#666] font-normal">엔터로 구분</span>
+                </label>
+                <textarea
+                  value={localMeal.dinner}
+                  onChange={e => setLocalMeal({...localMeal, dinner: e.target.value})}
+                  className="w-full h-32 bg-[#1A1A1C] p-3 rounded-xl border border-[#333] text-white outline-none focus:border-yellow-500 resize-none font-medium text-sm leading-relaxed"
+                  placeholder="선택사항 (석식이 없으면 비워둠)"
+                />
+              </div>
+            </div>
+
+            <button 
+              onClick={handleSaveMeal}
+              className="w-full py-3 bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 hover:bg-yellow-500 hover:text-black font-bold text-xs tracking-wider rounded-lg transition-colors"
+            >
+              선택한 날짜 ({formatDateWithDay(mealDate)}) 급식 저장 및 교실 적용
+            </button>
+          </div>
+
+          {/* Section: Firebase Saved Meals Explorer */}
+          <div className="w-full bg-[#111] rounded-xl border border-[#333] overflow-hidden">
+            <button
+              onClick={() => setShowSavedMealsList(!showSavedMealsList)}
+              className="w-full p-4 flex items-center justify-between text-left hover:bg-[#1A1A1C] transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-yellow-500" />
+                <span className="text-xs font-bold text-white">
+                  현재 서버(Firebase)에 등록된 식단 데이터
+                </span>
+                <span className="px-2 py-0.5 bg-[#222] text-yellow-400 text-[10px] font-bold rounded-full">
+                  총 {Object.keys(allMeals || {}).length}일치
+                </span>
+              </div>
+              {showSavedMealsList ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {showSavedMealsList && (
+              <div className="p-4 border-t border-[#222] bg-[#0E0E10] flex flex-col gap-4">
+                {Object.keys(allMeals || {}).length > 0 ? (
+                  <>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[11px] text-gray-400">
+                        서버에 저장된 날짜별 식단 목록입니다.
+                      </span>
+                      <button
+                        onClick={async () => {
+                          if (confirm("서버에 등록된 모든 커스텀 식단 데이터를 삭제하시겠습니까? (이후 나이스 데이터가 기본 표시됩니다)")) {
+                            await clearAllCustomMeals();
+                            setMealStatus("✅ 등록된 모든 커스텀 식단 데이터가 삭제되었습니다.");
+                            setTimeout(() => setMealStatus(null), 3000);
+                          }
+                        }}
+                        className="text-[10px] text-red-400 hover:text-red-300 font-bold px-2 py-1 rounded bg-red-500/10 border border-red-500/20"
+                      >
+                        전체 삭제
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-72 overflow-y-auto pr-1">
+                      {Object.keys(allMeals)
+                        .sort()
+                        .map((dt) => {
+                          const item = allMeals[dt];
+                          return (
+                            <div
+                              key={dt}
+                              className="p-3 bg-[#18181A] rounded-lg border border-[#333] flex flex-col gap-1.5"
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono text-xs font-bold text-yellow-400">
+                                  {formatDateWithDay(dt)}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => {
+                                      setMealDate(dt);
+                                      setLocalMeal({
+                                        lunch: item.lunch?.join('\n') || '',
+                                        dinner: item.dinner?.join('\n') || ''
+                                      });
+                                    }}
+                                    className="px-2 py-0.5 bg-[#2A2A2E] text-gray-300 hover:text-white rounded text-[10px]"
+                                  >
+                                    수정
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`${dt} 식단을 삭제하시겠습니까?`)) {
+                                        await deleteCustomMeal(dt);
+                                      }
+                                    }}
+                                    className="p-1 text-gray-500 hover:text-red-400 rounded"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="text-[11px] text-gray-300 line-clamp-2">
+                                <span className="text-yellow-500/80 font-bold mr-1">[중식]</span>
+                                {item.lunch && item.lunch.length > 0
+                                  ? item.lunch.join(', ')
+                                  : '등록된 메뉴 없음'}
+                              </div>
+                              {item.dinner && item.dinner.length > 0 && (
+                                <div className="text-[11px] text-gray-400 line-clamp-1">
+                                  <span className="text-gray-500 font-bold mr-1">[석식]</span>
+                                  {item.dinner.join(', ')}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-center text-gray-500 text-xs py-4">
+                    현재 Firebase 서버에 저장된 식단 데이터가 없습니다. (나이스 NEIS 급식 표시 중)
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="glass-card p-10 rounded-2xl border border-brand-blue/30 flex flex-col items-center w-full">

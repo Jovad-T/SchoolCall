@@ -205,18 +205,39 @@ export async function extractTeacherScheduleFromImage(
   return JSON.parse(text);
 }
 
+export type ExtractedMealItem = {
+  date: string; // 'YYYYMMDD' (e.g. '20260819')
+  lunch: string[];
+  dinner: string[];
+};
+
 /**
- * Refine meal menu text or extract meal from an uploaded image using client-side Gemini API.
+ * Extract monthly or all-date meal menu items from an uploaded meal schedule image or text using client-side Gemini API.
+ * Prompted to extract all dates as a JSON array: [{ date: 'YYYYMMDD', lunch: [...], dinner: [...] }, ...]
  */
-export async function extractMealFromImageOrText(
+export async function extractAllMealsFromImageOrText(
   fileOrText: File | string,
-  date: string
-): Promise<{ lunch: string[]; dinner: string[] }> {
+  referenceDate?: string
+): Promise<ExtractedMealItem[]> {
   const ai = getGeminiClient();
+  const currentYear = referenceDate
+    ? referenceDate.substring(0, 4)
+    : new Date().getFullYear().toString();
+  const currentMonth = referenceDate
+    ? referenceDate.substring(4, 6)
+    : String(new Date().getMonth() + 1).padStart(2, "0");
+
+  const promptText = `해당 식단표(또는 월간 급식표)에 있는 '모든 날짜'의 점심(중식)과 저녁(석식) 메뉴를 빠짐없이 추출해서 [{ date: 'YYYYMMDD', lunch: ['메뉴1', '메뉴2'], dinner: ['메뉴1', '메뉴2'] }, ...] 형태의 JSON 배열(Array)로 반환해 줘.
+
+[상세 지침]:
+1. date: 반드시 'YYYYMMDD' 형태의 8자리 숫자 문자열(예: '20260801', '20260819')로 작성해. 이미지/문서에 연도가 생략되어 있거나 날짜만 표기되어 있다면 기본 기준 연도(${currentYear}년)와 기준 월(${currentMonth}월)을 참고하여 정확한 8자리 YYYYMMDD로 포맷팅해 줘.
+2. lunch: 해당 날짜의 점심/중식 메뉴 목록. 메뉴명 옆의 괄호 안 알레르기 유발물질 번호(예: 1.2.5.6, ①② 등), 칼로리(kcal), 원산지 등 불필요한 기호는 완전히 제거하고 깨끗한 음식명 문자열만 포함해 줘.
+3. dinner: 해당 날짜의 저녁/석식 메뉴 목록. 석식 메뉴가 없거나 적혀있지 않은 날은 빈 배열 []로 반환해 줘.
+4. 식단표에 표기된 모든 날짜(1일~말일 등)를 누락 없이 날짜 오름차순으로 모두 추출해 줘.`;
 
   let contents: any;
   if (typeof fileOrText === "string") {
-    contents = `입력된 텍스트에서 해당 날짜(${date})의 '중식'과 '석식' 메뉴만 각각 추출하고, 메뉴 옆에 붙은 괄호 속 알레르기 유발 물질 번호(예: 1.2.5.6)는 모두 제거한 뒤 깔끔한 문자열 배열로 반환해 줘. 만약 날짜에 해당하는 정보가 없다면 빈 배열을 반환해.\n\nRaw Text:\n${fileOrText.substring(0, 50000)}`;
+    contents = `${promptText}\n\n[식단 텍스트 자료]:\n${fileOrText.substring(0, 70000)}`;
   } else {
     const { base64Data, mimeType } = await fileToBase64(fileOrText);
     contents = [
@@ -227,7 +248,7 @@ export async function extractMealFromImageOrText(
         },
       },
       {
-        text: `입력된 식단표 이미지에서 해당 날짜(${date})의 '중식'과 '석식' 메뉴만 각각 추출하고, 메뉴 옆에 붙은 괄호 속 알레르기 유발 물질 번호(예: 1.2.5.6)나 칼로리 정보는 모두 제거한 뒤 깔끔한 문자열 배열로 반환해 줘. 만약 해당 날짜 정보가 없다면 빈 배열을 반환해.`,
+        text: promptText,
       },
     ];
   }
@@ -238,17 +259,104 @@ export async function extractMealFromImageOrText(
     config: {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
-          dinner: { type: Type.ARRAY, items: { type: Type.STRING } },
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            date: {
+              type: Type.STRING,
+              description: "YYYYMMDD 형식의 8자리 날짜 문자열 (예: 20260819)",
+            },
+            lunch: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "점심/중식 메뉴 배열",
+            },
+            dinner: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "저녁/석식 메뉴 배열",
+            },
+          },
+          required: ["date", "lunch", "dinner"],
         },
-        required: ["lunch", "dinner"],
       },
     },
   });
 
   const text = response.text;
   if (!text) throw new Error("Gemini AI로부터 응답을 받지 못했습니다.");
-  return JSON.parse(text);
+
+  const rawList = JSON.parse(text);
+  if (!Array.isArray(rawList)) {
+    throw new Error("Gemini AI 응답이 배열 형식이 아닙니다.");
+  }
+
+  // Normalize and clean up dates and array elements
+  const cleanedList: ExtractedMealItem[] = rawList
+    .map((item: any) => {
+      let rawDate = String(item.date || "").replace(/[^0-9]/g, "");
+      if (rawDate.length === 4) {
+        // e.g. MMDD -> YYYYMMDD
+        rawDate = `${currentYear}${rawDate}`;
+      } else if (rawDate.length === 6) {
+        // e.g. YYMMDD -> 20YYMMDD
+        rawDate = `20${rawDate}`;
+      }
+
+      const cleanMenuArray = (arr: any): string[] => {
+        if (!arr) return [];
+        if (Array.isArray(arr)) {
+          return arr
+            .map((s) =>
+              String(s)
+                .replace(/\([0-9.\s]+\)/g, "")
+                .replace(/[①-⑳]/g, "")
+                .trim()
+            )
+            .filter((s) => Boolean(s) && s !== "-" && s !== "없음");
+        }
+        if (typeof arr === "string") {
+          return arr
+            .split(/[\n,]/)
+            .map((s) =>
+              s
+                .replace(/\([0-9.\s]+\)/g, "")
+                .replace(/[①-⑳]/g, "")
+                .trim()
+            )
+            .filter((s) => Boolean(s) && s !== "-" && s !== "없음");
+        }
+        return [];
+      };
+
+      return {
+        date: rawDate,
+        lunch: cleanMenuArray(item.lunch),
+        dinner: cleanMenuArray(item.dinner),
+      };
+    })
+    .filter((item) => item.date.length === 8 && (item.lunch.length > 0 || item.dinner.length > 0));
+
+  cleanedList.sort((a, b) => a.date.localeCompare(b.date));
+
+  return cleanedList;
+}
+
+/**
+ * Backward-compatible single-date or monthly meal extraction helper.
+ */
+export async function extractMealFromImageOrText(
+  fileOrText: File | string,
+  date: string
+): Promise<{ lunch: string[]; dinner: string[] }> {
+  const allMeals = await extractAllMealsFromImageOrText(fileOrText, date);
+  const target = allMeals.find((m) => m.date === date);
+  if (target) {
+    return { lunch: target.lunch, dinner: target.dinner };
+  }
+  if (allMeals.length > 0) {
+    return { lunch: allMeals[0].lunch, dinner: allMeals[0].dinner };
+  }
+  return { lunch: [], dinner: [] };
 }
