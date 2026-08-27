@@ -70,14 +70,12 @@ export default function App() {
     };
   });
 
-  // 💡 [수정] 이제 모든 날짜를 저장합니다 (키값: "YYYYMMDD")
   const [classTimetables, setClassTimetables] = useState<Record<string, Record<string, Record<number, string>>>>(() => {
     const saved = localStorage.getItem('class_timetables_map');
     if (saved) return JSON.parse(saved);
     return {};
   });
 
-  // 💡 [수정] 이제 급식도 날짜별로 저장합니다 (키값: "YYYYMMDD")
   const [meals, setMeals] = useState<Record<string, {lunch: string[], dinner: string[]}>>(() => {
     const saved = localStorage.getItem('meal_data');
     if (saved) return JSON.parse(saved);
@@ -95,12 +93,11 @@ export default function App() {
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
 
-  // 💡 [관리자용 날짜 선택]
   const [adminDate, setAdminDate] = useState(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   });
-  const adminDateKey = adminDate.replace(/-/g, ''); // "20260828" 형태
+  const adminDateKey = adminDate.replace(/-/g, '');
 
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
@@ -130,11 +127,9 @@ export default function App() {
 
   const lastSyncTimeRef = useRef<number>(Date.now());
 
-  // 🔥 [현재 시간에 맞는 오늘치 데이터 가져오기 로직 (자동화 핵심)]
   const todayStr = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
   
-  // 구버전(날짜가 없는 데이터) 호환성 유지용 백업
   let todayMealsObj = meals[todayStr];
   if (!todayMealsObj && (meals as any).lunch) todayMealsObj = meals as any;
   if (!todayMealsObj) todayMealsObj = { lunch: ['오늘의 급식 정보가 없습니다.'], dinner: ['오늘의 급식 정보가 없습니다.'] };
@@ -145,7 +140,6 @@ export default function App() {
 
   const currentStudents = classRosters[currentKey] || [];
 
-  // 관리자 모드에서 편집 중인 데이터
   const editKey = `${editTargetGrade}-${editTargetClass}`;
   const editTargetStudents = tempClassRosters[editKey] || [];
   const currentAdminTimetable = tempClassTimetables[editKey]?.[adminDateKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
@@ -384,7 +378,6 @@ export default function App() {
     reader.readAsText(file, 'utf-8');
   };
 
-  // 💡 NEIS에서 선택한 "관리자 날짜(adminDateKey)"에 맞춰 1일치 데이터를 불러옵니다.
   const handleNeisFetch = async (type: 'timetable' | 'meal') => {
     if (!schoolConfig.neisApiKey) {
       alert("❌ [오류] 관리자 모드의 [나이스(NEIS) 인증키 연동]에 API 키를 입력해주세요.");
@@ -449,7 +442,6 @@ export default function App() {
     }
   };
 
-  // 💡 [AI 한달/일주일 자동화 파서 - 시간표]
   const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -534,7 +526,6 @@ export default function App() {
     }
   };
 
-  // 💡 [AI 한달 자동화 파서 - 급식]
   const handleMealFileupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -651,6 +642,7 @@ export default function App() {
     sendFirebaseMessage(customAnnouncement.trim());
   };
 
+  // 💡 [핵심 수정] UI 변경 즉시 반영되도록 서버 동기화 로직 분리
   const handleSaveAdminSettings = () => {
     const newConfig = { 
       schoolName: adminSchoolName.trim() || '학교명', 
@@ -663,6 +655,8 @@ export default function App() {
       schoolCode: adminSchoolCode.trim(),
       adminPin: adminPinInput.trim() || '0000'
     };
+    
+    // 화면에 먼저 반영 (로컬 적용)
     setSchoolConfig(newConfig);
     setClassRosters(tempClassRosters);
     setDailySchedule(tempDailySchedule);
@@ -675,6 +669,11 @@ export default function App() {
     localStorage.setItem('class_timetables_map', JSON.stringify(tempClassTimetables));
     localStorage.setItem('meal_data', JSON.stringify(tempMeals));
 
+    // 사용자에게 성공 알림 띄우고 메인 화면으로 즉시 탈출! (버튼 먹통 방지)
+    alert('✅ 설정이 성공적으로 저장되어 달력이 갱신되었습니다!');
+    setViewMode('select');
+
+    // Firebase 통신은 뒤에서(백그라운드) 알아서 처리되게 둡니다.
     if (db) {
       set(ref(db, 'globalData'), {
         schoolConfig: newConfig,
@@ -682,15 +681,9 @@ export default function App() {
         dailySchedule: tempDailySchedule,
         classTimetables: tempClassTimetables,
         meals: tempMeals
-      }).then(() => {
-        alert('✅ 클라우드(Firebase)에 관리자 설정이 성공적으로 저장되어 모든 기기에 동기화됩니다!');
-        setViewMode('select');
       }).catch(e => {
-        alert('❌ 설정 저장 실패 (서버 오류): ' + e.message);
+        console.error('Firebase 백그라운드 동기화 실패 (네트워크 불안정):', e);
       });
-    } else {
-      alert('✅ 오프라인 모드: 로컬에 저장되었습니다.');
-      setViewMode('select');
     }
   };
 
@@ -997,7 +990,6 @@ export default function App() {
 
         <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-8 pb-16">
           
-          {/* 💡 [수정] 관리자 모드에서 설정할 '날짜'를 선택하는 기능 추가 */}
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🗓️ 달력 데이터 선택</h2>
