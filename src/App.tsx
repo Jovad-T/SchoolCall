@@ -70,21 +70,37 @@ export default function App() {
     };
   });
 
+  // 💡 [안전망 추가] 로딩할 때 저장소가 비정상적으로 크면(쓰레기 데이터) 자동으로 비워줍니다.
   const [classTimetables, setClassTimetables] = useState<Record<string, Record<string, Record<number, string>>>>(() => {
     const saved = localStorage.getItem('class_timetables_map');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      if (saved.length > 500000) {
+        console.warn("시간표 저장소 용량 초과 감지! 자동 초기화합니다.");
+        localStorage.removeItem('class_timetables_map');
+        return {};
+      }
+      try { return JSON.parse(saved); } catch(e) { return {}; }
+    }
     return {};
   });
 
   const [meals, setMeals] = useState<Record<string, {lunch: string[], dinner: string[]}>>(() => {
     const saved = localStorage.getItem('meal_data');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      if (saved.length > 500000) {
+        console.warn("급식 저장소 용량 초과 감지! 자동 초기화합니다.");
+        localStorage.removeItem('meal_data');
+        return {};
+      }
+      try { return JSON.parse(saved); } catch(e) { return {}; }
+    }
     return {};
   });
 
   const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
+  const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [isExited, setIsExited] = useState(false);
 
   const [selectedStudent, setSelectedStudent] = useState<string>('');
@@ -98,6 +114,7 @@ export default function App() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   });
   const adminDateKey = adminDate.replace(/-/g, '');
+  const adminDayOfWeek = String(new Date(adminDate).getDay());
 
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
@@ -134,15 +151,15 @@ export default function App() {
   if (!todayMealsObj && (meals as any).lunch) todayMealsObj = meals as any;
   if (!todayMealsObj) todayMealsObj = { lunch: ['오늘의 급식 정보가 없습니다.'], dinner: ['오늘의 급식 정보가 없습니다.'] };
 
-  let todayTimetableObj = classTimetables[currentKey]?.[todayStr];
-  if (!todayTimetableObj && classTimetables[currentKey]?.[1]) todayTimetableObj = classTimetables[currentKey] as any;
+  const currentDayOfWeekStr = String(currentTime.getDay());
+  let todayTimetableObj = classTimetables[currentKey]?.[currentDayOfWeekStr];
   if (!todayTimetableObj) todayTimetableObj = { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
 
   const currentStudents = classRosters[currentKey] || [];
 
   const editKey = `${editTargetGrade}-${editTargetClass}`;
   const editTargetStudents = tempClassRosters[editKey] || [];
-  const currentAdminTimetable = tempClassTimetables[editKey]?.[adminDateKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
+  const currentAdminTimetable = tempClassTimetables[editKey]?.[adminDayOfWeek] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
   const currentAdminMeals = tempMeals[adminDateKey] || { lunch: [], dinner: [] };
 
   useEffect(() => {
@@ -223,21 +240,23 @@ export default function App() {
     const unsubscribe = onValue(announceRef, (snapshot) => {
       const data = snapshot.val();
       
-      if (data && data.time > lastSyncTimeRef.current) {
+      if (data) {
         setAnnouncement(data.text);
-        lastSyncTimeRef.current = data.time;
-        
-        if (isClassTime()) {
-          console.log("현재 수업 시간이므로 알림이 차단되었습니다.");
-          return;
-        }
+        if (data.time > lastSyncTimeRef.current) {
+          lastSyncTimeRef.current = data.time;
+          
+          if (isClassTime()) {
+            console.log("현재 수업 시간이므로 알림이 차단되었습니다.");
+            return;
+          }
 
-        setIsPopupOpen(true);
-        setIsExited(false);
-        playNeonAlertSound(); 
-        
-        if ((window as any).electron && (window as any).electron.ipcRenderer) {
-          (window as any).electron.ipcRenderer.send('trigger-my-call');
+          setIsPopupOpen(true);
+          setIsExited(false);
+          playNeonAlertSound(); 
+          
+          if ((window as any).electron && (window as any).electron.ipcRenderer) {
+            (window as any).electron.ipcRenderer.send('trigger-my-call');
+          }
         }
       }
     });
@@ -305,7 +324,6 @@ export default function App() {
       localStorage.setItem('default_view_mode', mode);
     }
     setViewMode(mode);
-    if (mode === 'classroom') setIsPopupOpen(true);
   };
 
   const handleGoHome = () => {
@@ -402,10 +420,10 @@ export default function App() {
             ...prev,
             [key]: {
               ...(prev[key] || {}),
-              [adminDateKey]: newTimetable
+              [adminDayOfWeek]: newTimetable
             }
           }));
-          alert(`📡 [NEIS 연동 완료] ${adminDate}의 시간표를 가져왔습니다!`);
+          alert(`📡 [NEIS 연동 완료] 선택하신 요일의 학기 고정 시간표를 덮어썼습니다!`);
         } else {
           alert(`⚠ 해당 날짜의 시간표 데이터가 NEIS에 없습니다.`);
         }
@@ -463,6 +481,12 @@ export default function App() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+
+      const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      
+      const month = currentTime.getMonth() + 1;
+      const date = currentTime.getDate();
+      const dayStr = ['일', '월', '화', '수', '목', '금', '토'][currentTime.getDay()];
 
       const promptText = `
 너는 대한민국 학교 시간표 전문 OCR 분석기야.
@@ -642,7 +666,7 @@ export default function App() {
     sendFirebaseMessage(customAnnouncement.trim());
   };
 
-  // 💡 [핵심 수정] UI 변경 즉시 반영되도록 서버 동기화 로직 분리
+  // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
   const handleSaveAdminSettings = () => {
     const newConfig = { 
       schoolName: adminSchoolName.trim() || '학교명', 
@@ -656,34 +680,51 @@ export default function App() {
       adminPin: adminPinInput.trim() || '0000'
     };
     
-    // 화면에 먼저 반영 (로컬 적용)
     setSchoolConfig(newConfig);
     setClassRosters(tempClassRosters);
     setDailySchedule(tempDailySchedule);
     setClassTimetables(tempClassTimetables);
     setMeals(tempMeals);
 
-    localStorage.setItem('school_config', JSON.stringify(newConfig));
-    localStorage.setItem('class_rosters_map', JSON.stringify(tempClassRosters));
-    localStorage.setItem('daily_schedule', JSON.stringify(tempDailySchedule));
-    localStorage.setItem('class_timetables_map', JSON.stringify(tempClassTimetables));
-    localStorage.setItem('meal_data', JSON.stringify(tempMeals));
-
-    // 사용자에게 성공 알림 띄우고 메인 화면으로 즉시 탈출! (버튼 먹통 방지)
-    alert('✅ 설정이 성공적으로 저장되어 달력이 갱신되었습니다!');
-    setViewMode('select');
-
-    // Firebase 통신은 뒤에서(백그라운드) 알아서 처리되게 둡니다.
     if (db) {
-      set(ref(db, 'globalData'), {
+      const cleanData = JSON.parse(JSON.stringify({
         schoolConfig: newConfig,
         classRosters: tempClassRosters,
         dailySchedule: tempDailySchedule,
         classTimetables: tempClassTimetables,
         meals: tempMeals
-      }).catch(e => {
-        console.error('Firebase 백그라운드 동기화 실패 (네트워크 불안정):', e);
+      }));
+
+      set(ref(db, 'globalData'), cleanData).catch(e => {
+        console.warn('Firebase 백그라운드 동기화 실패:', e);
       });
+    }
+
+    const safeSave = (key: string, value: any) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (err: any) {
+        if (err?.name === 'QuotaExceededError' || err?.message?.includes('quota') || err?.message?.includes('Storage')) {
+          console.warn(`저장소 용량 초과로 인해 ${key} 데이터를 무시하고 계속 진행합니다.`);
+          localStorage.removeItem(key);
+        } else {
+          throw err;
+        }
+      }
+    };
+
+    try {
+      safeSave('school_config', newConfig);
+      safeSave('class_rosters_map', tempClassRosters);
+      safeSave('daily_schedule', tempDailySchedule);
+      safeSave('class_timetables_map', tempClassTimetables);
+      safeSave('meal_data', tempMeals);
+      
+      setSaveSuccessToast(true);
+      setTimeout(() => setSaveSuccessToast(false), 3000);
+    } catch (err: any) {
+      console.error("저장 에러:", err);
+      alert('❌ 로컬 저장 중 알 수 없는 오류가 발생했습니다.');
     }
   };
 
@@ -984,7 +1025,7 @@ export default function App() {
             <h1 className="text-lg font-bold text-indigo-300">⚙️ 관리자 환경설정 패널</h1>
           </div>
           <button onClick={handleSaveAdminSettings} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer shadow-md">
-            저장 후 동기화
+            저장 후 달력 동기화
           </button>
         </header>
 
@@ -993,7 +1034,7 @@ export default function App() {
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🗓️ 달력 데이터 선택</h2>
-              <p className="text-xs text-slate-400 mt-1">아래에서 선택한 날짜의 시간표와 급식을 확인하거나 수정합니다.</p>
+              <p className="text-xs text-slate-400 mt-1">아래에서 요일을 선택하면 해당 요일의 <b>학기 고정 시간표</b>를 수정할 수 있습니다. (급식은 해당 특정 날짜로 저장됩니다)</p>
             </div>
             <input 
               type="date" 
@@ -1237,7 +1278,7 @@ export default function App() {
 
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-6">
             <div className="flex items-center justify-between flex-wrap gap-4">
-              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">📚 {editTargetGrade}학년 {editTargetClass}반 시간표 설정 <span className="text-xs text-indigo-400 bg-indigo-950 px-2 py-1 rounded-lg ml-2">({adminDate})</span></h2>
+              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">📚 {editTargetGrade}학년 {editTargetClass}반 <b>{['일', '월', '화', '수', '목', '금', '토'][new Date(adminDate).getDay()]}요일</b> 고정 시간표 설정 <span className="text-xs text-slate-500 font-normal ml-2">(1학기 전체 반영)</span></h2>
               
               <div className="flex gap-2">
                 <button 
@@ -1245,7 +1286,7 @@ export default function App() {
                   disabled={isNeisLoading}
                   className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
                 >
-                  <Database size={14} /> 나이스(NEIS) 선택일 연동
+                  <Database size={14} /> 해당 요일 나이스 연동
                 </button>
                 <div className="relative">
                   <input 
@@ -1328,12 +1369,12 @@ export default function App() {
                       onChange={(e) => {
                         const key = `${editTargetGrade}-${editTargetClass}`;
                         const classData = tempClassTimetables[key] || {};
-                        const dayData = classData[adminDateKey] || {};
+                        const dayData = classData[adminDayOfWeek] || {};
                         setTempClassTimetables({
                           ...tempClassTimetables,
                           [key]: {
                             ...classData,
-                            [adminDateKey]: { ...dayData, [p]: e.target.value }
+                            [adminDayOfWeek]: { ...dayData, [p]: e.target.value }
                           }
                         });
                       }}
@@ -1394,13 +1435,35 @@ export default function App() {
             </div>
           </section>
 
-          <div className="flex justify-end pt-4">
+          {/* 💡 [핵심 수정] 긴급 복구용 버튼 추가 */}
+          <div className="flex justify-end gap-3 pt-4">
+            <button 
+              onClick={() => {
+                if(window.confirm('저장 오류(용량 초과)가 발생했나요?\n이 버튼을 누르면 내부의 찌꺼기 시간표/급식 데이터가 완전히 비워져 오류가 해결됩니다.\n(학생 명단은 유지됩니다.)')) {
+                  localStorage.removeItem('class_timetables_map');
+                  localStorage.removeItem('meal_data');
+                  setTempClassTimetables({});
+                  setTempMeals({});
+                  alert('✅ 쓰레기 데이터가 비워졌습니다. 이제 다시 데이터를 불러오거나 저장해주세요!');
+                }
+              }} 
+              className="px-6 py-3.5 bg-rose-900/60 hover:bg-rose-800 text-rose-300 rounded-2xl text-xs font-bold cursor-pointer transition-colors border border-rose-800"
+            >
+              🧹 용량 초과 오류 해결 (초기화)
+            </button>
             <button onClick={handleSaveAdminSettings} className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-sm font-bold cursor-pointer shadow-lg">
               설정 저장 및 달력 동기화
             </button>
           </div>
 
         </main>
+        
+        {saveSuccessToast && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 p-4 px-6 bg-emerald-900/95 border border-emerald-500 text-emerald-100 rounded-2xl text-sm font-bold flex items-center gap-3 animate-fade-in shadow-2xl z-50">
+            <CheckCircle2 size={20} className="text-emerald-400 shrink-0" />
+            <span>설정이 성공적으로 저장되었습니다!</span>
+          </div>
+        )}
       </div>
     );
   }
