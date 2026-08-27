@@ -70,20 +70,18 @@ export default function App() {
     };
   });
 
-  const [classTimetables, setClassTimetables] = useState<Record<string, Record<number, string>>>(() => {
+  // 💡 [수정] 이제 모든 날짜를 저장합니다 (키값: "YYYYMMDD")
+  const [classTimetables, setClassTimetables] = useState<Record<string, Record<string, Record<number, string>>>>(() => {
     const saved = localStorage.getItem('class_timetables_map');
     if (saved) return JSON.parse(saved);
-    return {
-      "2-8": { 1: '영어 II', 2: '미술 감상과 비평', 3: '프랑스어 회화', 4: '음악과 미디어', 5: '역학과 에너지', 6: '세포와 물질대사', 7: '창체' }
-    };
+    return {};
   });
 
-  const [meals, setMeals] = useState(() => {
+  // 💡 [수정] 이제 급식도 날짜별로 저장합니다 (키값: "YYYYMMDD")
+  const [meals, setMeals] = useState<Record<string, {lunch: string[], dinner: string[]}>>(() => {
     const saved = localStorage.getItem('meal_data');
-    return saved ? JSON.parse(saved) : {
-      lunch: ['백미밥', '투움바파스타', '근대된장국', '자메이카닭다리살스테이크', '배추김치'],
-      dinner: ['백미밥', '홍합무국', '온두부숙회', '느타리버섯무침', '불맛제육볶음']
-    };
+    if (saved) return JSON.parse(saved);
+    return {};
   });
 
   const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
@@ -96,6 +94,13 @@ export default function App() {
   const [teacherName, setTeacherName] = useState<string>('선생님 이름');
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
+
+  // 💡 [관리자용 날짜 선택]
+  const [adminDate, setAdminDate] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  });
+  const adminDateKey = adminDate.replace(/-/g, ''); // "20260828" 형태
 
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
@@ -112,27 +117,39 @@ export default function App() {
   const [newStudentNum, setNewStudentNum] = useState<string>('1');
   const [newStudentNameOnly, setNewStudentNameOnly] = useState<string>('');
 
-  const [tempClassRosters, setTempClassRosters] = useState<Record<string, string[]>>(classRosters);
+  const [tempClassRosters, setTempClassRosters] = useState(classRosters);
   const [tempDailySchedule, setTempDailySchedule] = useState(dailySchedule);
-  const [tempClassTimetables, setTempClassTimetables] = useState<Record<string, Record<number, string>>>(classTimetables);
+  const [tempClassTimetables, setTempClassTimetables] = useState(classTimetables);
   const [tempMeals, setTempMeals] = useState(meals);
 
   const [timetableFileName, setTimetableFileName] = useState('');
   const [mealFileName, setMealFileName] = useState('');
   const [isNeisLoading, setIsNeisLoading] = useState(false);
-
   const [rememberChoice, setRememberChoice] = useState(false);
   const [pinModal, setPinModal] = useState({ isOpen: false, input: '', error: '' });
 
   const lastSyncTimeRef = useRef<number>(Date.now());
 
+  // 🔥 [현재 시간에 맞는 오늘치 데이터 가져오기 로직 (자동화 핵심)]
+  const todayStr = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-  const currentStudents = classRosters[currentKey] || [];
-  const currentTimetable = classTimetables[currentKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
+  
+  // 구버전(날짜가 없는 데이터) 호환성 유지용 백업
+  let todayMealsObj = meals[todayStr];
+  if (!todayMealsObj && (meals as any).lunch) todayMealsObj = meals as any;
+  if (!todayMealsObj) todayMealsObj = { lunch: ['오늘의 급식 정보가 없습니다.'], dinner: ['오늘의 급식 정보가 없습니다.'] };
 
+  let todayTimetableObj = classTimetables[currentKey]?.[todayStr];
+  if (!todayTimetableObj && classTimetables[currentKey]?.[1]) todayTimetableObj = classTimetables[currentKey] as any;
+  if (!todayTimetableObj) todayTimetableObj = { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
+
+  const currentStudents = classRosters[currentKey] || [];
+
+  // 관리자 모드에서 편집 중인 데이터
   const editKey = `${editTargetGrade}-${editTargetClass}`;
   const editTargetStudents = tempClassRosters[editKey] || [];
-  const editTargetTimetable = tempClassTimetables[editKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
+  const currentAdminTimetable = tempClassTimetables[editKey]?.[adminDateKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
+  const currentAdminMeals = tempMeals[adminDateKey] || { lunch: [], dinner: [] };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -217,7 +234,7 @@ export default function App() {
         lastSyncTimeRef.current = data.time;
         
         if (isClassTime()) {
-          console.log("현재 수업 시간이므로 알림이 차단되었습니다. (쉬는 시간에 표시됩니다)");
+          console.log("현재 수업 시간이므로 알림이 차단되었습니다.");
           return;
         }
 
@@ -266,7 +283,6 @@ export default function App() {
   const getSubjectIcon = (subject: string) => {
     if (!subject || subject === '-') return '📝';
     const s = subject.replace(/\s+/g, ''); 
-    
     if (s.includes('국어') || s.includes('문학') || s.includes('화법') || s.includes('언어')) return '📜';
     if (s.includes('수학') || s.includes('미적분') || s.includes('기하') || s.includes('확률') || s.includes('통계')) return '📐';
     if (s.includes('영어') || s.includes('English') || s.includes('독해')) return '🔤';
@@ -281,7 +297,7 @@ export default function App() {
     if (s.includes('과학')) return '🔬';
     if (s.includes('역사') || s.includes('한국사') || s.includes('세계사') || s.includes('동아시아')) return '🏛️';
     if (s.includes('사회') || s.includes('지리') || s.includes('경제') || s.includes('윤리') || s.includes('정치') || s.includes('법')) return '⚖️';
-    if (s.includes('미술') || s.includes('드로잉') || s.includes('디자인') || s.includes('감상과비평') || s.includes('매체')) return '🎨';
+    if (s.includes('미술') || s.includes('드로잉') || s.includes('디자인') || s.includes('감상') || s.includes('매체')) return '🎨';
     if (s.includes('음악') || s.includes('합창') || s.includes('미디어')) return '🎵';
     if (s.includes('체육') || s.includes('스포츠') || s.includes('운동')) return '⚽';
     if (s.includes('정보') || s.includes('컴퓨터') || s.includes('코딩') || s.includes('프로그래밍')) return '💻';
@@ -360,7 +376,7 @@ export default function App() {
       });
       if (totalCount > 0) {
         setTempClassRosters(prev => ({ ...prev, ...parsedMap }));
-        alert(`✅ CSV 파일에서 총 ${totalCount}명의 학생 명단을 읽어와 덮어쓰기 완료했습니다!`);
+        alert(`✅ CSV 파일에서 총 ${totalCount}명의 학생 명단을 덮어쓰기 완료했습니다!`);
       } else {
         alert('❌ 올바른 [학년, 반, 번호, 성명] 형식의 CSV 데이터가 아닙니다.');
       }
@@ -368,18 +384,16 @@ export default function App() {
     reader.readAsText(file, 'utf-8');
   };
 
+  // 💡 NEIS에서 선택한 "관리자 날짜(adminDateKey)"에 맞춰 1일치 데이터를 불러옵니다.
   const handleNeisFetch = async (type: 'timetable' | 'meal') => {
     if (!schoolConfig.neisApiKey) {
-      alert("❌ [오류] 나이스(NEIS) 인증키가 없습니다.\n관리자 모드의 [학교명 및 학급 구조 세팅]에서 발급받은 API 키를 먼저 입력하고 저장해주세요.");
+      alert("❌ [오류] 관리자 모드의 [나이스(NEIS) 인증키 연동]에 API 키를 입력해주세요.");
       return;
     }
-
     setIsNeisLoading(true);
     try {
-      const ymd = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
-      
       if (type === 'timetable') {
-        const url = `https://open.neis.go.kr/hub/hisTimetable?KEY=${schoolConfig.neisApiKey}&Type=json&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&GRADE=${editTargetGrade}&CLASS_NM=${editTargetClass}&ALL_TI_YMD=${ymd}`;
+        const url = `https://open.neis.go.kr/hub/hisTimetable?KEY=${schoolConfig.neisApiKey}&Type=json&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&GRADE=${editTargetGrade}&CLASS_NM=${editTargetClass}&ALL_TI_YMD=${adminDateKey}`;
         const res = await fetch(url);
         const data = await res.json();
 
@@ -390,14 +404,21 @@ export default function App() {
             newTimetable[row.PERIO] = row.ITRT_CNTNT.replace(/\*/g, '');
           });
           const key = `${editTargetGrade}-${editTargetClass}`;
-          setTempClassTimetables({ ...tempClassTimetables, [key]: newTimetable });
-          alert(`📡 [NEIS 연동 완료] 오늘의 ${editTargetGrade}학년 ${editTargetClass}반 시간표를 성공적으로 가져왔습니다!`);
+          
+          setTempClassTimetables(prev => ({
+            ...prev,
+            [key]: {
+              ...(prev[key] || {}),
+              [adminDateKey]: newTimetable
+            }
+          }));
+          alert(`📡 [NEIS 연동 완료] ${adminDate}의 시간표를 가져왔습니다!`);
         } else {
-          alert(`⚠ 오늘자 시간표 데이터가 NEIS에 존재하지 않습니다.\n(사유: ${data.RESULT?.MESSAGE || '방학 또는 휴일'})`);
+          alert(`⚠ 해당 날짜의 시간표 데이터가 NEIS에 없습니다.`);
         }
 
       } else if (type === 'meal') {
-        const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${schoolConfig.neisApiKey}&Type=json&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&MLSV_YMD=${ymd}`;
+        const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${schoolConfig.neisApiKey}&Type=json&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&MLSV_YMD=${adminDateKey}`;
         const res = await fetch(url);
         const data = await res.json();
 
@@ -407,38 +428,35 @@ export default function App() {
           
           rows.forEach((row: any) => {
             const cleanedMenu = row.DDISH_NM.split('<br/>')
-              .map((item: string) => item
-                .replace(/\s*\([\d\.,\s]+\)/g, '') 
-                .replace(/[\d\.]+\*?$/g, '')        
-                .trim()
-              )
+              .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').replace(/[\d\.]+\*?$/g, '').trim())
               .filter(Boolean);
             
             if (row.MMEAL_SC_CODE === '2') newMeals.lunch = cleanedMenu;     
             else if (row.MMEAL_SC_CODE === '3') newMeals.dinner = cleanedMenu; 
           });
           
-          setTempMeals(newMeals);
-          alert(`📡 [NEIS 연동 완료] 오늘의 급식 식단표를 성공적으로 가져왔습니다!\n(숫자 및 기호를 깔끔하게 정리했습니다)`);
+          setTempMeals(prev => ({ ...prev, [adminDateKey]: newMeals }));
+          alert(`📡 [NEIS 연동 완료] ${adminDate}의 급식을 가져왔습니다!`);
         } else {
-          alert(`⚠ 오늘자 급식 데이터가 NEIS에 존재하지 않습니다.\n(사유: ${data.RESULT?.MESSAGE || '급식 없는 날'})`);
+          alert(`⚠ 해당 날짜의 급식 데이터가 NEIS에 없습니다.`);
         }
       }
     } catch (err) {
       console.error(err);
-      alert('❌ NEIS 서버와 통신하는 도중 오류가 발생했습니다. 인터넷 연결이나 API 키를 확인해주세요.');
+      alert('❌ NEIS 연동 오류 발생');
     } finally {
       setIsNeisLoading(false);
     }
   };
 
+  // 💡 [AI 한달/일주일 자동화 파서 - 시간표]
   const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
     if (!apiKey) {
-      alert("❌ [API 키 필요] 관리자 모드의 [나이스 & AI 인증키 연동] 메뉴에서 Google Gemini API 키를 먼저 입력하고 저장해주세요.");
+      alert("❌ [API 키 필요] 관리자 모드에 Google Gemini API 키를 입력해주세요.");
       e.target.value = '';
       return;
     }
@@ -449,38 +467,26 @@ export default function App() {
     try {
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const res = reader.result as string;
-          resolve(res.split(',')[1]);
-        };
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
 
-      const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-      
-      const month = currentTime.getMonth() + 1;
-      const date = currentTime.getDate();
-      const dayStr = ['일', '월', '화', '수', '목', '금', '토'][currentTime.getDay()];
-
       const promptText = `
 너는 대한민국 학교 시간표 전문 OCR 분석기야.
-첨부된 시간표 이미지/문서에서 오늘 날짜인 [${month}월 ${date}일] 또는 [${dayStr}요일] 기둥(Column)을 찾아서 1교시부터 7교시까지의 수업 과목을 정확히 추출해줘.
+첨부된 시간표 이미지에서 **모든 날짜(월~금)**의 1교시부터 7교시까지의 수업 과목을 전부 추출해.
+현재 연도는 ${currentTime.getFullYear()}년이야. 문서에 적힌 날짜(예: 8-24)를 조합해 "YYYYMMDD" 형태를 키(key)로 생성해.
 
 [엄격한 추출 규칙]
-1. 시간표 칸 안에 슬래시(/) 뒤에 붙은 교사 이름이나 장소(예: /김효/미술실, /손예, /박지 등)는 완벽하게 제거해.
-2. 과목명 앞에 붙은 A, B, C, D 등의 이동수업 그룹 알파벳(예: B미술감상과비평 -> 미술감상과비평, A역학과에너지 -> 역학과에너지)은 반드시 제거해.
-3. 오직 순수한 과목명만 남기되, '미술감상과비평'은 '미술 감상과 비평'처럼 읽기 쉽게 적절히 띄어쓰기를 적용해.
-4. 해당 교시에 수업이 빈칸이거나 없으면 "-" 로 표시해.
-5. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해:
+1. 시간표 칸 안에 슬래시(/) 뒤에 붙은 교사 이름이나 장소는 완벽하게 제거해.
+2. 과목명 앞의 A, B, C 등 이동수업 알파벳 제거해.
+3. 띄어쓰기를 예쁘게 교정해 (예: 프랑스어회화 -> 프랑스어 회화)
+4. 빈칸은 "-" 로 표시해.
+5. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
+형식 예시:
 {
-  "1": "과목명",
-  "2": "과목명",
-  "3": "과목명",
-  "4": "과목명",
-  "5": "과목명",
-  "6": "과목명",
-  "7": "과목명"
+  "20260824": { "1": "진로", "2": "독서", ... "7": "창체" },
+  "20260825": { "1": "수학", "2": "체육", ... "7": "-" }
 }
 `;
 
@@ -488,67 +494,54 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: promptText },
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: base64Data
-                }
-              }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0.1
-          }
+          contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: file.type || 'image/jpeg', data: base64Data } }] }],
+          generationConfig: { temperature: 0.1 }
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || 'Gemini API 호출 실패');
-      }
-
+      if (!response.ok) throw new Error('Gemini API 호출 실패');
+      
       const result = await response.json();
       const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('시간표 데이터 JSON 변환에 실패했습니다.');
-      }
+      if (!jsonMatch) throw new Error('JSON 변환 실패');
 
       const parsed = JSON.parse(jsonMatch[0]);
+      const key = `${editTargetGrade}-${editTargetClass}`;
       
-      const cleanedTimetable: Record<number, string> = {};
-      for(let i = 1; i <= 7; i++) {
-          cleanedTimetable[i] = parsed[i] || '-';
+      const newTimetables = { ...tempClassTimetables };
+      if (!newTimetables[key]) newTimetables[key] = {};
+      
+      let count = 0;
+      for (const dateKey in parsed) {
+        const cleanedDay: Record<number, string> = {};
+        for(let i = 1; i <= 7; i++) {
+          cleanedDay[i] = parsed[dateKey][i] || '-';
+        }
+        newTimetables[key][dateKey] = cleanedDay;
+        count++;
       }
 
-      const key = `${editTargetGrade}-${editTargetClass}`;
-      setTempClassTimetables({
-        ...tempClassTimetables,
-        [key]: cleanedTimetable
-      });
-
-      alert(`✅ [${file.name}] 인식 성공!\n오늘(${month}월 ${date}일 ${dayStr}요일)의 시간표를 선생님 이름과 기호를 빼고 깔끔하게 추출했습니다.`);
+      setTempClassTimetables(newTimetables);
+      alert(`✅ [${file.name}] 자동화 인식 성공!\n총 ${count}일 치 시간표 데이터가 달력에 자동 등록되었습니다.`);
 
     } catch (err: any) {
-      console.error("시간표 인식 오류:", err);
-      alert(`❌ 시간표 인식 실패: ${err.message}\n(AI Studio API 키가 올바른지 확인해주세요.)`);
+      console.error(err);
+      alert(`❌ 시간표 인식 실패: ${err.message}`);
     } finally {
       setIsNeisLoading(false);
       e.target.value = '';
     }
   };
 
+  // 💡 [AI 한달 자동화 파서 - 급식]
   const handleMealFileupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
     if (!apiKey) {
-      alert("❌ [API 키 필요] 관리자 모드의 [나이스 & AI 인증키 연동] 메뉴에서 Google Gemini API 키를 먼저 입력하고 저장해주세요.");
+      alert("❌ [API 키 필요] 관리자 모드에 Google Gemini API 키를 입력해주세요.");
       e.target.value = '';
       return;
     }
@@ -559,34 +552,26 @@ export default function App() {
     try {
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = () => {
-          const res = reader.result as string;
-          resolve(res.split(',')[1]);
-        };
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
 
-      const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-      const todayDate = currentTime.getDate();
-
       const promptText = `
-너는 대한민국 학교 급식 식단표(월간 테이블) 전문 OCR 분석기야.
-첨부된 이미지/문서에서 오늘 날짜인 [ ${todayDate}일 ] 칸을 정확히 찾아서 '중식(점심)'과 '석식(저녁)' 메뉴를 추출해줘.
+너는 대한민국 학교 급식 식단표 전문 OCR 분석기야.
+첨부된 문서에서 **모든 날짜(문서에 있는 한 달 치 전체)**의 '중식'과 '석식' 메뉴를 모조리 추출해줘.
+현재 연도/월은 ${currentTime.getFullYear()}년 ${currentTime.getMonth() + 1}월이야.
 
 [엄격한 추출 규칙]
-1. 테이블의 날짜 열(Column) 중 숫자 '${todayDate}' 또는 '${todayDate}일'이 적힌 칸을 찾을 것.
-2. '중식' 행(Row)과 '석식' 행(Row)의 메뉴 텍스트를 각각 분리할 것.
-3. (1.5.6.9.10), (5.6.8.10.13.16) 등 괄호로 표기된 알레르기 유발물질 번호는 전부 제거할 것.
-4. '* 에너지/단백질/칼슘/철', '669.76/26.21/...' 등 칼로리 및 영양 정보 수치는 완전히 제외할 것.
-5. 오직 반찬/국/밥 등의 음식 명칭만 깔끔한 문자열 배열로 반환할 것.
-6. 음식 이름의 띄어쓰기는 식단표 원본에 있는 대로 자연스럽고 정확하게 유지할 것.
-7. 만약 해당 날짜에 중식 또는 석식이 없거나 식판 금지 아이콘이 있다면 빈 배열 [] 로 둘 것.
-
-반드시 마크다운 백틱이나 다른 잡담 없이 순수 JSON 포맷으로만 응답해:
+1. 날짜를 파악하여 "YYYYMMDD" (예: "20260828") 형태를 키(key)로 사용할 것.
+2. (1.5.6) 같은 알레르기 유발물질 번호 괄호는 전부 제거할 것.
+3. 칼로리 및 영양 정보 제외, 오직 음식 명칭만 추출.
+4. 빈 배열은 []
+5. 마크다운 없이 순수 JSON 포맷으로 응답할 것.
+형식 예시:
 {
-  "lunch": ["메뉴1", "메뉴2", "메뉴3"],
-  "dinner": ["메뉴1", "메뉴2", "메뉴3"]
+  "20260827": { "lunch": ["메뉴1", "메뉴2"], "dinner": [] },
+  "20260828": { "lunch": ["메뉴1", "메뉴2"], "dinner": ["메뉴3"] }
 }
 `;
 
@@ -594,53 +579,38 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{
-            parts: [
-              { text: promptText },
-              {
-                inlineData: {
-                  mimeType: mimeType,
-                  data: base64Data
-                }
-              }
-            ]
-          }],
-          generationConfig: {
-            temperature: 0.1
-          }
+          contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: file.type || 'image/jpeg', data: base64Data } }] }],
+          generationConfig: { temperature: 0.1 }
         })
       });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error?.message || 'Gemini API 호출 실패');
-      }
+      if (!response.ok) throw new Error('Gemini API 호출 실패');
 
       const result = await response.json();
       const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('식단 데이터 JSON 변환에 실패했습니다.');
-      }
+      if (!jsonMatch) throw new Error('JSON 변환 실패');
 
       const parsed = JSON.parse(jsonMatch[0]);
+      const newMeals = { ...tempMeals };
       
-      const newLunch = (parsed.lunch && parsed.lunch.length > 0 ? parsed.lunch : ['급식 없음'])
-        .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim());
-      const newDinner = (parsed.dinner && parsed.dinner.length > 0 ? parsed.dinner : ['급식 없음'])
-        .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim());
+      let count = 0;
+      for (const dateKey in parsed) {
+        newMeals[dateKey] = {
+          lunch: (parsed[dateKey].lunch && parsed[dateKey].lunch.length > 0 ? parsed[dateKey].lunch : ['급식 없음'])
+            .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim()),
+          dinner: (parsed[dateKey].dinner && parsed[dateKey].dinner.length > 0 ? parsed[dateKey].dinner : ['급식 없음'])
+            .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim())
+        };
+        count++;
+      }
 
-      setTempMeals({
-        lunch: newLunch,
-        dinner: newDinner
-      });
-
-      alert(`✅ [${file.name}] 인식 성공!\n${todayDate}일자 중식 ${newLunch.length}개, 석식 ${newDinner.length}개 메뉴를 정확히 불러왔습니다.`);
+      setTempMeals(newMeals);
+      alert(`✅ [${file.name}] 자동화 인식 성공!\n총 ${count}일 치 식단 데이터가 달력에 자동 등록되었습니다.`);
 
     } catch (err: any) {
-      console.error("식단표 인식 오류:", err);
-      alert(`❌ 식단표 인식 실패: ${err.message}\n(AI Studio API 키가 올바른지 확인해주세요.)`);
+      console.error(err);
+      alert(`❌ 식단표 인식 실패: ${err.message}`);
     } finally {
       setIsNeisLoading(false);
       e.target.value = '';
@@ -1027,6 +997,20 @@ export default function App() {
 
         <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-8 pb-16">
           
+          {/* 💡 [수정] 관리자 모드에서 설정할 '날짜'를 선택하는 기능 추가 */}
+          <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🗓️ 달력 데이터 선택</h2>
+              <p className="text-xs text-slate-400 mt-1">아래에서 선택한 날짜의 시간표와 급식을 확인하거나 수정합니다.</p>
+            </div>
+            <input 
+              type="date" 
+              value={adminDate}
+              onChange={e => setAdminDate(e.target.value)}
+              className="px-4 py-3 bg-[#111a15] text-white font-bold rounded-xl border border-emerald-900 text-sm outline-none focus:border-amber-400 cursor-pointer"
+            />
+          </section>
+
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
             <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🏫 학교명 및 학급/API 구조 세팅</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1261,7 +1245,7 @@ export default function App() {
 
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-6">
             <div className="flex items-center justify-between flex-wrap gap-4">
-              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">📚 {editTargetGrade}학년 {editTargetClass}반 시간표 설정</h2>
+              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">📚 {editTargetGrade}학년 {editTargetClass}반 시간표 설정 <span className="text-xs text-indigo-400 bg-indigo-950 px-2 py-1 rounded-lg ml-2">({adminDate})</span></h2>
               
               <div className="flex gap-2">
                 <button 
@@ -1269,7 +1253,7 @@ export default function App() {
                   disabled={isNeisLoading}
                   className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
                 >
-                  <Database size={14} /> 나이스(NEIS) 연동
+                  <Database size={14} /> 나이스(NEIS) 선택일 연동
                 </button>
                 <div className="relative">
                   <input 
@@ -1277,9 +1261,10 @@ export default function App() {
                     accept="image/*, .pdf" 
                     onChange={handleTimetableImageUpload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    title="한 주 치 전체 자동 인식"
                   />
                   <div className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors">
-                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />} AI 이미지/PDF 인식
+                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />} AI 1주일치 전체 인식
                   </div>
                 </div>
               </div>
@@ -1347,13 +1332,17 @@ export default function App() {
                     <label className="text-xs text-slate-300 font-bold">{p}교시 과목</label>
                     <input 
                       type="text" 
-                      value={editTargetTimetable[p] || ''}
+                      value={currentAdminTimetable[p] || ''}
                       onChange={(e) => {
                         const key = `${editTargetGrade}-${editTargetClass}`;
-                        const currentT = tempClassTimetables[key] || {};
+                        const classData = tempClassTimetables[key] || {};
+                        const dayData = classData[adminDateKey] || {};
                         setTempClassTimetables({
                           ...tempClassTimetables,
-                          [key]: { ...currentT, [p]: e.target.value }
+                          [key]: {
+                            ...classData,
+                            [adminDateKey]: { ...dayData, [p]: e.target.value }
+                          }
                         });
                       }}
                       className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
@@ -1366,7 +1355,7 @@ export default function App() {
 
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-4">
-              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🍲 급식 식단 설정</h2>
+              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🍲 급식 식단 설정 <span className="text-xs text-indigo-400 bg-indigo-950 px-2 py-1 rounded-lg ml-2">({adminDate})</span></h2>
               
               <div className="flex gap-2">
                 <button 
@@ -1374,7 +1363,7 @@ export default function App() {
                   disabled={isNeisLoading}
                   className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
                 >
-                  <Database size={14} /> 나이스(NEIS) 연동
+                  <Database size={14} /> 나이스(NEIS) 선택일 연동
                 </button>
                 <div className="relative">
                   <input 
@@ -1382,9 +1371,10 @@ export default function App() {
                     accept="image/*, .pdf" 
                     onChange={handleMealFileupload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    title="한 달 치 전체 자동 인식"
                   />
                   <div className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors">
-                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} AI 이미지/PDF 인식
+                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} AI 1달치 전체 인식
                   </div>
                 </div>
               </div>
@@ -1396,16 +1386,16 @@ export default function App() {
               <div className="space-y-2">
                 <label className="text-xs text-amber-300 font-bold">점심 메뉴 (줄바꿈으로 구분)</label>
                 <textarea 
-                  value={tempMeals.lunch.join('\n')}
-                  onChange={(e) => setTempMeals({ ...tempMeals, lunch: e.target.value.split('\n') })}
+                  value={(currentAdminMeals.lunch || []).join('\n')}
+                  onChange={(e) => setTempMeals({ ...tempMeals, [adminDateKey]: { ...currentAdminMeals, lunch: e.target.value.split('\n') } })}
                   className="w-full h-32 p-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm resize-none focus:border-amber-500 outline-none"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-xs text-indigo-300 font-bold">저녁 메뉴 (줄바꿈으로 구분)</label>
                 <textarea 
-                  value={tempMeals.dinner.join('\n')}
-                  onChange={(e) => setTempMeals({ ...tempMeals, dinner: e.target.value.split('\n') })}
+                  value={(currentAdminMeals.dinner || []).join('\n')}
+                  onChange={(e) => setTempMeals({ ...tempMeals, [adminDateKey]: { ...currentAdminMeals, dinner: e.target.value.split('\n') } })}
                   className="w-full h-32 p-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm resize-none focus:border-indigo-500 outline-none"
                 />
               </div>
@@ -1414,7 +1404,7 @@ export default function App() {
 
           <div className="flex justify-end pt-4">
             <button onClick={handleSaveAdminSettings} className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-sm font-bold cursor-pointer shadow-lg">
-              설정 저장 및 동기화
+              설정 저장 및 달력 동기화
             </button>
           </div>
 
@@ -1504,13 +1494,13 @@ export default function App() {
           
           <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
             {[
-              { period: '1교시', time: formatScheduleString(dailySchedule[1]), subject: currentTimetable[1] || '-' },
-              { period: '2교시', time: formatScheduleString(dailySchedule[2]), subject: currentTimetable[2] || '-' },
-              { period: '3교시', time: formatScheduleString(dailySchedule[3]), subject: currentTimetable[3] || '-' },
-              { period: '4교시', time: formatScheduleString(dailySchedule[4]), subject: currentTimetable[4] || '-' },
-              { period: '5교시', time: formatScheduleString(dailySchedule[5]), subject: currentTimetable[5] || '-' },
-              { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: currentTimetable[6] || '-' },
-              { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: currentTimetable[7] || '-' }
+              { period: '1교시', time: formatScheduleString(dailySchedule[1]), subject: todayTimetableObj[1] },
+              { period: '2교시', time: formatScheduleString(dailySchedule[2]), subject: todayTimetableObj[2] },
+              { period: '3교시', time: formatScheduleString(dailySchedule[3]), subject: todayTimetableObj[3] },
+              { period: '4교시', time: formatScheduleString(dailySchedule[4]), subject: todayTimetableObj[4] },
+              { period: '5교시', time: formatScheduleString(dailySchedule[5]), subject: todayTimetableObj[5] },
+              { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: todayTimetableObj[6] },
+              { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: todayTimetableObj[7] }
             ].map((item, idx) => {
               const colors = [
                 'bg-[#fff9c4] text-slate-900 rotate-[-0.8deg]',
@@ -1525,13 +1515,11 @@ export default function App() {
                 <div key={idx} className={`${colors[idx % colors.length]} rounded-2xl p-4 flex flex-col justify-between shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full`}>
                   <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-12 h-4 bg-amber-200/60 rotate-1 shadow-sm border border-amber-300/40"></div>
                   
-                  {/* 💡 [수정] 교시 및 시간 폰트 크기/자간 약간 확대 */}
                   <div className="flex justify-between items-center font-sans px-1">
                     <span className="text-sm font-bold opacity-70 mt-1">{item.period}</span>
                     <span className="text-xs opacity-60 mt-1 tracking-wider">{item.time}</span>
                   </div>
                   
-                  {/* 💡 [수정] 과목 아이콘 및 과목 글자 크기 대폭 확대 */}
                   <div className="flex flex-col items-center justify-center my-auto px-2">
                     <span className="text-6xl mb-4 opacity-90 drop-shadow-md">{getSubjectIcon(item.subject)}</span>
                     <span className="text-2xl 2xl:text-3xl font-black text-center break-keep leading-snug tracking-tight text-slate-800">{item.subject}</span>
@@ -1552,11 +1540,10 @@ export default function App() {
 
           <div className="grid grid-cols-2 gap-5 flex-1 min-h-0 pb-2">
             
-            {/* 💡 [수정] 급식 폰트 크기 확대 및 항목 간 간격 늘림 */}
             <div className="bg-[#11231b]/90 rounded-3xl p-8 border border-emerald-800/50 flex flex-col items-center justify-between text-center shadow-inner h-full">
               <span className="text-base font-bold text-amber-300 bg-amber-950/80 px-6 py-2 rounded-full shadow-sm border border-amber-800/40 mb-6 shrink-0">🍴 점심 식단</span>
               <ul className="text-2xl lg:text-3xl font-black text-emerald-100 space-y-5 leading-normal flex-1 flex flex-col justify-center w-full">
-                {meals.lunch.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
+                {todayMealsObj.lunch.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
               </ul>
               <div className="text-sm text-emerald-400/60 font-mono tracking-[0.3em] mt-6 shrink-0">LUNCH MENU</div>
             </div>
@@ -1564,7 +1551,7 @@ export default function App() {
             <div className="bg-[#11231b]/90 rounded-3xl p-8 border border-emerald-800/50 flex flex-col items-center justify-between text-center shadow-inner h-full">
               <span className="text-base font-bold text-indigo-300 bg-indigo-950/80 px-6 py-2 rounded-full shadow-sm border border-indigo-800/40 mb-6 shrink-0">🌙 저녁 식단</span>
               <ul className="text-2xl lg:text-3xl font-black text-emerald-100 space-y-5 leading-normal flex-1 flex flex-col justify-center w-full">
-                {meals.dinner.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
+                {todayMealsObj.dinner.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
               </ul>
               <div className="text-sm text-emerald-400/60 font-mono tracking-[0.3em] mt-6 shrink-0">DINNER MENU</div>
             </div>
