@@ -1,5 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock } from 'lucide-react';
+
+// 🔥 Firebase 실시간 통신 모듈 불러오기
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set, onValue } from 'firebase/database';
+
+// =========================================================================
+// 🚨 선생님의 Firebase 프로젝트(SchoolCallApp) 정보 세팅 완료!
+// =========================================================================
+const firebaseConfig = {
+  apiKey: "AIzaSyBDSR5PlGMZv6lUex279A4yWYL_QVmwKUs",
+  authDomain: "schoolcallapp-cdb3d.firebaseapp.com",
+  databaseURL: "https://schoolcallapp-cdb3d-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "schoolcallapp-cdb3d",
+  storageBucket: "schoolcallapp-cdb3d.firebasestorage.app",
+  messagingSenderId: "18583169071",
+  appId: "1:18583169071:web:bb43ad116d189f1a1bbeda"
+};
+
+// Firebase 서버 연결 초기화
+let db: any = null;
+try {
+  const app = initializeApp(firebaseConfig);
+  db = getDatabase(app);
+} catch (e) {
+  console.error("Firebase 연결 실패:", e);
+}
+// =========================================================================
 
 export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
@@ -63,9 +90,7 @@ export default function App() {
     };
   });
 
-  const [announcement, setAnnouncement] = useState(() => {
-    return localStorage.getItem('class_announcement') || '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
-  });
+  const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
   const [isExited, setIsExited] = useState(false);
@@ -102,6 +127,9 @@ export default function App() {
   const [rememberChoice, setRememberChoice] = useState(false);
   const [pinModal, setPinModal] = useState({ isOpen: false, input: '', error: '' });
 
+  // 💡 마지막 동기화 시간 저장 (무한 루프 방지용)
+  const lastSyncTimeRef = useRef<number>(Date.now());
+
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
   const currentStudents = classRosters[currentKey] || [];
   const currentTimetable = classTimetables[currentKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' };
@@ -110,20 +138,28 @@ export default function App() {
   const editTargetStudents = tempClassRosters[editKey] || [];
   const editTargetTimetable = tempClassTimetables[editKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' };
 
-  const handleExitApp = () => {
-    if ((window as any).electronAPI) {
-      (window as any).electronAPI.closeNotification(); 
-    } else {
-      setIsExited(true); 
-    }
-  };
+  // 실시간 시계
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-  const handleClosePopupAndHide = () => {
-    setIsPopupOpen(false);
-    if (viewMode === 'classroom') {
-      handleExitApp();
-    }
-  };
+  // 💡 Firebase 글로벌 설정 데이터 실시간 동기화 (모든 기기)
+  useEffect(() => {
+    if (!db) return;
+    const globalRef = ref(db, 'globalData');
+    const unsubscribe = onValue(globalRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        if (data.schoolConfig) setSchoolConfig(data.schoolConfig);
+        if (data.classRosters) setClassRosters(data.classRosters);
+        if (data.dailySchedule) setDailySchedule(data.dailySchedule);
+        if (data.classTimetables) setClassTimetables(data.classTimetables);
+        if (data.meals) setMeals(data.meals);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   const playNeonAlertSound = () => {
     try {
@@ -147,7 +183,6 @@ export default function App() {
         osc.start(ctx.currentTime + startTime);
         osc.stop(ctx.currentTime + startTime + duration);
       };
-
       playTone(659.25, 0, 0.8);
       playTone(523.25, 0.25, 1.2);
     } catch (e) {
@@ -155,45 +190,50 @@ export default function App() {
     }
   };
 
+  // 💡 Firebase 각 반별 호출 알림 수신 대기 (교실 전자칠판 전용)
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+    if (!db || viewMode !== 'classroom') return;
 
-  useEffect(() => {
-    const handleNewMessage = (newMsg: string) => {
-      setAnnouncement(newMsg);
-      if (viewMode === 'classroom') {
+    const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    const announceRef = ref(db, `announcements/${classKey}`);
+
+    const unsubscribe = onValue(announceRef, (snapshot) => {
+      const data = snapshot.val();
+      
+      // 새로운 알림이 왔을 때만 반응 (시간 체크)
+      if (data && data.time > lastSyncTimeRef.current) {
+        setAnnouncement(data.text);
+        lastSyncTimeRef.current = data.time;
+        
         setIsPopupOpen(true);
         setIsExited(false);
-        playNeonAlertSound();
+        playNeonAlertSound(); 
         
         if ((window as any).electronAPI && (window as any).electronAPI.showApp) {
           (window as any).electronAPI.showApp();
         }
       }
-    };
+    });
 
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'class_announcement' && e.newValue) {
-        handleNewMessage(e.newValue);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
+    return () => unsubscribe();
+  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass]);
 
-    const interval = setInterval(() => {
-      const current = localStorage.getItem('class_announcement');
-      if (current && current !== announcement) {
-        handleNewMessage(current);
-      }
-    }, 1000);
+  const handleExitApp = () => {
+    if ((window as any).electronAPI) {
+      (window as any).electronAPI.closeNotification(); 
+    } else {
+      setIsExited(true); 
+    }
+  };
 
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, [announcement, viewMode]);
+  const handleClosePopupAndHide = () => {
+    setIsPopupOpen(false);
+    if (viewMode === 'classroom') {
+      handleExitApp();
+    }
+  };
 
+  // 60초 후 바탕화면 복귀
   useEffect(() => {
     if (isPopupOpen && viewMode === 'classroom') {
       const timer = setTimeout(() => {
@@ -235,7 +275,6 @@ export default function App() {
     if (s.includes('정보') || s.includes('컴퓨터') || s.includes('코딩') || s.includes('프로그래밍')) return '💻';
     if (s.includes('기술') || s.includes('가정')) return '🏠';
     if (s.includes('진로') || s.includes('직업') || s.includes('창체')) return '🧭';
-    
     return '📚'; 
   };
 
@@ -400,23 +439,42 @@ export default function App() {
     }, 800);
   };
 
+  // 💡 Firebase로 호출/공지 전송
+  const sendFirebaseMessage = (msg: string) => {
+    if (!db) {
+      alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
+      localStorage.setItem('class_announcement', msg);
+      setAnnouncement(msg);
+      setSendSuccessToast(true);
+      setTimeout(() => setSendSuccessToast(false), 3000);
+      return;
+    }
+
+    const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    set(ref(db, `announcements/${classKey}`), {
+      text: msg,
+      time: Date.now()
+    }).then(() => {
+      setSendSuccessToast(true);
+      setTimeout(() => setSendSuccessToast(false), 3000);
+    }).catch(e => {
+      console.error(e);
+      alert("❌ 전송 실패: " + e.message);
+    });
+  };
+
   const handleSendSmartCall = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalMsg = `[대상: ${selectedStudent || '학급 전체'}]\n호출 내용: ${selectedCallMessage}\n장소: ${locationName} (${teacherName} 호출)`;
-    localStorage.setItem('class_announcement', finalMsg);
-    setAnnouncement(finalMsg);
-    setSendSuccessToast(true);
-    setTimeout(() => setSendSuccessToast(false), 3000);
+    const finalMsg = `[대상: ${selectedStudent || '학급 전체'}]\n호출 내용: ${selectedCallMessage}\n장소: ${locationName}\n(${teacherName} 선생님 호출)`;
+    sendFirebaseMessage(finalMsg);
   };
 
   const handleSendClassAnnouncement = () => {
     if (!customAnnouncement.trim()) return;
-    localStorage.setItem('class_announcement', customAnnouncement.trim());
-    setAnnouncement(customAnnouncement.trim());
-    setSendSuccessToast(true);
-    setTimeout(() => setSendSuccessToast(false), 3000);
+    sendFirebaseMessage(customAnnouncement.trim());
   };
 
+  // 💡 Firebase에 환경설정 업로드
   const handleSaveAdminSettings = () => {
     const newConfig = { 
       schoolName: adminSchoolName.trim() || '학교명', 
@@ -440,16 +498,28 @@ export default function App() {
     localStorage.setItem('class_timetables_map', JSON.stringify(tempClassTimetables));
     localStorage.setItem('meal_data', JSON.stringify(tempMeals));
 
-    alert('✅ 관리자 설정이 성공적으로 저장되었습니다!');
-    setViewMode('select');
+    if (db) {
+      set(ref(db, 'globalData'), {
+        schoolConfig: newConfig,
+        classRosters: tempClassRosters,
+        dailySchedule: tempDailySchedule,
+        classTimetables: tempClassTimetables,
+        meals: tempMeals
+      }).then(() => {
+        alert('✅ 클라우드(Firebase)에 관리자 설정이 성공적으로 저장되어 모든 기기에 동기화됩니다!');
+        setViewMode('select');
+      }).catch(e => {
+        alert('❌ 설정 저장 실패 (서버 오류): ' + e.message);
+      });
+    } else {
+      alert('✅ 오프라인 모드: 로컬에 저장되었습니다.');
+      setViewMode('select');
+    }
   };
 
   const hoursList = Array.from({ length: 13 }, (_, i) => String(i + 8).padStart(2, '0'));
   const minutesList = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
 
-  // ----------------------------------------------------
-  // 1. [시작 홈 화면]
-  // ----------------------------------------------------
   if (viewMode === 'select') {
     return (
       <div className="h-screen w-full bg-[#162d22] text-white flex flex-col items-center justify-center p-6 select-none overflow-y-auto relative">
@@ -465,15 +535,13 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4">
-            
-            {/* 💡 [FIX] 설명 텍스트를 간결하게 다듬고 줄바꿈을 완벽하게 맞춤 */}
             <div className="bg-[#1e382b] border-2 border-emerald-700/60 rounded-3xl p-8 flex flex-col items-center text-center shadow-xl h-full relative group hover:-translate-y-1 transition-transform">
               <div className="w-16 h-16 rounded-2xl bg-emerald-900/80 flex items-center justify-center text-emerald-300 mb-6 shadow-inner">
                 <Monitor size={36} />
               </div>
               <h2 className="text-xl font-bold text-white mb-2 break-keep">교실 화면 (알림판)</h2>
               <p className="text-xs text-emerald-300/70 leading-relaxed mb-8 break-keep">
-                전자칠판에 항상 띄워둘 실시간<br/>시간표 및 급식 대시보드입니다.
+                아이들을 위해 전자칠판에 띄워둘 실시간<br/>시간표 및 급식 대시보드입니다.
               </p>
               
               <div className="mt-auto w-full space-y-3">
@@ -519,7 +587,7 @@ export default function App() {
               </div>
               <h2 className="text-xl font-bold text-white mb-2 break-keep">교사용 리모컨 모드</h2>
               <p className="text-xs text-amber-200/70 leading-relaxed mt-1 mb-auto break-keep">
-                학생들을 호출하고 공지사항을<br/>전자칠판으로 즉시 전송합니다.
+                학생들을 호출하고 공지사항을<br/>전자칠판으로 즉시 전송하는 조종 패널입니다.
               </p>
             </button>
 
@@ -538,7 +606,6 @@ export default function App() {
                 명단 업로드, NEIS 연동 및 보안<br/>암호 등 환경을 설정합니다.
               </p>
             </button>
-
           </div>
 
           <div className="flex items-center justify-center gap-3 pt-6 border-t border-emerald-900/40">
@@ -588,9 +655,6 @@ export default function App() {
     );
   }
 
-  // ----------------------------------------------------
-  // 2. [교사용 스마트 리모컨 모드]
-  // ----------------------------------------------------
   if (viewMode === 'remote') {
     return (
       <div className="h-screen w-full bg-[#111111] text-white flex flex-col select-none overflow-y-auto">
@@ -730,7 +794,7 @@ export default function App() {
           {sendSuccessToast && (
             <div className="p-4 bg-emerald-900/80 border border-emerald-500 text-emerald-200 rounded-2xl text-xs font-bold flex items-center gap-2 animate-fade-in">
               <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-              <span>호출 및 전달사항이 교실 화면으로 성공적으로 전송되었습니다!</span>
+              <span>호출 및 전달사항이 전송되었습니다!</span>
             </div>
           )}
 
@@ -739,9 +803,6 @@ export default function App() {
     );
   }
 
-  // ----------------------------------------------------
-  // 3. [관리자 모드]
-  // ----------------------------------------------------
   if (viewMode === 'admin') {
     return (
       <div className="h-screen w-full bg-[#111a15] text-white flex flex-col select-none overflow-y-auto">
@@ -753,7 +814,7 @@ export default function App() {
             <h1 className="text-lg font-bold text-indigo-300">⚙️ 관리자 환경설정 패널</h1>
           </div>
           <button onClick={handleSaveAdminSettings} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer shadow-md">
-            저장 후 적용
+            저장 후 동기화
           </button>
         </header>
 
@@ -1133,7 +1194,7 @@ export default function App() {
 
           <div className="flex justify-end pt-4">
             <button onClick={handleSaveAdminSettings} className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-sm font-bold cursor-pointer shadow-lg">
-              설정 저장 및 적용하기
+              설정 저장 및 동기화
             </button>
           </div>
 
@@ -1270,6 +1331,7 @@ export default function App() {
 
       </main>
 
+      {/* 홍콩 네온사인 스타일 팝업 */}
       {isPopupOpen && (
         <div 
           onClick={handleClosePopupAndHide} 
