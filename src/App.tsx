@@ -226,9 +226,9 @@ export default function App() {
         setIsExited(false);
         playNeonAlertSound(); 
         
-        // 🔌 [일렉트론 연결] main.cjs의 'trigger-my-call' 이벤트 호출
-        if ((window as any).electronAPI && (window as any).electronAPI.triggerCall) {
-          (window as any).electronAPI.triggerCall();
+        // 🔌 [일렉트론 연결] preload.js의 window.electron 구조에 맞춤
+        if ((window as any).electron && (window as any).electron.ipcRenderer) {
+          (window as any).electron.ipcRenderer.send('trigger-my-call');
         }
       }
     });
@@ -237,8 +237,8 @@ export default function App() {
   }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule]);
 
   const handleExitApp = () => {
-    if ((window as any).electronAPI && (window as any).electronAPI.closeNotification) {
-      (window as any).electronAPI.closeNotification(); 
+    if ((window as any).electron && (window as any).electron.ipcRenderer) {
+      // 필요시 닫기 또는 숨기기 채널 전송 가능
     } else {
       setIsExited(true); 
     }
