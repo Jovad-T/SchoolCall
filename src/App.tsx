@@ -74,15 +74,15 @@ export default function App() {
     const saved = localStorage.getItem('class_timetables_map');
     if (saved) return JSON.parse(saved);
     return {
-      "2-8": { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' }
+      "2-8": { 1: '영어 II', 2: '미술 감상과 비평', 3: '프랑스어 회화', 4: '음악과 미디어', 5: '역학과 에너지', 6: '세포와 물질대사', 7: '창체' }
     };
   });
 
   const [meals, setMeals] = useState(() => {
     const saved = localStorage.getItem('meal_data');
     return saved ? JSON.parse(saved) : {
-      lunch: ['급식 데이터 없음'],
-      dinner: ['급식 데이터 없음']
+      lunch: ['백미밥', '투움바파스타', '근대된장국', '자메이카닭다리살스테이크', '배추김치'],
+      dinner: ['백미밥', '홍합무국', '온두부숙회', '느타리버섯무침', '불맛제육볶음']
     };
   });
 
@@ -128,11 +128,11 @@ export default function App() {
 
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
   const currentStudents = classRosters[currentKey] || [];
-  const currentTimetable = classTimetables[currentKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' };
+  const currentTimetable = classTimetables[currentKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
 
   const editKey = `${editTargetGrade}-${editTargetClass}`;
   const editTargetStudents = tempClassRosters[editKey] || [];
-  const editTargetTimetable = tempClassTimetables[editKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' };
+  const editTargetTimetable = tempClassTimetables[editKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -432,7 +432,6 @@ export default function App() {
     }
   };
 
-  // 💡 [수정] 진짜 AI를 이용한 시간표 PDF/이미지 정밀 파싱 로직 적용
   const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -520,7 +519,6 @@ export default function App() {
 
       const parsed = JSON.parse(jsonMatch[0]);
       
-      // 1교시부터 7교시까지 매핑 보장
       const cleanedTimetable: Record<number, string> = {};
       for(let i = 1; i <= 7; i++) {
           cleanedTimetable[i] = parsed[i] || '-';
@@ -1233,7 +1231,8 @@ export default function App() {
               </button>
             </div>
 
-            <div className="max-h-48 overflow-y-auto bg-[#111a15] p-3 rounded-xl border border-emerald-900 grid grid-cols-2 md:grid-cols-4 gap-2">
+            {/* 💡 [수정] max-h-48 제한과 스크롤(overflow-y-auto)을 완전히 없애서 학생 명단 전체가 한눈에 보이게 수정 */}
+            <div className="w-full bg-[#111a15] p-3 rounded-xl border border-emerald-900 grid grid-cols-2 md:grid-cols-4 gap-2">
               {editTargetStudents.length > 0 ? (
                 editTargetStudents.map((stu, idx) => (
                   <div key={idx} className="flex items-center justify-between bg-[#1c2e25] px-3 py-1.5 rounded-lg border border-emerald-800 text-xs">
@@ -1290,6 +1289,7 @@ export default function App() {
             <div className="space-y-3">
               <label className="text-xs text-amber-300 font-bold block">교시별 일과시간 설정 (학교 전체 공통)</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* 💡 [수정] 7교시 입력란을 추가했습니다 */}
                 {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                   const sch = tempDailySchedule[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
                   return (
@@ -1342,7 +1342,8 @@ export default function App() {
             <div className="space-y-2 pt-2 border-t border-emerald-900/60">
               <label className="text-xs text-amber-300 font-bold block">{editTargetGrade}학년 {editTargetClass}반 과목명 설정</label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {[1, 2, 3, 4, 5, 6].map((p) => (
+                {/* 💡 [수정] 시간표 과목 입력란에도 7교시를 추가했습니다 */}
+                {[1, 2, 3, 4, 5, 6, 7].map((p) => (
                   <div key={p} className="space-y-1">
                     <label className="text-xs text-slate-300 font-bold">{p}교시 과목</label>
                     <input 
@@ -1502,22 +1503,26 @@ export default function App() {
             <span className="text-xs text-emerald-400/80 font-mono">1교시 {formatScheduleString(dailySchedule[1])}</span>
           </div>
           
-          <div className="grid grid-cols-3 gap-5 flex-1 min-h-0 pb-2">
+          {/* 💡 [수정] 7교시를 수용하기 위해 그리드를 4칸씩(grid-cols-4)으로 변경했습니다 */}
+          <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
             {[
               { period: '1교시', time: formatScheduleString(dailySchedule[1]), subject: currentTimetable[1] || '-' },
               { period: '2교시', time: formatScheduleString(dailySchedule[2]), subject: currentTimetable[2] || '-' },
               { period: '3교시', time: formatScheduleString(dailySchedule[3]), subject: currentTimetable[3] || '-' },
               { period: '4교시', time: formatScheduleString(dailySchedule[4]), subject: currentTimetable[4] || '-' },
               { period: '5교시', time: formatScheduleString(dailySchedule[5]), subject: currentTimetable[5] || '-' },
-              { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: currentTimetable[6] || '-' }
+              { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: currentTimetable[6] || '-' },
+              { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: currentTimetable[7] || '-' }
             ].map((item, idx) => {
+              // 💡 7번째 과목을 위해 색상 배열을 한 개 더 추가했습니다
               const colors = [
                 'bg-[#fff9c4] text-slate-900 rotate-[-0.8deg]',
                 'bg-[#fce4ec] text-slate-900 rotate-[0.8deg]',
                 'bg-[#e3f2fd] text-slate-900 rotate-[-0.5deg]',
                 'bg-[#e8f5e9] text-slate-900 rotate-[0.6deg]',
                 'bg-[#fff3e0] text-slate-900 rotate-[-1.0deg]',
-                'bg-[#f3e5f5] text-slate-900 rotate-[1.2deg]'
+                'bg-[#f3e5f5] text-slate-900 rotate-[1.2deg]',
+                'bg-[#e0f2f1] text-slate-900 rotate-[-0.7deg]'
               ];
               return (
                 <div key={idx} className={`${colors[idx % colors.length]} rounded-2xl p-4 flex flex-col justify-between shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full`}>
@@ -1528,7 +1533,7 @@ export default function App() {
                   </div>
                   <div className="flex flex-col items-center justify-center my-auto">
                     <span className="text-4xl mb-2 opacity-80 drop-shadow-sm">{getSubjectIcon(item.subject)}</span>
-                    <span className="text-xl font-black text-center break-keep">{item.subject}</span>
+                    <span className="text-lg font-black text-center break-keep leading-tight mt-1">{item.subject}</span>
                   </div>
                   <div className="w-2.5 h-2.5 bg-rose-500/80 rounded-full mx-auto shadow-sm mt-1"></div>
                 </div>
