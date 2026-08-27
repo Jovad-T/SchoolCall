@@ -99,6 +99,7 @@ export default function App() {
 
   const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [pendingPopup, setPendingPopup] = useState(false);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [isExited, setIsExited] = useState(false);
@@ -249,7 +250,8 @@ export default function App() {
           lastSyncTimeRef.current = data.time;
           
           if (isClassTime()) {
-            console.log("현재 수업 시간이므로 알림이 차단되었습니다.");
+            console.log("현재 수업 시간이므로 알림이 예약되었습니다. 쉬는 시간에 표시됩니다.");
+            setPendingPopup(true);
             return;
           }
 
@@ -268,6 +270,20 @@ export default function App() {
     return () => unsubscribe();
   }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule]);
 
+  useEffect(() => {
+    if (pendingPopup && viewMode === 'classroom' && !isClassTime()) {
+      console.log("쉬는 시간이 되어 예약된 알림을 표시합니다.");
+      setPendingPopup(false);
+      setIsPopupOpen(true);
+      setIsExited(false);
+      playNeonAlertSound();
+      
+      if ((window as any).electron && (window as any).electron.ipcRenderer) {
+        (window as any).electron.ipcRenderer.send('trigger-my-call');
+      }
+    }
+  }, [currentTime, pendingPopup, viewMode]);
+
   const handleExitApp = () => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
       (window as any).electron.ipcRenderer.send('hide-window');
@@ -278,6 +294,7 @@ export default function App() {
 
   const handleClosePopupAndHide = () => {
     setIsPopupOpen(false);
+    setPendingPopup(false);
   };
 
   useEffect(() => {
