@@ -74,15 +74,15 @@ export default function App() {
     const saved = localStorage.getItem('class_timetables_map');
     if (saved) return JSON.parse(saved);
     return {
-      "2-8": { 1: '영어 II', 2: '미술 감상과 비평', 3: '프랑스어 회화', 4: '음악과 미디어', 5: '역학과 에너지', 6: '세포와 물질대사' }
+      "2-8": { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' }
     };
   });
 
   const [meals, setMeals] = useState(() => {
     const saved = localStorage.getItem('meal_data');
     return saved ? JSON.parse(saved) : {
-      lunch: ['백미밥', '투움바파스타', '근대된장국', '자메이카닭다리살스테이크', '배추김치'],
-      dinner: ['백미밥', '홍합무국', '온두부숙회', '느타리버섯무침', '불맛제육볶음']
+      lunch: ['급식 데이터 없음'],
+      dinner: ['급식 데이터 없음']
     };
   });
 
@@ -281,12 +281,12 @@ export default function App() {
     if (s.includes('과학')) return '🔬';
     if (s.includes('역사') || s.includes('한국사') || s.includes('세계사') || s.includes('동아시아')) return '🏛️';
     if (s.includes('사회') || s.includes('지리') || s.includes('경제') || s.includes('윤리') || s.includes('정치') || s.includes('법')) return '⚖️';
-    if (s.includes('미술') || s.includes('드로잉') || s.includes('디자인') || s.includes('감상과비평')) return '🎨';
+    if (s.includes('미술') || s.includes('드로잉') || s.includes('디자인') || s.includes('감상과비평') || s.includes('매체')) return '🎨';
     if (s.includes('음악') || s.includes('합창') || s.includes('미디어')) return '🎵';
     if (s.includes('체육') || s.includes('스포츠') || s.includes('운동')) return '⚽';
     if (s.includes('정보') || s.includes('컴퓨터') || s.includes('코딩') || s.includes('프로그래밍')) return '💻';
     if (s.includes('기술') || s.includes('가정')) return '🏠';
-    if (s.includes('진로') || s.includes('직업') || s.includes('창체')) return '🧭';
+    if (s.includes('진로') || s.includes('직업') || s.includes('창체') || s.includes('자율')) return '🧭';
     return '📚'; 
   };
 
@@ -432,21 +432,117 @@ export default function App() {
     }
   };
 
-  const handleTimetableImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 💡 [수정] 진짜 AI를 이용한 시간표 PDF/이미지 정밀 파싱 로직 적용
+  const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
+    if (!apiKey) {
+      alert("❌ [API 키 필요] 관리자 모드의 [나이스 & AI 인증키 연동] 메뉴에서 Google Gemini API 키를 먼저 입력하고 저장해주세요.");
+      e.target.value = '';
+      return;
+    }
+
     setTimetableFileName(file.name);
-    setTimeout(() => {
+    setIsNeisLoading(true);
+
+    try {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = reader.result as string;
+          resolve(res.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      
+      const month = currentTime.getMonth() + 1;
+      const date = currentTime.getDate();
+      const dayStr = ['일', '월', '화', '수', '목', '금', '토'][currentTime.getDay()];
+
+      const promptText = `
+너는 대한민국 학교 시간표 전문 OCR 분석기야.
+첨부된 시간표 이미지/문서에서 오늘 날짜인 [${month}월 ${date}일] 또는 [${dayStr}요일] 기둥(Column)을 찾아서 1교시부터 7교시까지의 수업 과목을 정확히 추출해줘.
+
+[엄격한 추출 규칙]
+1. 시간표 칸 안에 슬래시(/) 뒤에 붙은 교사 이름이나 장소(예: /김효/미술실, /손예, /박지 등)는 완벽하게 제거해.
+2. 과목명 앞에 붙은 A, B, C, D 등의 이동수업 그룹 알파벳(예: B미술감상과비평 -> 미술감상과비평, A역학과에너지 -> 역학과에너지)은 반드시 제거해.
+3. 오직 순수한 과목명만 남겨. (해당 교시에 수업이 빈칸이거나 없으면 "-" 로 표시해)
+4. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해:
+{
+  "1": "과목명",
+  "2": "과목명",
+  "3": "과목명",
+  "4": "과목명",
+  "5": "과목명",
+  "6": "과목명",
+  "7": "과목명"
+}
+`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Data
+                }
+              }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.1
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || 'Gemini API 호출 실패');
+      }
+
+      const result = await response.json();
+      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('시간표 데이터 JSON 변환에 실패했습니다.');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // 1교시부터 7교시까지 매핑 보장
+      const cleanedTimetable: Record<number, string> = {};
+      for(let i = 1; i <= 7; i++) {
+          cleanedTimetable[i] = parsed[i] || '-';
+      }
+
       const key = `${editTargetGrade}-${editTargetClass}`;
       setTempClassTimetables({
         ...tempClassTimetables,
-        [key]: { 1: '확률과 통계', 2: '영어 독해와 작문', 3: '물리학 I', 4: '한국사', 5: '체육', 6: '음악' }
+        [key]: cleanedTimetable
       });
-      alert(`✅ [${file.name}] 이미지 분석 완료!\nAI가 ${editTargetGrade}학년 ${editTargetClass}반 시간표 과목을 자동으로 추출했습니다.`);
-    }, 800);
+
+      alert(`✅ [${file.name}] 인식 성공!\n오늘(${month}월 ${date}일 ${dayStr}요일)의 시간표를 선생님 이름과 기호를 빼고 깔끔하게 추출했습니다.`);
+
+    } catch (err: any) {
+      console.error("시간표 인식 오류:", err);
+      alert(`❌ 시간표 인식 실패: ${err.message}\n(AI Studio API 키가 올바른지 확인해주세요.)`);
+    } finally {
+      setIsNeisLoading(false);
+      e.target.value = '';
+    }
   };
 
-  // 💡 [수정] 구글 AI 모델 버전을 최신(gemini-3.6-flash)으로 변경 완료
   const handleMealFileupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -494,7 +590,6 @@ export default function App() {
 }
 `;
 
-      // 💡 [핵심 수정 부분] 모델 이름을 gemini-2.5-flash 에서 gemini-3.6-flash 로 업데이트했습니다.
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1184,7 +1279,7 @@ export default function App() {
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                   <div className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors">
-                    <ImageIcon size={14} /> 이미지/PDF 인식
+                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />} AI 이미지/PDF 인식
                   </div>
                 </div>
               </div>
