@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock } from 'lucide-react';
+import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2 } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
@@ -38,6 +38,7 @@ export default function App() {
       currentGrade: parsed.currentGrade || 2, 
       currentClass: parsed.currentClass || 8,
       neisApiKey: parsed.neisApiKey || '',
+      geminiApiKey: parsed.geminiApiKey || '',
       eduCode: parsed.eduCode || 'C10',
       schoolCode: parsed.schoolCode || '7150144',
       adminPin: parsed.adminPin || '0000'
@@ -80,8 +81,8 @@ export default function App() {
   const [meals, setMeals] = useState(() => {
     const saved = localStorage.getItem('meal_data');
     return saved ? JSON.parse(saved) : {
-      lunch: ['백미밥', '투움바파스타', '근대된장국', '자메이카닭다리살스테이크', '배추김치'],
-      dinner: ['백미밥', '홍합무국', '온두부숙회', '느타리버섯무침', '불맛제육볶음']
+      lunch: ['커리*가라아게', '백미밥', '경상도식소고기뭇국', '연두부*양념장', '배추김치', '비타500젤리'],
+      dinner: ['삼겹살(대패)볶음밥', '두부된장국', '브로콜리숙회*초장', '통치즈라면땅도그', '*계란후라이', '깍두기']
     };
   });
 
@@ -101,6 +102,7 @@ export default function App() {
   const [adminSelectedGrade, setAdminSelectedGrade] = useState(schoolConfig.currentGrade);
   const [adminSelectedClass, setAdminSelectedClass] = useState(schoolConfig.currentClass);
   const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
+  const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
   const [adminEduCode, setAdminEduCode] = useState(schoolConfig.eduCode);
   const [adminSchoolCode, setAdminSchoolCode] = useState(schoolConfig.schoolCode);
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
@@ -153,7 +155,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 💡 현재 시간이 '수업 시간'인지 판단하는 함수
   const isClassTime = () => {
     const currentH = currentTime.getHours();
     const currentM = currentTime.getMinutes();
@@ -166,11 +167,11 @@ export default function App() {
         const endTotalM = Number(sch.endH) * 60 + Number(sch.endM);
 
         if (currentTotalM >= startTotalM && currentTotalM <= endTotalM) {
-          return true; // 수업 시간 중임!
+          return true;
         }
       }
     }
-    return false; // 쉬는 시간 또는 일과 외 시간
+    return false;
   };
 
   const playNeonAlertSound = () => {
@@ -202,7 +203,6 @@ export default function App() {
     }
   };
 
-  // 💡 [UPDATED] 수업 시간에는 알림 차단, 쉬는 시간에만 팝업 및 일렉트론 창 깨우기 작동
   useEffect(() => {
     if (!db || viewMode !== 'classroom') return;
 
@@ -216,7 +216,6 @@ export default function App() {
         setAnnouncement(data.text);
         lastSyncTimeRef.current = data.time;
         
-        // 🔒 수업 시간 체크: 수업 중이면 알림/팝업/소리 차단
         if (isClassTime()) {
           console.log("현재 수업 시간이므로 알림이 차단되었습니다. (쉬는 시간에 표시됩니다)");
           return;
@@ -226,7 +225,6 @@ export default function App() {
         setIsExited(false);
         playNeonAlertSound(); 
         
-        // 🔌 [일렉트론 연결] preload.js의 window.electron 구조에 맞춤
         if ((window as any).electron && (window as any).electron.ipcRenderer) {
           (window as any).electron.ipcRenderer.send('trigger-my-call');
         }
@@ -238,17 +236,14 @@ export default function App() {
 
   const handleExitApp = () => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
-      // 필요시 닫기 또는 숨기기 채널 전송 가능
+      (window as any).electron.ipcRenderer.send('hide-window');
     } else {
-      setIsExited(true); 
+      setIsExited(true);  
     }
   };
 
   const handleClosePopupAndHide = () => {
     setIsPopupOpen(false);
-    if (viewMode === 'classroom') {
-      handleExitApp();
-    }
   };
 
   useEffect(() => {
@@ -320,6 +315,7 @@ export default function App() {
       setAdminSelectedGrade(schoolConfig.currentGrade);
       setAdminSelectedClass(schoolConfig.currentClass);
       setAdminNeisApiKey(schoolConfig.neisApiKey);
+      setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
       setAdminPinInput(schoolConfig.adminPin);
@@ -372,6 +368,7 @@ export default function App() {
     reader.readAsText(file, 'utf-8');
   };
 
+  // 💡 [수정] NEIS API에서 불러올 때 (1.2.3) 알레르기 번호를 완벽하게 지우는 청소 로직 추가
   const handleNeisFetch = async (type: 'timetable' | 'meal') => {
     if (!schoolConfig.neisApiKey) {
       alert("❌ [오류] 나이스(NEIS) 인증키가 없습니다.\n관리자 모드의 [학교명 및 학급 구조 세팅]에서 발급받은 API 키를 먼저 입력하고 저장해주세요.");
@@ -410,13 +407,20 @@ export default function App() {
           const newMeals = { lunch: ['급식 없음'], dinner: ['급식 없음'] };
           
           rows.forEach((row: any) => {
-            const cleanedMenu = row.DDISH_NM.split('<br/>').map((item: string) => item.replace(/[\d\.]+\*?$/g, '').trim()).filter(Boolean);
-            if (row.MMEAL_SC_CODE === '2') newMeals.lunch = cleanedMenu;      
+            const cleanedMenu = row.DDISH_NM.split('<br/>')
+              .map((item: string) => item
+                .replace(/\s*\([\d\.,\s]+\)/g, '') // (1.2.3.4) 형태의 알레르기 숫자 괄호 완벽 제거
+                .replace(/[\d\.]+\*?$/g, '')        // 문자열 끝에 지저분하게 남은 숫자/마침표 제거
+                .trim()
+              )
+              .filter(Boolean);
+            
+            if (row.MMEAL_SC_CODE === '2') newMeals.lunch = cleanedMenu;     
             else if (row.MMEAL_SC_CODE === '3') newMeals.dinner = cleanedMenu; 
           });
           
           setTempMeals(newMeals);
-          alert(`📡 [NEIS 연동 완료] 오늘의 급식 식단표를 성공적으로 가져왔습니다!`);
+          alert(`📡 [NEIS 연동 완료] 오늘의 급식 식단표를 성공적으로 가져왔습니다!\n(숫자 및 기호를 깔끔하게 정리했습니다)`);
         } else {
           alert(`⚠ 오늘자 급식 데이터가 NEIS에 존재하지 않습니다.\n(사유: ${data.RESULT?.MESSAGE || '급식 없는 날'})`);
         }
@@ -443,17 +447,110 @@ export default function App() {
     }, 800);
   };
 
-  const handleMealFileupload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 💡 [수정] AI 파서 결과에서도 만약 찌꺼기 숫자가 남았을 경우 한 번 더 지워주는 로직 반영
+  const handleMealFileupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
+    if (!apiKey) {
+      alert("❌ [API 키 필요] 관리자 모드의 [나이스 & AI 인증키 연동] 메뉴에서 Google Gemini API 키를 먼저 입력하고 저장해주세요.");
+      e.target.value = '';
+      return;
+    }
+
     setMealFileName(file.name);
-    setTimeout(() => {
-      setTempMeals({
-        lunch: ['차곡차곡현미밥', '한우소고기국', '치즈닭갈비', '오이부추무침', '배추김치', '청포도에이드'],
-        dinner: ['발효흑미밥', '근대된장국', '돈육보쌈', '상추쌈/쌈장', '무말랭이무침', '포도']
+    setIsNeisLoading(true);
+
+    try {
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = reader.result as string;
+          resolve(res.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
       });
-      alert(`✅ [${file.name}] 파일 분석 완료!\n급식 식단표에서 점심/저녁 메뉴를 자동으로 추출했습니다.`);
-    }, 800);
+
+      const mimeType = file.type || (file.name.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      const todayDate = currentTime.getDate();
+
+      const promptText = `
+너는 대한민국 학교 급식 식단표(월간 테이블) 전문 OCR 분석기야.
+첨부된 이미지/문서에서 오늘 날짜인 [ ${todayDate}일 ] 칸을 정확히 찾아서 '중식(점심)'과 '석식(저녁)' 메뉴를 추출해줘.
+
+[엄격한 추출 규칙]
+1. 테이블의 날짜 열(Column) 중 숫자 '${todayDate}' 또는 '${todayDate}일'이 적힌 칸을 찾을 것.
+2. '중식' 행(Row)과 '석식' 행(Row)의 메뉴 텍스트를 각각 분리할 것.
+3. (1.5.6.9.10), (5.6.8.10.13.16) 등 괄호로 표기된 알레르기 유발물질 번호는 전부 제거할 것.
+4. '* 에너지/단백질/칼슘/철', '669.76/26.21/...' 등 칼로리 및 영양 정보 수치는 완전히 제외할 것.
+5. 오직 반찬/국/밥 등의 음식 명칭만 깔끔한 문자열 배열로 반환할 것.
+6. 만약 해당 날짜에 중식 또는 석식이 없거나 식판 금지 아이콘이 있다면 빈 배열 [] 로 둘 것.
+
+반드시 마크다운 백틱이나 다른 잡담 없이 순수 JSON 포맷으로만 응답해:
+{
+  "lunch": ["메뉴1", "메뉴2", "메뉴3"],
+  "dinner": ["메뉴1", "메뉴2", "메뉴3"]
+}
+`;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType: mimeType,
+                  data: base64Data
+                }
+              }
+            ]
+          }],
+          generationConfig: {
+            temperature: 0.1
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || 'Gemini API 호출 실패');
+      }
+
+      const result = await response.json();
+      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('식단 데이터 JSON 변환에 실패했습니다.');
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      
+      // AI가 미처 못 지운 알레르기 괄호를 한 번 더 깔끔하게 청소
+      const newLunch = (parsed.lunch && parsed.lunch.length > 0 ? parsed.lunch : ['급식 없음'])
+        .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim());
+      const newDinner = (parsed.dinner && parsed.dinner.length > 0 ? parsed.dinner : ['급식 없음'])
+        .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim());
+
+      setTempMeals({
+        lunch: newLunch,
+        dinner: newDinner
+      });
+
+      alert(`✅ [${file.name}] 인식 성공!\n${todayDate}일자 중식 ${newLunch.length}개, 석식 ${newDinner.length}개 메뉴를 정확히 불러왔습니다.`);
+
+    } catch (err: any) {
+      console.error("식단표 인식 오류:", err);
+      alert(`❌ 식단표 인식 실패: ${err.message}\n(AI Studio API 키가 올바른지 확인해주세요.)`);
+    } finally {
+      setIsNeisLoading(false);
+      e.target.value = '';
+    }
   };
 
   const sendFirebaseMessage = (msg: string) => {
@@ -497,6 +594,7 @@ export default function App() {
       currentGrade: adminSelectedGrade,
       currentClass: adminSelectedClass,
       neisApiKey: adminNeisApiKey.trim(),
+      geminiApiKey: adminGeminiApiKey.trim(),
       eduCode: adminEduCode.trim(),
       schoolCode: adminSchoolCode.trim(),
       adminPin: adminPinInput.trim() || '0000'
@@ -898,7 +996,7 @@ export default function App() {
             </div>
 
             <div className="pt-4 border-t border-emerald-900/60 mt-4">
-              <label className="text-xs text-slate-300 font-bold mb-2 flex items-center gap-1.5"><Key size={14} className="text-amber-400"/> 나이스(NEIS) 오픈 API 인증키 연동</label>
+              <label className="text-xs text-slate-300 font-bold mb-2 flex items-center gap-1.5"><Key size={14} className="text-amber-400"/> 나이스(NEIS) & AI(Gemini) 인증키 연동</label>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                 <div className="md:col-span-1">
                   <label className="text-[10px] text-slate-400 mb-1 block">교육청 코드</label>
@@ -909,14 +1007,27 @@ export default function App() {
                   <input type="text" value={adminSchoolCode} onChange={(e) => setAdminSchoolCode(e.target.value)} placeholder="예: 7150144 (사직여고)" className="w-full px-3 py-2 bg-[#111a15] text-white rounded-lg border border-emerald-900 text-xs" />
                 </div>
               </div>
-              <div>
-                <input
-                  type="password"
-                  value={adminNeisApiKey}
-                  onChange={(e) => setAdminNeisApiKey(e.target.value)}
-                  placeholder="발급받은 NEIS API KEY를 입력하세요 (예: a1b2c3d4...)"
-                  className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-amber-500 outline-none"
-                />
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[10px] text-slate-400 mb-1 block">나이스 NEIS API KEY</label>
+                  <input
+                    type="password"
+                    value={adminNeisApiKey}
+                    onChange={(e) => setAdminNeisApiKey(e.target.value)}
+                    placeholder="발급받은 NEIS API KEY를 입력하세요"
+                    className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-amber-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-indigo-300 font-bold mb-1 block">구글 Gemini API KEY (PDF/이미지 식단표 AI 분석용)</label>
+                  <input
+                    type="password"
+                    value={adminGeminiApiKey}
+                    onChange={(e) => setAdminGeminiApiKey(e.target.value)}
+                    placeholder="Google AI Studio Gemini API 키 (AIzaSy...)"
+                    className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-indigo-900 text-sm focus:border-indigo-400 outline-none"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1179,7 +1290,7 @@ export default function App() {
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   />
                   <div className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors">
-                    <FileText size={14} /> 이미지/PDF 인식
+                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} AI 이미지/PDF 인식
                   </div>
                 </div>
               </div>
@@ -1233,6 +1344,19 @@ export default function App() {
       </div>
     );
   }
+
+  const parsedCall = (() => {
+    if (!announcement || !announcement.includes('[대상:')) return null;
+    const lines = announcement.split('\n');
+    if (lines.length >= 4) {
+      const target = lines[0].replace(/\[대상:\s*/, '').replace(']', '');
+      const message = lines[1].replace('호출 내용: ', '');
+      const location = lines[2].replace('장소: ', '');
+      const teacher = lines[3].replace(/^\(/, '').replace(/ 선생님 호출\)$/, '');
+      return { target, message, location, teacher };
+    }
+    return null;
+  })();
 
   return (
     <div className="h-screen w-full bg-[#1e382b] text-white font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 border-[#2b4c3b]">
@@ -1350,36 +1474,59 @@ export default function App() {
         <div 
           onClick={handleClosePopupAndHide} 
           className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-fade-in cursor-pointer"
-          title="클릭하거나 터치하면 닫히고 바탕화면으로 돌아갑니다."
+          title="클릭하거나 터치하면 팝업이 닫힙니다."
         >
-          <div className="relative w-full max-w-3xl bg-[#050505] border-4 border-[#ff0055] rounded-3xl p-10 shadow-[0_0_60px_#ff0055,inset_0_0_40px_#ff0055] flex flex-col items-center text-center overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-4xl bg-[#050505] border-4 border-[#ff0055] rounded-3xl p-12 shadow-[0_0_80px_#ff0055,inset_0_0_40px_#ff0055] flex flex-col items-center text-center overflow-hidden" onClick={(e) => e.stopPropagation()}>
             
-            <div className="absolute -top-20 -left-20 w-64 h-64 bg-[#00ffcc] opacity-20 blur-[100px] rounded-full pointer-events-none"></div>
-            <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-[#ff0055] opacity-20 blur-[100px] rounded-full pointer-events-none"></div>
+            <div className="absolute -top-20 -left-20 w-80 h-80 bg-[#00ffcc] opacity-20 blur-[120px] rounded-full pointer-events-none"></div>
+            <div className="absolute -bottom-20 -right-20 w-80 h-80 bg-[#ff0055] opacity-20 blur-[120px] rounded-full pointer-events-none"></div>
 
             <div className="relative z-10 w-full">
               <div className="flex items-center justify-center gap-4 mb-8">
-                <span className="text-4xl animate-pulse">🚨</span>
-                <h2 className="text-4xl font-black text-white tracking-widest [text-shadow:0_0_10px_#fff,0_0_20px_#ff0055,0_0_40px_#ff0055,0_0_80px_#ff0055] animate-pulse">
+                <span className="text-5xl animate-pulse">🚨</span>
+                <h2 className="text-5xl font-black text-white tracking-widest [text-shadow:0_0_10px_#fff,0_0_20px_#ff0055,0_0_40px_#ff0055,0_0_80px_#ff0055] animate-pulse">
                   새로운 전달사항
                 </h2>
               </div>
 
-              <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-md rounded-2xl p-10 border border-[#00ffcc]/50 shadow-[0_0_30px_rgba(0,255,204,0.2)] mb-10">
-                <p className="text-3xl font-black text-[#00ffcc] leading-relaxed [word-break:keep-all] whitespace-pre-wrap [text-shadow:0_0_10px_#00ffcc,0_0_20px_#00ffcc]">
-                  {announcement}
-                </p>
-              </div>
+              {parsedCall ? (
+                <div className="w-full space-y-6 mb-10">
+                  <div className="w-full bg-[#0a0a0a]/90 backdrop-blur-md rounded-3xl p-8 border border-[#00ffcc]/60 shadow-[0_0_40px_rgba(0,255,204,0.3)] flex flex-col items-center">
+                    <span className="px-6 py-2.5 bg-[#00ffcc]/20 text-[#00ffcc] rounded-full text-xl font-black tracking-widest border border-[#00ffcc]/40 mb-6 shadow-inner">
+                      대상: {parsedCall.target}
+                    </span>
+                    <p className="text-4xl md:text-5xl font-black text-white leading-tight [word-break:keep-all] [text-shadow:0_0_20px_rgba(255,255,255,0.5)]">
+                      {parsedCall.message}
+                    </p>
+                  </div>
 
-              <div className="flex flex-col items-center gap-3 w-full">
+                  <div className="w-full bg-[#1a0510]/90 backdrop-blur-md rounded-3xl p-6 border border-[#ff0055]/60 shadow-[0_0_40px_rgba(255,0,85,0.3)] flex flex-wrap justify-center items-center gap-8">
+                    <div className="flex items-center gap-3 text-3xl font-bold text-[#ff0055] [text-shadow:0_0_15px_rgba(255,0,85,0.6)]">
+                      <MapPin size={36} /> {parsedCall.location}
+                    </div>
+                    <div className="hidden md:block w-2 h-10 bg-white/10 rounded-full"></div>
+                    <div className="flex items-center gap-3 text-3xl font-bold text-[#ff0055] [text-shadow:0_0_15px_rgba(255,0,85,0.6)]">
+                      <User size={36} /> {parsedCall.teacher} 선생님
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-md rounded-3xl p-10 border border-[#00ffcc]/50 shadow-[0_0_30px_rgba(0,255,204,0.2)] mb-10">
+                  <p className="text-4xl font-black text-[#00ffcc] leading-relaxed [word-break:keep-all] whitespace-pre-wrap [text-shadow:0_0_10px_#00ffcc,0_0_20px_#00ffcc]">
+                    {announcement}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-col items-center gap-4 w-full">
                 <button 
                   onClick={handleClosePopupAndHide}
-                  className="px-10 py-4 bg-[#ff0055] hover:bg-[#ff3377] text-white font-black rounded-xl shadow-[0_0_20px_#ff0055] transition-all text-lg flex items-center gap-2 cursor-pointer active:scale-95"
+                  className="px-12 py-5 bg-[#ff0055] hover:bg-[#ff3377] text-white font-black rounded-2xl shadow-[0_0_20px_#ff0055] transition-all text-xl flex items-center gap-3 cursor-pointer active:scale-95"
                 >
-                  <X size={24} strokeWidth={3} />
-                  확인 (닫고 바탕화면으로 복귀)
+                  <X size={28} strokeWidth={3} />
+                  확인 (닫기)
                 </button>
-                <span className="text-[13px] text-slate-400 font-bold tracking-widest mt-2">※ 1분이 지나면 자동으로 사라지며 바탕화면으로 숨겨집니다.</span>
+                <span className="text-sm text-slate-400 font-bold tracking-widest mt-2">※ 1분이 지나면 팝업이 자동으로 닫히고 대시보드가 표시됩니다.</span>
               </div>
             </div>
 

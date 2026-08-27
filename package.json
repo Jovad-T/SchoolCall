@@ -13,7 +13,6 @@
     },
     "files": [
       "dist/**/*",
-      "main.cjs",
       "preload.js",
       "public/**/*",
       "class.cjs"
@@ -35,6 +34,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "start": "electron class.cjs",
     "build:win": "vite build && electron-packager . SchoolCallApp --platform=win32 --arch=x64 --out=dist_electron --overwrite",
     "build:installer": "npm run build:class",
     "preview": "vite preview",
