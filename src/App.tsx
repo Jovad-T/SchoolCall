@@ -153,13 +153,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 💡 [NEW] 현재 시간이 '수업 시간'인지 판단하는 함수
+  // 💡 현재 시간이 '수업 시간'인지 판단하는 함수
   const isClassTime = () => {
     const currentH = currentTime.getHours();
     const currentM = currentTime.getMinutes();
     const currentTotalM = currentH * 60 + currentM;
 
-    // 설정된 일과 시간표를 순회하며 현재 시간이 교시 시작~끝 사이에 있는지 확인
     for (let p = 1; p <= 7; p++) {
       const sch = dailySchedule[p];
       if (sch && sch.startH && sch.startM && sch.endH && sch.endM) {
@@ -203,7 +202,7 @@ export default function App() {
     }
   };
 
-  // 💡 [UPDATED] 수업 시간에는 팝업을 띄우지 않고 대기(쉬는 시간에만 울림)
+  // 💡 [UPDATED] 수업 시간에는 알림 차단, 쉬는 시간에만 팝업 및 일렉트론 창 깨우기 작동
   useEffect(() => {
     if (!db || viewMode !== 'classroom') return;
 
@@ -217,7 +216,7 @@ export default function App() {
         setAnnouncement(data.text);
         lastSyncTimeRef.current = data.time;
         
-        // 🔒 수업 시간 체크: 수업 중이면 팝업과 알림음을 울리지 않고 데이터만 백그라운드에 저장합니다.
+        // 🔒 수업 시간 체크: 수업 중이면 알림/팝업/소리 차단
         if (isClassTime()) {
           console.log("현재 수업 시간이므로 알림이 차단되었습니다. (쉬는 시간에 표시됩니다)");
           return;
@@ -227,8 +226,9 @@ export default function App() {
         setIsExited(false);
         playNeonAlertSound(); 
         
-        if ((window as any).electronAPI && (window as any).electronAPI.showApp) {
-          (window as any).electronAPI.showApp();
+        // 🔌 [일렉트론 연결] main.cjs의 'trigger-my-call' 이벤트 호출
+        if ((window as any).electronAPI && (window as any).electronAPI.triggerCall) {
+          (window as any).electronAPI.triggerCall();
         }
       }
     });
@@ -237,7 +237,7 @@ export default function App() {
   }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule]);
 
   const handleExitApp = () => {
-    if ((window as any).electronAPI) {
+    if ((window as any).electronAPI && (window as any).electronAPI.closeNotification) {
       (window as any).electronAPI.closeNotification(); 
     } else {
       setIsExited(true); 
