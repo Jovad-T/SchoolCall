@@ -143,6 +143,7 @@ export default function App() {
   const [pinModal, setPinModal] = useState({ isOpen: false, input: '', error: '' });
 
   const lastSyncTimeRef = useRef<number>(Date.now());
+  const isInitialSyncRef = useRef<boolean>(true);
 
   const todayStr = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
@@ -242,7 +243,9 @@ export default function App() {
       
       if (data) {
         setAnnouncement(data.text);
-        if (data.time > lastSyncTimeRef.current) {
+        if (isInitialSyncRef.current) {
+          lastSyncTimeRef.current = data.time;
+        } else if (data.time > lastSyncTimeRef.current) {
           lastSyncTimeRef.current = data.time;
           
           if (isClassTime()) {
@@ -259,6 +262,7 @@ export default function App() {
           }
         }
       }
+      isInitialSyncRef.current = false;
     });
 
     return () => unsubscribe();
@@ -412,7 +416,11 @@ export default function App() {
           const rows = data.hisTimetable[1].row;
           const newTimetable: Record<number, string> = {};
           rows.forEach((row: any) => {
-            newTimetable[row.PERIO] = row.ITRT_CNTNT.replace(/\*/g, '');
+            let subject = row.ITRT_CNTNT || '';
+            subject = subject.replace(/\*/g, '');
+            subject = subject.replace(/\([^)]*\)/g, ''); // 괄호와 괄호 안 내용 모두 제거
+            subject = subject.trim();
+            newTimetable[row.PERIO] = subject;
           });
           const key = `${editTargetGrade}-${editTargetClass}`;
           
@@ -490,19 +498,21 @@ export default function App() {
 
       const promptText = `
 너는 대한민국 학교 시간표 전문 OCR 분석기야.
-첨부된 시간표 이미지에서 **모든 날짜(월~금)**의 1교시부터 7교시까지의 수업 과목을 전부 추출해.
-현재 연도는 ${currentTime.getFullYear()}년이야. 문서에 적힌 날짜(예: 8-24)를 조합해 "YYYYMMDD" 형태를 키(key)로 생성해.
+첨부된 시간표 이미지에서 **월요일부터 금요일까지**의 1교시부터 7교시까지의 수업 과목을 전부 추출해.
 
 [엄격한 추출 규칙]
-1. 시간표 칸 안에 슬래시(/) 뒤에 붙은 교사 이름이나 장소는 완벽하게 제거해.
-2. 과목명 앞의 A, B, C 등 이동수업 알파벳 제거해.
-3. 띄어쓰기를 예쁘게 교정해 (예: 프랑스어회화 -> 프랑스어 회화)
-4. 빈칸은 "-" 로 표시해.
-5. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
-형식 예시:
+1. 월요일은 "1", 화요일은 "2", 수요일은 "3", 목요일은 "4", 금요일은 "5" 를 최상위 키(key)로 사용해.
+2. 시간표 칸 안에 슬래시(/)나 괄호 뒤에 붙은 교사 이름이나 장소는 완벽하게 제거해. (예: "진로활동/구민" -> "진로활동", "미술과매체/박지/미술실" -> "미술과 매체")
+3. 과목명 앞의 A, B, C, D 등 이동수업 알파벳을 완벽하게 제거해. (예: "C세포와물질대사" -> "세포와 물질대사", "B미술감상과비평" -> "미술 감상과 비평")
+4. 띄어쓰기를 예쁘게 교정해 (예: 독서와작문 -> 독서와 작문)
+5. 빈칸은 "-" 로 표시해.
+6. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
+
+응답 예시:
 {
-  "20260824": { "1": "진로", "2": "독서", ... "7": "창체" },
-  "20260825": { "1": "수학", "2": "체육", ... "7": "-" }
+  "1": { "1": "진로활동", "2": "독서와 작문", "3": "역학과 에너지", "4": "프랑스어 회화", "5": "세포와 물질대사", "6": "미술과 매체", "7": "미적분I" },
+  "2": { "1": "독서와 작문", "2": "자율활동", "3": "스포츠 과학", "4": "미술과 매체", "5": "미적분I", "6": "영어II", "7": "미술 감상과 비평" },
+  "3": { "1": "독서와 작문", "2": "프랑스어 회화", "3": "영어II", "4": "스포츠 과학", "5": "역학과 에너지", "6": "-", "7": "창체" }
 }
 `;
 
@@ -662,8 +672,17 @@ export default function App() {
   };
 
   const handleSendClassAnnouncement = () => {
-    if (!customAnnouncement.trim()) return;
+    if (!customAnnouncement.trim()) {
+      alert('내용을 입력해주세요.');
+      return;
+    }
     sendFirebaseMessage(customAnnouncement.trim());
+  };
+
+  const handleResetClassAnnouncement = () => {
+    const defaultMsg = '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
+    setCustomAnnouncement(defaultMsg);
+    sendFirebaseMessage(defaultMsg);
   };
 
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
@@ -985,13 +1004,23 @@ export default function App() {
               className="w-full h-28 bg-[#111] border border-white/20 rounded-2xl p-4 text-sm text-white outline-none focus:border-blue-500 resize-none leading-relaxed"
               placeholder="학생들에게 전달할 내용을 입력하세요..."
             />
-            <button 
-              type="button"
-              onClick={handleSendClassAnnouncement}
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-lg transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Send size={16} /> 전달사항 보내기 ✈
-            </button>
+            <div className="flex gap-2">
+              <button 
+                type="button"
+                onClick={handleSendClassAnnouncement}
+                className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-lg transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Send size={16} /> 보내기 ✈
+              </button>
+              <button 
+                type="button"
+                onClick={handleResetClassAnnouncement}
+                className="py-3.5 px-4 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-2xl shadow-lg transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
+                title="기본 문구로 초기화"
+              >
+                <Trash2 size={16} /> 초기화
+              </button>
+            </div>
           </section>
 
           <button 
