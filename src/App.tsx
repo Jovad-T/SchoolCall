@@ -81,8 +81,8 @@ export default function App() {
   const [meals, setMeals] = useState(() => {
     const saved = localStorage.getItem('meal_data');
     return saved ? JSON.parse(saved) : {
-      lunch: ['커리*가라아게', '백미밥', '경상도식소고기뭇국', '연두부*양념장', '배추김치', '비타500젤리'],
-      dinner: ['삼겹살(대패)볶음밥', '두부된장국', '브로콜리숙회*초장', '통치즈라면땅도그', '*계란후라이', '깍두기']
+      lunch: ['백미밥', '투움바파스타', '근대된장국', '자메이카닭다리살스테이크', '배추김치'],
+      dinner: ['백미밥', '홍합무국', '온두부숙회', '느타리버섯무침', '불맛제육볶음']
     };
   });
 
@@ -368,7 +368,6 @@ export default function App() {
     reader.readAsText(file, 'utf-8');
   };
 
-  // 💡 [수정] NEIS API에서 불러올 때 (1.2.3) 알레르기 번호를 완벽하게 지우는 청소 로직 추가
   const handleNeisFetch = async (type: 'timetable' | 'meal') => {
     if (!schoolConfig.neisApiKey) {
       alert("❌ [오류] 나이스(NEIS) 인증키가 없습니다.\n관리자 모드의 [학교명 및 학급 구조 세팅]에서 발급받은 API 키를 먼저 입력하고 저장해주세요.");
@@ -409,8 +408,8 @@ export default function App() {
           rows.forEach((row: any) => {
             const cleanedMenu = row.DDISH_NM.split('<br/>')
               .map((item: string) => item
-                .replace(/\s*\([\d\.,\s]+\)/g, '') // (1.2.3.4) 형태의 알레르기 숫자 괄호 완벽 제거
-                .replace(/[\d\.]+\*?$/g, '')        // 문자열 끝에 지저분하게 남은 숫자/마침표 제거
+                .replace(/\s*\([\d\.,\s]+\)/g, '') 
+                .replace(/[\d\.]+\*?$/g, '')        
                 .trim()
               )
               .filter(Boolean);
@@ -447,7 +446,7 @@ export default function App() {
     }, 800);
   };
 
-  // 💡 [수정] AI 파서 결과에서도 만약 찌꺼기 숫자가 남았을 경우 한 번 더 지워주는 로직 반영
+  // 💡 [수정] 구글 AI 모델 버전을 최신(gemini-3.6-flash)으로 변경 완료
   const handleMealFileupload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -495,7 +494,8 @@ export default function App() {
 }
 `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      // 💡 [핵심 수정 부분] 모델 이름을 gemini-2.5-flash 에서 gemini-3.6-flash 로 업데이트했습니다.
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -531,7 +531,6 @@ export default function App() {
 
       const parsed = JSON.parse(jsonMatch[0]);
       
-      // AI가 미처 못 지운 알레르기 괄호를 한 번 더 깔끔하게 청소
       const newLunch = (parsed.lunch && parsed.lunch.length > 0 ? parsed.lunch : ['급식 없음'])
         .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').trim());
       const newDinner = (parsed.dinner && parsed.dinner.length > 0 ? parsed.dinner : ['급식 없음'])
