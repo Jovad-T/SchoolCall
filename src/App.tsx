@@ -5,6 +5,7 @@ export default function NotificationBoardApp() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isExited, setIsExited] = useState(false); // 💡 [NEW] 웹 환경용 가짜 종료(화면 끄기) 상태
 
   // 실시간 시계 업데이트
   useEffect(() => {
@@ -16,16 +17,31 @@ export default function NotificationBoardApp() {
   const dateString = `${currentTime.getMonth() + 1}월 ${currentTime.getDate()}일 ${['일', '월', '화', '수', '목', '금', '토'][currentTime.getDay()]}요일`;
   const timeString = currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 
-  // 앱 종료/나가기 핸들러
+  // 💡 [NEW] 나가기 버튼 핸들러 (브라우저 보안 우회 및 데스크톱 연동)
   const handleExitApp = () => {
     if ((window as any).electronAPI) {
       (window as any).electronAPI.closeNotification();
     } else {
-      if (window.confirm("알림판 화면을 종료하시겠습니까?")) {
-        window.close();
-      }
+      setIsExited(true); // 웹 브라우저에서는 창을 닫는 대신 깔끔한 종료 화면으로 전환
     }
   };
+
+  // 사용자가 '나가기'를 눌렀을 때 보여줄 빈 블랙 화면 (다시 켜기 가능)
+  if (isExited) {
+    return (
+      <div className="h-screen w-full bg-[#111a15] text-emerald-400 flex flex-col items-center justify-center space-y-4 select-none">
+        <div className="text-5xl mb-2">💤</div>
+        <h2 className="text-2xl font-black text-white tracking-tight">알림판 화면이 꺼졌습니다.</h2>
+        <p className="text-xs text-emerald-500/80">학교 수업 환경에서 화면을 보호하기 위해 대기 모드로 전환되었습니다.</p>
+        <button 
+          onClick={() => setIsExited(false)} 
+          className="mt-6 px-6 py-3 bg-[#243e33] hover:bg-[#2c4a3e] text-white rounded-xl text-xs font-bold border border-emerald-700/60 shadow-lg cursor-pointer transition-all"
+        >
+          알림판 다시 켜기
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-full bg-[#1e382b] text-white font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 border-[#2b4c3b]">
@@ -91,7 +107,7 @@ export default function NotificationBoardApp() {
           </div>
         </section>
 
-        {/* 우측: 오늘의 급식 (상하 공간 꽉 채우고 글자 크기 대폭 확대) */}
+        {/* 우측: 오늘의 급식 */}
         <section className="col-span-5 flex flex-col bg-[#162d22]/40 rounded-3xl p-6 border border-emerald-900/40 shadow-sm h-full">
           <div className="flex items-center gap-2 mb-4 shrink-0">
             <Utensils size={20} className="text-emerald-400" />
