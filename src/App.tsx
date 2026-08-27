@@ -5,9 +5,6 @@ import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, Shield
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, onValue } from 'firebase/database';
 
-// =========================================================================
-// 🚨 선생님의 Firebase 프로젝트(SchoolCallApp) 정보 세팅 완료!
-// =========================================================================
 const firebaseConfig = {
   apiKey: "AIzaSyBDSR5PlGMZv6lUex279A4yWYL_QVmwKUs",
   authDomain: "schoolcallapp-cdb3d.firebaseapp.com",
@@ -18,7 +15,6 @@ const firebaseConfig = {
   appId: "1:18583169071:web:bb43ad116d189f1a1bbeda"
 };
 
-// Firebase 서버 연결 초기화
 let db: any = null;
 try {
   const app = initializeApp(firebaseConfig);
@@ -26,7 +22,6 @@ try {
 } catch (e) {
   console.error("Firebase 연결 실패:", e);
 }
-// =========================================================================
 
 export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
@@ -127,7 +122,6 @@ export default function App() {
   const [rememberChoice, setRememberChoice] = useState(false);
   const [pinModal, setPinModal] = useState({ isOpen: false, input: '', error: '' });
 
-  // 💡 마지막 동기화 시간 저장 (무한 루프 방지용)
   const lastSyncTimeRef = useRef<number>(Date.now());
 
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
@@ -138,13 +132,11 @@ export default function App() {
   const editTargetStudents = tempClassRosters[editKey] || [];
   const editTargetTimetable = tempClassTimetables[editKey] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-' };
 
-  // 실시간 시계
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // 💡 Firebase 글로벌 설정 데이터 실시간 동기화 (모든 기기)
   useEffect(() => {
     if (!db) return;
     const globalRef = ref(db, 'globalData');
@@ -160,6 +152,27 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // 💡 [NEW] 현재 시간이 '수업 시간'인지 판단하는 함수
+  const isClassTime = () => {
+    const currentH = currentTime.getHours();
+    const currentM = currentTime.getMinutes();
+    const currentTotalM = currentH * 60 + currentM;
+
+    // 설정된 일과 시간표를 순회하며 현재 시간이 교시 시작~끝 사이에 있는지 확인
+    for (let p = 1; p <= 7; p++) {
+      const sch = dailySchedule[p];
+      if (sch && sch.startH && sch.startM && sch.endH && sch.endM) {
+        const startTotalM = Number(sch.startH) * 60 + Number(sch.startM);
+        const endTotalM = Number(sch.endH) * 60 + Number(sch.endM);
+
+        if (currentTotalM >= startTotalM && currentTotalM <= endTotalM) {
+          return true; // 수업 시간 중임!
+        }
+      }
+    }
+    return false; // 쉬는 시간 또는 일과 외 시간
+  };
 
   const playNeonAlertSound = () => {
     try {
@@ -190,7 +203,7 @@ export default function App() {
     }
   };
 
-  // 💡 Firebase 각 반별 호출 알림 수신 대기 (교실 전자칠판 전용)
+  // 💡 [UPDATED] 수업 시간에는 팝업을 띄우지 않고 대기(쉬는 시간에만 울림)
   useEffect(() => {
     if (!db || viewMode !== 'classroom') return;
 
@@ -200,11 +213,16 @@ export default function App() {
     const unsubscribe = onValue(announceRef, (snapshot) => {
       const data = snapshot.val();
       
-      // 새로운 알림이 왔을 때만 반응 (시간 체크)
       if (data && data.time > lastSyncTimeRef.current) {
         setAnnouncement(data.text);
         lastSyncTimeRef.current = data.time;
         
+        // 🔒 수업 시간 체크: 수업 중이면 팝업과 알림음을 울리지 않고 데이터만 백그라운드에 저장합니다.
+        if (isClassTime()) {
+          console.log("현재 수업 시간이므로 알림이 차단되었습니다. (쉬는 시간에 표시됩니다)");
+          return;
+        }
+
         setIsPopupOpen(true);
         setIsExited(false);
         playNeonAlertSound(); 
@@ -216,7 +234,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass]);
+  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule]);
 
   const handleExitApp = () => {
     if ((window as any).electronAPI) {
@@ -233,7 +251,6 @@ export default function App() {
     }
   };
 
-  // 60초 후 바탕화면 복귀
   useEffect(() => {
     if (isPopupOpen && viewMode === 'classroom') {
       const timer = setTimeout(() => {
@@ -439,7 +456,6 @@ export default function App() {
     }, 800);
   };
 
-  // 💡 Firebase로 호출/공지 전송
   const sendFirebaseMessage = (msg: string) => {
     if (!db) {
       alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
@@ -474,7 +490,6 @@ export default function App() {
     sendFirebaseMessage(customAnnouncement.trim());
   };
 
-  // 💡 Firebase에 환경설정 업로드
   const handleSaveAdminSettings = () => {
     const newConfig = { 
       schoolName: adminSchoolName.trim() || '학교명', 
@@ -1331,7 +1346,6 @@ export default function App() {
 
       </main>
 
-      {/* 홍콩 네온사인 스타일 팝업 */}
       {isPopupOpen && (
         <div 
           onClick={handleClosePopupAndHide} 
