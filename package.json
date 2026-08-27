@@ -1,12 +1,12 @@
 {
-  "name": "react-example",
+  "name": "school-call-app",
   "private": true,
   "version": "0.0.0",
   "main": "class.cjs",
   "type": "module",
   "build": {
     "appId": "com.schoolcall.app",
-    "productName": "2학년8반_전자칠판",
+    "productName": "학생_호출_도우미",
     "artifactName": "${productName}.${ext}",
     "directories": {
       "output": "dist_installer"
@@ -29,7 +29,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "2학년8반_전자칠판"
+      "shortcutName": "학생_호출_도우미"
     }
   },
   "scripts": {
@@ -40,8 +40,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "build:office": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"main.cjs\" -c.productName=\"교무실_재실_알리미\" -c.nsis.shortcutName=\"교무실_재실_알리미\" -c.directories.output=\"dist_office\"",
-    "build:class": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"class.cjs\" -c.productName=\"2학년8반_전자칠판\" -c.nsis.shortcutName=\"2학년8반_전자칠판\" -c.directories.output=\"dist_class\""
+    "build:office": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"main.cjs\" -c.productName=\"학생_호출_도우미\" -c.nsis.shortcutName=\"학생_호출_도우미\" -c.directories.output=\"dist_office\"",
+    "build:class": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"class.cjs\" -c.productName=\"학생_호출_도우미\" -c.nsis.shortcutName=\"학생_호출_도우미\" -c.directories.output=\"dist_class\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -50,7 +50,7 @@
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "firebase": "^12.17.1",
+    "firebase": "^12.18.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "multer": "^2.2.0",
@@ -70,7 +70,7 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
-    "electron": "^43.4.0",
+    "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "electron-packager": "^17.1.2",
     "esbuild": "^0.25.0",
