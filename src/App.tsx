@@ -470,8 +470,9 @@ export default function App() {
 [엄격한 추출 규칙]
 1. 시간표 칸 안에 슬래시(/) 뒤에 붙은 교사 이름이나 장소(예: /김효/미술실, /손예, /박지 등)는 완벽하게 제거해.
 2. 과목명 앞에 붙은 A, B, C, D 등의 이동수업 그룹 알파벳(예: B미술감상과비평 -> 미술감상과비평, A역학과에너지 -> 역학과에너지)은 반드시 제거해.
-3. 오직 순수한 과목명만 남겨. (해당 교시에 수업이 빈칸이거나 없으면 "-" 로 표시해)
-4. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해:
+3. 오직 순수한 과목명만 남기되, '미술감상과비평'은 '미술 감상과 비평'처럼 읽기 쉽게 적절히 띄어쓰기를 적용해.
+4. 해당 교시에 수업이 빈칸이거나 없으면 "-" 로 표시해.
+5. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해:
 {
   "1": "과목명",
   "2": "과목명",
@@ -579,7 +580,8 @@ export default function App() {
 3. (1.5.6.9.10), (5.6.8.10.13.16) 등 괄호로 표기된 알레르기 유발물질 번호는 전부 제거할 것.
 4. '* 에너지/단백질/칼슘/철', '669.76/26.21/...' 등 칼로리 및 영양 정보 수치는 완전히 제외할 것.
 5. 오직 반찬/국/밥 등의 음식 명칭만 깔끔한 문자열 배열로 반환할 것.
-6. 만약 해당 날짜에 중식 또는 석식이 없거나 식판 금지 아이콘이 있다면 빈 배열 [] 로 둘 것.
+6. 음식 이름의 띄어쓰기는 식단표 원본에 있는 대로 자연스럽고 정확하게 유지할 것.
+7. 만약 해당 날짜에 중식 또는 석식이 없거나 식판 금지 아이콘이 있다면 빈 배열 [] 로 둘 것.
 
 반드시 마크다운 백틱이나 다른 잡담 없이 순수 JSON 포맷으로만 응답해:
 {
@@ -906,7 +908,7 @@ export default function App() {
             </div>
             
             {currentStudents.length > 0 ? (
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-3 max-h-64 overflow-y-auto pr-1">
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3 overflow-y-visible pr-1">
                 {currentStudents.map((stu, i) => {
                   const isSelected = selectedStudent === stu;
                   return (
@@ -1231,7 +1233,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* 💡 [수정] max-h-48 제한과 스크롤(overflow-y-auto)을 완전히 없애서 학생 명단 전체가 한눈에 보이게 수정 */}
             <div className="w-full bg-[#111a15] p-3 rounded-xl border border-emerald-900 grid grid-cols-2 md:grid-cols-4 gap-2">
               {editTargetStudents.length > 0 ? (
                 editTargetStudents.map((stu, idx) => (
@@ -1289,7 +1290,6 @@ export default function App() {
             <div className="space-y-3">
               <label className="text-xs text-amber-300 font-bold block">교시별 일과시간 설정 (학교 전체 공통)</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* 💡 [수정] 7교시 입력란을 추가했습니다 */}
                 {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                   const sch = tempDailySchedule[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
                   return (
@@ -1342,7 +1342,6 @@ export default function App() {
             <div className="space-y-2 pt-2 border-t border-emerald-900/60">
               <label className="text-xs text-amber-300 font-bold block">{editTargetGrade}학년 {editTargetClass}반 과목명 설정</label>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {/* 💡 [수정] 시간표 과목 입력란에도 7교시를 추가했습니다 */}
                 {[1, 2, 3, 4, 5, 6, 7].map((p) => (
                   <div key={p} className="space-y-1">
                     <label className="text-xs text-slate-300 font-bold">{p}교시 과목</label>
@@ -1503,7 +1502,6 @@ export default function App() {
             <span className="text-xs text-emerald-400/80 font-mono">1교시 {formatScheduleString(dailySchedule[1])}</span>
           </div>
           
-          {/* 💡 [수정] 7교시를 수용하기 위해 그리드를 4칸씩(grid-cols-4)으로 변경했습니다 */}
           <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
             {[
               { period: '1교시', time: formatScheduleString(dailySchedule[1]), subject: currentTimetable[1] || '-' },
@@ -1514,7 +1512,6 @@ export default function App() {
               { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: currentTimetable[6] || '-' },
               { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: currentTimetable[7] || '-' }
             ].map((item, idx) => {
-              // 💡 7번째 과목을 위해 색상 배열을 한 개 더 추가했습니다
               const colors = [
                 'bg-[#fff9c4] text-slate-900 rotate-[-0.8deg]',
                 'bg-[#fce4ec] text-slate-900 rotate-[0.8deg]',
@@ -1527,14 +1524,19 @@ export default function App() {
               return (
                 <div key={idx} className={`${colors[idx % colors.length]} rounded-2xl p-4 flex flex-col justify-between shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full`}>
                   <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-12 h-4 bg-amber-200/60 rotate-1 shadow-sm border border-amber-300/40"></div>
-                  <div className="flex justify-between items-center font-sans">
-                    <span className="text-xs font-bold opacity-70 mt-1">{item.period}</span>
-                    <span className="text-[10px] opacity-60 mt-1">{item.time}</span>
+                  
+                  {/* 💡 [수정] 교시 및 시간 폰트 크기/자간 약간 확대 */}
+                  <div className="flex justify-between items-center font-sans px-1">
+                    <span className="text-sm font-bold opacity-70 mt-1">{item.period}</span>
+                    <span className="text-xs opacity-60 mt-1 tracking-wider">{item.time}</span>
                   </div>
-                  <div className="flex flex-col items-center justify-center my-auto">
-                    <span className="text-4xl mb-2 opacity-80 drop-shadow-sm">{getSubjectIcon(item.subject)}</span>
-                    <span className="text-lg font-black text-center break-keep leading-tight mt-1">{item.subject}</span>
+                  
+                  {/* 💡 [수정] 과목 아이콘 및 과목 글자 크기 대폭 확대 */}
+                  <div className="flex flex-col items-center justify-center my-auto px-2">
+                    <span className="text-6xl mb-4 opacity-90 drop-shadow-md">{getSubjectIcon(item.subject)}</span>
+                    <span className="text-2xl 2xl:text-3xl font-black text-center break-keep leading-snug tracking-tight text-slate-800">{item.subject}</span>
                   </div>
+                  
                   <div className="w-2.5 h-2.5 bg-rose-500/80 rounded-full mx-auto shadow-sm mt-1"></div>
                 </div>
               );
@@ -1549,21 +1551,24 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 gap-5 flex-1 min-h-0 pb-2">
-            <div className="bg-[#11231b]/90 rounded-2xl p-6 border border-emerald-800/50 flex flex-col items-center justify-around text-center shadow-inner h-full">
-              <span className="text-sm font-bold text-amber-300 bg-amber-950/80 px-4 py-1.5 rounded-full shadow-sm border border-amber-800/40">🍴 점심 식단</span>
-              <ul className="text-xl font-black text-emerald-100 space-y-3 leading-relaxed">
-                {meals.lunch.map((m: string, i: number) => <li key={i}>{m}</li>)}
+            
+            {/* 💡 [수정] 급식 폰트 크기 확대 및 항목 간 간격 늘림 */}
+            <div className="bg-[#11231b]/90 rounded-3xl p-8 border border-emerald-800/50 flex flex-col items-center justify-between text-center shadow-inner h-full">
+              <span className="text-base font-bold text-amber-300 bg-amber-950/80 px-6 py-2 rounded-full shadow-sm border border-amber-800/40 mb-6 shrink-0">🍴 점심 식단</span>
+              <ul className="text-2xl lg:text-3xl font-black text-emerald-100 space-y-5 leading-normal flex-1 flex flex-col justify-center w-full">
+                {meals.lunch.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
               </ul>
-              <div className="text-xs text-emerald-400/70 font-mono tracking-widest">LUNCH MENU</div>
+              <div className="text-sm text-emerald-400/60 font-mono tracking-[0.3em] mt-6 shrink-0">LUNCH MENU</div>
             </div>
 
-            <div className="bg-[#11231b]/90 rounded-2xl p-6 border border-emerald-800/50 flex flex-col items-center justify-around text-center shadow-inner h-full">
-              <span className="text-sm font-bold text-indigo-300 bg-indigo-950/80 px-4 py-1.5 rounded-full shadow-sm border border-indigo-800/40">🌙 저녁 식단</span>
-              <ul className="text-xl font-black text-emerald-100 space-y-3 leading-relaxed">
-                {meals.dinner.map((m: string, i: number) => <li key={i}>{m}</li>)}
+            <div className="bg-[#11231b]/90 rounded-3xl p-8 border border-emerald-800/50 flex flex-col items-center justify-between text-center shadow-inner h-full">
+              <span className="text-base font-bold text-indigo-300 bg-indigo-950/80 px-6 py-2 rounded-full shadow-sm border border-indigo-800/40 mb-6 shrink-0">🌙 저녁 식단</span>
+              <ul className="text-2xl lg:text-3xl font-black text-emerald-100 space-y-5 leading-normal flex-1 flex flex-col justify-center w-full">
+                {meals.dinner.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
               </ul>
-              <div className="text-xs text-emerald-400/70 font-mono tracking-widest">DINNER MENU</div>
+              <div className="text-sm text-emerald-400/60 font-mono tracking-[0.3em] mt-6 shrink-0">DINNER MENU</div>
             </div>
+            
           </div>
         </section>
 
