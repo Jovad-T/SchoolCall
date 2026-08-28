@@ -76,7 +76,8 @@ export default function App() {
       eduCode: parsed.eduCode || 'C10',
       schoolCode: parsed.schoolCode || '7150144',
       adminPin: parsed.adminPin || '0000',
-      ttsVoiceURI: parsed.ttsVoiceURI || ''
+      ttsVoiceURI: parsed.ttsVoiceURI || '',
+      ttsRate: parsed.ttsRate !== undefined ? parsed.ttsRate : 0.75
     };
   });
 
@@ -161,6 +162,7 @@ export default function App() {
   const [adminEduCode, setAdminEduCode] = useState(schoolConfig.eduCode);
   const [adminSchoolCode, setAdminSchoolCode] = useState(schoolConfig.schoolCode);
   const [adminTtsVoiceURI, setAdminTtsVoiceURI] = useState(schoolConfig.ttsVoiceURI || '');
+  const [adminTtsRate, setAdminTtsRate] = useState(schoolConfig.ttsRate !== undefined ? schoolConfig.ttsRate : 0.75);
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
@@ -286,9 +288,29 @@ export default function App() {
         }
       }
 
+      // TTS가 '23번'을 '스물세번'이 아닌 '이십삼번'으로 정확히 읽도록 변환
+      textToSpeak = textToSpeak.replace(/(\d+)번/g, (match, p1) => {
+        const num = parseInt(p1, 10);
+        const units = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+        const tens = ['', '십', '이십', '삼십', '사십', '오십', '육십', '칠십', '팔십', '구십'];
+        
+        if (num === 0) return '영번';
+        if (num > 99) return match; 
+        
+        const ten = Math.floor(num / 10);
+        const unit = num % 10;
+        
+        let koNum = '';
+        if (ten > 0) koNum += tens[ten];
+        if (unit > 0) koNum += units[unit];
+        
+        return koNum + '번';
+      });
+
       const utterance = new SpeechSynthesisUtterance(textToSpeak);
       utterance.lang = 'ko-KR';
-      utterance.rate = 0.9;
+      utterance.rate = schoolConfig.ttsRate !== undefined ? schoolConfig.ttsRate : 0.75;
+      utterance.pitch = 0.95; // 약간 차분한 톤으로 피치 조절
       if (schoolConfig.ttsVoiceURI) {
         const voicesList = window.speechSynthesis.getVoices();
         const selectedVoice = voicesList.find(v => v.voiceURI === schoolConfig.ttsVoiceURI);
@@ -785,7 +807,8 @@ export default function App() {
       eduCode: adminEduCode.trim(),
       schoolCode: adminSchoolCode.trim(),
       adminPin: adminPinInput.trim() || '0000',
-      ttsVoiceURI: adminTtsVoiceURI
+      ttsVoiceURI: adminTtsVoiceURI,
+      ttsRate: adminTtsRate
     };
     
     setSchoolConfig(newConfig);
@@ -1238,37 +1261,56 @@ export default function App() {
             </div>
             
             <div className="pt-4 border-t border-emerald-900/60 mt-4">
-              <label className="text-xs text-blue-300 font-bold mb-2 flex items-center gap-1.5"><Volume2 size={14}/> 접근성: 팝업 알림 음성(TTS) 선택</label>
-              <div className="flex items-center gap-2">
-                <select
-                  value={adminTtsVoiceURI}
-                  onChange={(e) => setAdminTtsVoiceURI(e.target.value)}
-                  className="flex-1 bg-[#111a15] text-white px-4 py-2 rounded-xl border border-blue-900 text-sm focus:border-blue-500 outline-none"
-                >
-                  <option value="">기본 시스템 음성</option>
-                  {availableVoices.map((voice) => (
-                    <option key={voice.voiceURI} value={voice.voiceURI}>
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => {
-                    const utterance = new SpeechSynthesisUtterance("안내 말씀 드립니다. 교무실로 와주세요.");
-                    utterance.lang = "ko-KR";
-                    utterance.rate = 0.9;
-                    if (adminTtsVoiceURI) {
-                      const voice = availableVoices.find(v => v.voiceURI === adminTtsVoiceURI);
-                      if (voice) utterance.voice = voice;
-                    }
-                    window.speechSynthesis.speak(utterance);
-                  }}
-                  className="px-4 py-2 bg-blue-900/50 hover:bg-blue-800 text-blue-200 rounded-xl text-xs font-bold border border-blue-700/50 transition-colors"
-                >
-                  테스트 재생
-                </button>
+              <label className="text-xs text-blue-300 font-bold mb-2 flex items-center gap-1.5"><Volume2 size={14}/> 접근성: 팝업 알림 음성(TTS) 설정</label>
+              
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <select
+                    value={adminTtsVoiceURI}
+                    onChange={(e) => setAdminTtsVoiceURI(e.target.value)}
+                    className="flex-1 bg-[#111a15] text-white px-4 py-2 rounded-xl border border-blue-900 text-sm focus:border-blue-500 outline-none"
+                  >
+                    <option value="">기본 시스템 음성</option>
+                    {availableVoices.map((voice) => (
+                      <option key={voice.voiceURI} value={voice.voiceURI}>
+                        {voice.name} ({voice.lang})
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => {
+                      const utterance = new SpeechSynthesisUtterance("안내 말씀 드립니다. 교무실로 와주세요.");
+                      utterance.lang = "ko-KR";
+                      utterance.rate = adminTtsRate; // 슬라이더 설정값 적용
+                      utterance.pitch = 0.95;
+                      if (adminTtsVoiceURI) {
+                        const voice = availableVoices.find(v => v.voiceURI === adminTtsVoiceURI);
+                        if (voice) utterance.voice = voice;
+                      }
+                      window.speechSynthesis.speak(utterance);
+                    }}
+                    className="px-4 py-2 bg-blue-900/50 hover:bg-blue-800 text-blue-200 rounded-xl text-xs font-bold border border-blue-700/50 transition-colors"
+                  >
+                    테스트 재생
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-4 bg-[#111a15] p-3 rounded-xl border border-blue-900/50">
+                  <label className="text-xs text-blue-200 font-bold whitespace-nowrap">읽기 속도</label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.05"
+                    value={adminTtsRate}
+                    onChange={(e) => setAdminTtsRate(parseFloat(e.target.value))}
+                    className="flex-1 accent-blue-500 h-1.5 bg-blue-900/40 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <span className="text-xs font-mono text-blue-300 w-8 text-right">{adminTtsRate.toFixed(2)}x</span>
+                </div>
               </div>
-              <p className="text-[10px] text-blue-400/60 mt-1">※ 기기(PC, 브라우저)에 설치된 음성만 표시됩니다.</p>
+              
+              <p className="text-[10px] text-blue-400/60 mt-2">※ 기기(PC, 브라우저)에 설치된 음성만 표시됩니다.</p>
             </div>
           </section>
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
