@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2 } from 'lucide-react';
+import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
@@ -27,6 +27,40 @@ export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
   const [viewMode, setViewMode] = useState<'select' | 'classroom' | 'remote' | 'admin'>(defaultMode || 'select');
   
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setAvailableVoices(voices);
+    };
+    loadVoices();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.warn(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+  
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [schoolConfig, setSchoolConfig] = useState(() => {
@@ -41,7 +75,8 @@ export default function App() {
       geminiApiKey: parsed.geminiApiKey || '',
       eduCode: parsed.eduCode || 'C10',
       schoolCode: parsed.schoolCode || '7150144',
-      adminPin: parsed.adminPin || '0000'
+      adminPin: parsed.adminPin || '0000',
+      ttsVoiceURI: parsed.ttsVoiceURI || ''
     };
   });
 
@@ -108,7 +143,7 @@ export default function App() {
   const [selectedCallMessage, setSelectedCallMessage] = useState<string>('교무실로 오세요');
   const [teacherName, setTeacherName] = useState<string>('선생님 이름');
   const [locationName, setLocationName] = useState<string>('교무실');
-  const [customAnnouncement, setCustomAnnouncement] = useState<string>('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
+  const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
 
   const [adminDate, setAdminDate] = useState(() => {
     const now = new Date();
@@ -125,6 +160,7 @@ export default function App() {
   const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
   const [adminEduCode, setAdminEduCode] = useState(schoolConfig.eduCode);
   const [adminSchoolCode, setAdminSchoolCode] = useState(schoolConfig.schoolCode);
+  const [adminTtsVoiceURI, setAdminTtsVoiceURI] = useState(schoolConfig.ttsVoiceURI || '');
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
@@ -233,6 +269,39 @@ export default function App() {
     }
   };
 
+  const speakAnnouncementText = (rawText: string) => {
+    try {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      
+      let textToSpeak = rawText;
+      if (rawText.includes('[대상:')) {
+        const lines = rawText.split('\n');
+        if (lines.length >= 2) {
+          const target = lines[0].replace(/\[대상:\s*/, '').replace(']', '').trim();
+          const message = lines[1].replace('호출 내용: ', '').trim();
+          
+          const targetText = target === '학급 전체' ? '안내 말씀 드립니다.' : `${target} 학생,`;
+          textToSpeak = `${targetText} ${message}`;
+        }
+      }
+
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.lang = 'ko-KR';
+      utterance.rate = 0.9;
+      if (schoolConfig.ttsVoiceURI) {
+        const voicesList = window.speechSynthesis.getVoices();
+        const selectedVoice = voicesList.find(v => v.voiceURI === schoolConfig.ttsVoiceURI);
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
+        }
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("TTS 재생 실패:", e);
+    }
+  };
+
   useEffect(() => {
     if (!db || viewMode !== 'classroom') return;
 
@@ -258,6 +327,7 @@ export default function App() {
           setIsPopupOpen(true);
           setIsExited(false);
           playNeonAlertSound(); 
+          speakAnnouncementText(data.text);
           
           if ((window as any).electron && (window as any).electron.ipcRenderer) {
             (window as any).electron.ipcRenderer.send('trigger-my-call');
@@ -277,12 +347,13 @@ export default function App() {
       setIsPopupOpen(true);
       setIsExited(false);
       playNeonAlertSound();
+      speakAnnouncementText(announcement);
       
       if ((window as any).electron && (window as any).electron.ipcRenderer) {
         (window as any).electron.ipcRenderer.send('trigger-my-call');
       }
     }
-  }, [currentTime, pendingPopup, viewMode]);
+  }, [currentTime, pendingPopup, viewMode, announcement]);
 
   const handleExitApp = () => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
@@ -295,6 +366,7 @@ export default function App() {
   const handleClosePopupAndHide = () => {
     setIsPopupOpen(false);
     setPendingPopup(false);
+    handleExitApp();
   };
 
   useEffect(() => {
@@ -697,9 +769,8 @@ export default function App() {
   };
 
   const handleResetClassAnnouncement = () => {
-    const defaultMsg = '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
-    setCustomAnnouncement(defaultMsg);
-    sendFirebaseMessage(defaultMsg);
+    setCustomAnnouncement('');
+    sendFirebaseMessage('');
   };
 
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
@@ -713,7 +784,8 @@ export default function App() {
       geminiApiKey: adminGeminiApiKey.trim(),
       eduCode: adminEduCode.trim(),
       schoolCode: adminSchoolCode.trim(),
-      adminPin: adminPinInput.trim() || '0000'
+      adminPin: adminPinInput.trim() || '0000',
+      ttsVoiceURI: adminTtsVoiceURI
     };
     
     setSchoolConfig(newConfig);
@@ -964,9 +1036,7 @@ export default function App() {
                 })}
               </div>
             ) : (
-              <div className="text-center py-8 text-xs text-slate-400">
-                해당 학급에 등록된 학생 명렬이 없습니다. 관리자 모드에서 CSV를 업로드해 주세요.
-              </div>
+              <div className="text-center py-8 text-sm text-slate-500 bg-[#111] rounded-2xl border border-white/5">등록된 학생이 없습니다. 관리자 모드에서 설정해주세요.</div>
             )}
           </section>
 
@@ -981,85 +1051,90 @@ export default function App() {
                     onClick={() => setSelectedCallMessage(msg)}
                     className={`w-full p-4 rounded-2xl text-sm font-bold border transition-all cursor-pointer flex items-center justify-between ${isSelected ? 'bg-[#251515] border-rose-500 text-rose-400 shadow-md' : 'bg-[#161616] border-white/10 text-slate-300 hover:bg-[#222]'}`}
                   >
-                    <span>{msg}</span>
-                    {isSelected && <span className="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></span>}
+                    {msg}
+                    {isSelected && <CheckCircle2 size={18} className="text-rose-400" />}
                   </div>
                 );
               })}
             </div>
           </section>
 
-          <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider">TEACHER (담당 선생님)</label>
+          <section className="grid grid-cols-2 gap-4">
+            <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3 flex flex-col justify-center">
+              <label className="text-xs font-bold text-slate-400 tracking-wider">LOCATION (장소)</label>
               <input 
-                type="text"
-                value={teacherName}
-                onChange={(e) => setTeacherName(e.target.value)}
-                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
-                placeholder="선생님 성함"
+                type="text" 
+                value={locationName}
+                onChange={e => setLocationName(e.target.value)}
+                placeholder="예: 본교무실"
+                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-4 text-sm font-bold text-white outline-none focus:border-amber-400"
               />
             </div>
-
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider">LOCATION (호출 장소)</label>
+            
+            <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3 flex flex-col justify-center">
+              <label className="text-xs font-bold text-slate-400 tracking-wider">TEACHER (호출 교사)</label>
               <input 
-                type="text"
-                value={locationName}
-                onChange={(e) => setLocationName(e.target.value)}
-                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
-                placeholder="장소 입력 (예: 교무실)"
+                type="text" 
+                value={teacherName}
+                onChange={e => setTeacherName(e.target.value)}
+                placeholder="예: 홍길동"
+                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-4 text-sm font-bold text-white outline-none focus:border-amber-400"
               />
             </div>
           </section>
 
+          <form onSubmit={handleSendSmartCall} className="pt-4">
+            <button 
+              type="submit"
+              disabled={!selectedCallMessage || !locationName || !teacherName}
+              className="w-full py-5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-[0_0_20px_rgba(225,29,72,0.4)] transition-all text-lg flex items-center justify-center gap-3 active:scale-95 cursor-pointer"
+            >
+              <Send size={24} /> 스마트 리모컨 호출 전송
+            </button>
+          </form>
+
+          <div className="my-8 flex items-center gap-4">
+            <div className="h-px bg-white/10 flex-1"></div>
+            <span className="text-xs font-bold text-slate-500 tracking-widest">OR</span>
+            <div className="h-px bg-white/10 flex-1"></div>
+          </div>
+
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
-            <label className="text-xs font-bold text-slate-400 tracking-wider">학급 전달사항 (전체 공지 메시지)</label>
+            <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 (CUSTOM CALL)</label>
             <textarea 
               value={customAnnouncement}
-              onChange={(e) => setCustomAnnouncement(e.target.value)}
-              className="w-full h-28 bg-[#111] border border-white/20 rounded-2xl p-4 text-sm text-white outline-none focus:border-blue-500 resize-none leading-relaxed"
-              placeholder="학생들에게 전달할 내용을 입력하세요..."
+              onChange={e => setCustomAnnouncement(e.target.value)}
+              placeholder="직접 전달할 메시지를 자유롭게 입력하세요..."
+              className="w-full h-32 bg-[#111] border border-white/20 rounded-xl p-4 text-sm font-bold text-white outline-none focus:border-emerald-400 resize-none leading-relaxed"
             />
-            <div className="flex gap-2">
-              <button 
-                type="button"
-                onClick={handleSendClassAnnouncement}
-                className="flex-1 py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl shadow-lg transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <Send size={16} /> 보내기 ✈
-              </button>
+            <div className="flex gap-3">
               <button 
                 type="button"
                 onClick={handleResetClassAnnouncement}
-                className="py-3.5 px-4 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-2xl shadow-lg transition-all text-xs flex items-center justify-center gap-2 cursor-pointer"
-                title="기본 문구로 초기화"
+                className="px-6 py-4 bg-[#222] hover:bg-[#333] text-slate-300 font-bold rounded-xl transition-colors text-sm cursor-pointer"
               >
-                <Trash2 size={16} /> 초기화
+                초기화
+              </button>
+              <button 
+                type="button"
+                onClick={handleSendClassAnnouncement}
+                className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-[0_0_15px_rgba(5,150,105,0.4)] transition-all text-sm flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+              >
+                <Send size={18} /> 메시지 직접 전송
               </button>
             </div>
           </section>
-
-          <button 
-            type="button"
-            onClick={handleSendSmartCall}
-            className="w-full py-5 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-3xl shadow-2xl transition-all text-lg tracking-wider cursor-pointer active:scale-95 flex items-center justify-center gap-2"
-          >
-            <Bell size={24} /> SEND CALL ALERT
-          </button>
-
-          {sendSuccessToast && (
-            <div className="p-4 bg-emerald-900/80 border border-emerald-500 text-emerald-200 rounded-2xl text-xs font-bold flex items-center gap-2 animate-fade-in">
-              <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-              <span>호출 및 전달사항이 전송되었습니다!</span>
-            </div>
-          )}
-
         </main>
+        
+        {sendSuccessToast && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 p-4 px-6 bg-emerald-500 text-white rounded-2xl text-sm font-bold flex items-center gap-3 animate-fade-in shadow-2xl z-50">
+            <CheckCircle2 size={20} />
+            전송 완료! 교실 알림판에 팝업이 표시됩니다.
+          </div>
+        )}
       </div>
     );
   }
-
   if (viewMode === 'admin') {
     return (
       <div className="h-screen w-full bg-[#111a15] text-white flex flex-col select-none overflow-y-auto">
@@ -1091,103 +1166,65 @@ export default function App() {
           </section>
 
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
-            <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🏫 학교명 및 학급/API 구조 세팅</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-xs text-slate-300 font-bold mb-1 block">학교명</label>
+            <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🏫 기본 학교 정보 & 외부 API 설정</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400">학교명 (UI 표시용)</label>
                 <input 
                   type="text" 
-                  value={adminSchoolName} 
-                  onChange={(e) => setAdminSchoolName(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm"
+                  value={adminSchoolName}
+                  onChange={e => setAdminSchoolName(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  placeholder="예: 사직여자고등학교"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-slate-300 font-bold mb-1 block">대시보드 표시 학년</label>
-                  <select 
-                    value={adminSelectedGrade} 
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setAdminSelectedGrade(val);
-                      setEditTargetGrade(val);
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm"
-                  >
-                    {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-slate-300 font-bold mb-1 block">대시보드 표시 반</label>
-                  <select 
-                    value={adminSelectedClass} 
-                    onChange={(e) => {
-                      const val = Number(e.target.value);
-                      setAdminSelectedClass(val);
-                      setEditTargetClass(val);
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm"
-                  >
-                    {Array.from({ length: adminGradeCounts[adminSelectedGrade as 1 | 2 | 3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
-                  </select>
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400">NEIS 학교코드 (schoolCode)</label>
+                <input 
+                  type="text" 
+                  value={adminSchoolCode}
+                  onChange={e => setAdminSchoolCode(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  placeholder="예: 7150144"
+                />
               </div>
-            </div>
-
-            <div className="pt-2 border-t border-emerald-900/60">
-              <label className="text-xs text-slate-300 font-bold mb-2 block">학년별 전체 학급 수 설정</label>
-              <div className="grid grid-cols-3 gap-3">
-                {[1, 2, 3].map(grade => (
-                  <div key={grade} className="bg-[#111a15] p-3 rounded-xl border border-emerald-900 flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-300">{grade}학년</span>
-                    <input 
-                      type="number" 
-                      min="1" max="20"
-                      value={adminGradeCounts[grade as 1 | 2 | 3]}
-                      onChange={(e) => setAdminGradeCounts({ ...adminGradeCounts, [grade]: Number(e.target.value) })}
-                      className="w-16 px-2 py-1 bg-[#1c2e25] text-white text-center rounded-lg border border-emerald-700 text-xs"
-                    />
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400">NEIS 시도교육청코드 (eduCode)</label>
+                <input 
+                  type="text" 
+                  value={adminEduCode}
+                  onChange={e => setAdminEduCode(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  placeholder="예: C10"
+                />
               </div>
-            </div>
-
-            <div className="pt-4 border-t border-emerald-900/60 mt-4">
-              <label className="text-xs text-slate-300 font-bold mb-2 flex items-center gap-1.5"><Key size={14} className="text-amber-400"/> 나이스(NEIS) & AI(Gemini) 인증키 연동</label>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-                <div className="md:col-span-1">
-                  <label className="text-[10px] text-slate-400 mb-1 block">교육청 코드</label>
-                  <input type="text" value={adminEduCode} onChange={(e) => setAdminEduCode(e.target.value)} placeholder="예: C10 (부산)" className="w-full px-3 py-2 bg-[#111a15] text-white rounded-lg border border-emerald-900 text-xs" />
-                </div>
-                <div className="md:col-span-2">
-                  <label className="text-[10px] text-slate-400 mb-1 block">학교 표준코드</label>
-                  <input type="text" value={adminSchoolCode} onChange={(e) => setAdminSchoolCode(e.target.value)} placeholder="예: 7150144 (사직여고)" className="w-full px-3 py-2 bg-[#111a15] text-white rounded-lg border border-emerald-900 text-xs" />
-                </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400">NEIS API KEY (급식/시간표 연동용)</label>
+                <input 
+                  type="password" 
+                  value={adminNeisApiKey}
+                  onChange={e => setAdminNeisApiKey(e.target.value)}
+                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  placeholder="발급받은 NEIS API KEY 입력"
+                />
               </div>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-[10px] text-slate-400 mb-1 block">나이스 NEIS API KEY</label>
-                  <input
-                    type="password"
-                    value={adminNeisApiKey}
-                    onChange={(e) => setAdminNeisApiKey(e.target.value)}
-                    placeholder="발급받은 NEIS API KEY를 입력하세요"
-                    className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-amber-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-indigo-300 font-bold mb-1 block">구글 Gemini API KEY (PDF/이미지 식단표 AI 분석용)</label>
-                  <input
-                    type="password"
+              <div className="space-y-2 col-span-2">
+                <label className="text-xs font-bold text-slate-400">Google Gemini API KEY (학생 명렬, 시간표 등 자동파싱 AI용)</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="password" 
                     value={adminGeminiApiKey}
-                    onChange={(e) => setAdminGeminiApiKey(e.target.value)}
-                    placeholder="Google AI Studio Gemini API 키 (AIzaSy...)"
-                    className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-indigo-900 text-sm focus:border-indigo-400 outline-none"
+                    onChange={e => setAdminGeminiApiKey(e.target.value)}
+                    className="flex-1 px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                    placeholder="발급받은 Google Gemini API KEY 입력"
                   />
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-3 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50">
+                    <Key size={14} className="mr-1"/> 키 발급받기
+                  </a>
                 </div>
               </div>
             </div>
-
+            
             <div className="pt-4 border-t border-emerald-900/60 mt-4">
               <label className="text-xs text-rose-300 font-bold mb-2 flex items-center gap-1.5"><Lock size={14}/> 보안: 관리자 비밀번호(PIN) 변경</label>
               <input
@@ -1199,8 +1236,41 @@ export default function App() {
                 className="w-48 px-4 py-2 bg-[#111a15] text-center tracking-[0.5em] font-mono text-white rounded-xl border border-rose-900 text-sm focus:border-rose-500 outline-none"
               />
             </div>
+            
+            <div className="pt-4 border-t border-emerald-900/60 mt-4">
+              <label className="text-xs text-blue-300 font-bold mb-2 flex items-center gap-1.5"><Volume2 size={14}/> 접근성: 팝업 알림 음성(TTS) 선택</label>
+              <div className="flex items-center gap-2">
+                <select
+                  value={adminTtsVoiceURI}
+                  onChange={(e) => setAdminTtsVoiceURI(e.target.value)}
+                  className="flex-1 bg-[#111a15] text-white px-4 py-2 rounded-xl border border-blue-900 text-sm focus:border-blue-500 outline-none"
+                >
+                  <option value="">기본 시스템 음성</option>
+                  {availableVoices.map((voice) => (
+                    <option key={voice.voiceURI} value={voice.voiceURI}>
+                      {voice.name} ({voice.lang})
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    const utterance = new SpeechSynthesisUtterance("안내 말씀 드립니다. 교무실로 와주세요.");
+                    utterance.lang = "ko-KR";
+                    utterance.rate = 0.9;
+                    if (adminTtsVoiceURI) {
+                      const voice = availableVoices.find(v => v.voiceURI === adminTtsVoiceURI);
+                      if (voice) utterance.voice = voice;
+                    }
+                    window.speechSynthesis.speak(utterance);
+                  }}
+                  className="px-4 py-2 bg-blue-900/50 hover:bg-blue-800 text-blue-200 rounded-xl text-xs font-bold border border-blue-700/50 transition-colors"
+                >
+                  테스트 재생
+                </button>
+              </div>
+              <p className="text-[10px] text-blue-400/60 mt-1">※ 기기(PC, 브라우저)에 설치된 음성만 표시됩니다.</p>
+            </div>
           </section>
-
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">👥 학급별 학생 명렬 관리</h2>
@@ -1219,138 +1289,91 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between flex-wrap gap-4 bg-[#111a15] p-3 rounded-xl border border-emerald-900">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-emerald-300">확인/편집할 학급 선택:</span>
-                <select 
-                  value={editTargetGrade} 
-                  onChange={(e) => setEditTargetGrade(Number(e.target.value))}
-                  className="bg-[#1c2e25] text-white text-xs px-3 py-1.5 rounded-lg border border-emerald-700"
-                >
-                  {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
-                </select>
-                <select 
-                  value={editTargetClass} 
-                  onChange={(e) => setEditTargetClass(Number(e.target.value))}
-                  className="bg-[#1c2e25] text-white text-xs px-3 py-1.5 rounded-lg border border-emerald-700"
-                >
-                  {Array.from({ length: adminGradeCounts[editTargetGrade as 1 | 2 | 3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
-                </select>
-                <span className="text-xs text-slate-400">현재 학급 학생수: <strong className="text-amber-400">{editTargetStudents.length}명</strong></span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm(`${editTargetGrade}학년 ${editTargetClass}반의 학생 명단 전체를 삭제하시겠습니까?`)) {
-                    const key = `${editTargetGrade}-${editTargetClass}`;
-                    setTempClassRosters(prev => ({ ...prev, [key]: [] }));
-                  }
-                }}
-                className="px-3 py-1.5 bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+            <div className="flex gap-2 p-2 bg-[#111a15] rounded-xl border border-emerald-900">
+              <select 
+                value={editTargetGrade}
+                onChange={e => setEditTargetGrade(Number(e.target.value))}
+                className="flex-1 bg-transparent text-white px-2 py-1 outline-none font-bold text-sm"
               >
-                <Trash2 size={14} /> 현재 학급 명단 전체 삭제
-              </button>
+                {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+              </select>
+              <select 
+                value={editTargetClass}
+                onChange={e => setEditTargetClass(Number(e.target.value))}
+                className="flex-1 bg-transparent text-white px-2 py-1 outline-none font-bold text-sm"
+              >
+                {Array.from({ length: adminGradeCounts[editTargetGrade as 1|2|3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+              </select>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              {(tempClassRosters[`${editTargetGrade}-${editTargetClass}`] || []).map((stu, i) => (
+                <div key={i} className="flex items-center bg-[#1a2e24] px-3 py-1.5 rounded-lg border border-emerald-800 text-sm">
+                  <span>{stu}</span>
+                  <button 
+                    onClick={() => {
+                      const newList = [...(tempClassRosters[`${editTargetGrade}-${editTargetClass}`] || [])];
+                      newList.splice(i, 1);
+                      setTempClassRosters({...tempClassRosters, [`${editTargetGrade}-${editTargetClass}`]: newList});
+                    }}
+                    className="ml-2 text-rose-400 hover:text-rose-300"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
             </div>
 
-            <div className="flex gap-2">
-              <select 
+            <div className="flex gap-2 mt-4">
+              <input 
+                type="text" 
                 value={newStudentNum}
-                onChange={(e) => setNewStudentNum(e.target.value)}
-                className="bg-[#111a15] text-white text-xs px-4 py-2.5 rounded-xl border border-emerald-900 outline-none"
-              >
-                {Array.from({ length: 40 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}번</option>)}
-              </select>
-
+                onChange={e => setNewStudentNum(e.target.value)}
+                placeholder="번호"
+                className="w-16 px-3 py-2 bg-[#111a15] rounded-xl border border-emerald-900 text-sm text-white text-center outline-none"
+              />
               <input 
                 type="text" 
                 value={newStudentNameOnly}
-                onChange={(e) => setNewStudentNameOnly(e.target.value)}
-                placeholder="학생 성명 입력 (예: 홍길동)"
-                className="flex-1 px-4 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm outline-none focus:border-emerald-500"
+                onChange={e => setNewStudentNameOnly(e.target.value)}
+                placeholder="이름 (예: 홍길동)"
+                className="flex-1 px-3 py-2 bg-[#111a15] rounded-xl border border-emerald-900 text-sm text-white outline-none"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newStudentNameOnly.trim()) {
+                  if (e.key === 'Enter' && newStudentNameOnly.trim() && newStudentNum.trim()) {
                     const key = `${editTargetGrade}-${editTargetClass}`;
-                    const currentList = tempClassRosters[key] || [];
-                    const newEntry = `${newStudentNum}번 ${newStudentNameOnly.trim()}`;
-                    setTempClassRosters({ ...tempClassRosters, [key]: [...currentList, newEntry] });
+                    const newList = [...(tempClassRosters[key] || [])];
+                    const numStr = newStudentNum.padStart(2, '0');
+                    newList.push(`${numStr} ${newStudentNameOnly.trim()}`);
+                    newList.sort();
+                    setTempClassRosters({...tempClassRosters, [key]: newList});
                     setNewStudentNameOnly('');
+                    setNewStudentNum(String(Number(newStudentNum) + 1));
                   }
                 }}
               />
-
               <button 
-                type="button"
                 onClick={() => {
-                  if (newStudentNameOnly.trim()) {
+                  if(newStudentNameOnly.trim() && newStudentNum.trim()) {
                     const key = `${editTargetGrade}-${editTargetClass}`;
-                    const currentList = tempClassRosters[key] || [];
-                    const newEntry = `${newStudentNum}번 ${newStudentNameOnly.trim()}`;
-                    setTempClassRosters({ ...tempClassRosters, [key]: [...currentList, newEntry] });
+                    const newList = [...(tempClassRosters[key] || [])];
+                    const numStr = newStudentNum.padStart(2, '0');
+                    newList.push(`${numStr} ${newStudentNameOnly.trim()}`);
+                    newList.sort();
+                    setTempClassRosters({...tempClassRosters, [key]: newList});
                     setNewStudentNameOnly('');
+                    setNewStudentNum(String(Number(newStudentNum) + 1));
                   }
                 }}
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1 shrink-0"
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 rounded-xl text-xs font-bold"
               >
-                <Plus size={16} /> 학생 추가
+                추가
               </button>
-            </div>
-
-            <div className="w-full bg-[#111a15] p-3 rounded-xl border border-emerald-900 grid grid-cols-2 md:grid-cols-4 gap-2">
-              {editTargetStudents.length > 0 ? (
-                editTargetStudents.map((stu, idx) => (
-                  <div key={idx} className="flex items-center justify-between bg-[#1c2e25] px-3 py-1.5 rounded-lg border border-emerald-800 text-xs">
-                    <span>{stu}</span>
-                    <button 
-                      type="button" 
-                      onClick={() => {
-                        const key = `${editTargetGrade}-${editTargetClass}`;
-                        const updated = editTargetStudents.filter((_, i) => i !== idx);
-                        setTempClassRosters({ ...tempClassRosters, [key]: updated });
-                      }}
-                      className="text-rose-400 hover:text-rose-200 cursor-pointer"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <div className="col-span-4 text-center py-6 text-xs text-slate-500">
-                  등록된 학생이 없습니다. CSV를 업로드하거나 번호/성명을 입력해 추가해 주세요.
-                </div>
-              )}
             </div>
           </section>
 
-          <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-6">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">📚 {editTargetGrade}학년 {editTargetClass}반 <b>{['일', '월', '화', '수', '목', '금', '토'][new Date(adminDate).getDay()]}요일</b> 고정 시간표 설정 <span className="text-xs text-slate-500 font-normal ml-2">(1학기 전체 반영)</span></h2>
-              
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => handleNeisFetch('timetable')}
-                  disabled={isNeisLoading}
-                  className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
-                >
-                  <Database size={14} /> 해당 요일 나이스 연동
-                </button>
-                <div className="relative">
-                  <input 
-                    type="file" 
-                    accept="image/*, .pdf" 
-                    onChange={handleTimetableImageUpload}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    title="한 주 치 전체 자동 인식"
-                  />
-                  <div className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors">
-                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />} AI 1주일치 전체 인식
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {timetableFileName && <p className="text-xs text-emerald-400">인식된 파일: {timetableFileName}</p>}
-
+          <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
+            <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">⏰ 일과 시간 및 학급 시간표</h2>
+            
             <div className="space-y-3">
               <label className="text-xs text-amber-300 font-bold block">교시별 일과시간 설정 (학교 전체 공통)</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1363,38 +1386,36 @@ export default function App() {
                       <div className="flex items-center gap-1">
                         <select 
                           value={sch.startH}
-                          onChange={(e) => setTempDailySchedule({ ...tempDailySchedule, [p]: { ...sch, startH: e.target.value } })}
-                          className="bg-[#1c2e25] text-white text-xs px-2 py-1.5 rounded-lg border border-emerald-700"
+                          onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, startH: e.target.value}})}
+                          className="bg-transparent text-white border-b border-emerald-700 text-xs py-1"
                         >
-                          {hoursList.map(h => <option key={h} value={h}>{h}</option>)}
+                          {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
                         </select>
                         <span>:</span>
                         <select 
                           value={sch.startM}
-                          onChange={(e) => setTempDailySchedule({ ...tempDailySchedule, [p]: { ...sch, startM: e.target.value } })}
-                          className="bg-[#1c2e25] text-white text-xs px-2 py-1.5 rounded-lg border border-emerald-700"
+                          onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, startM: e.target.value}})}
+                          className="bg-transparent text-white border-b border-emerald-700 text-xs py-1"
                         >
-                          {minutesList.map(m => <option key={m} value={m}>{m}</option>)}
+                          {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
                         </select>
                       </div>
-
-                      <span className="text-slate-400">~</span>
-
+                      <span className="text-xs text-emerald-600">-</span>
                       <div className="flex items-center gap-1">
                         <select 
                           value={sch.endH}
-                          onChange={(e) => setTempDailySchedule({ ...tempDailySchedule, [p]: { ...sch, endH: e.target.value } })}
-                          className="bg-[#1c2e25] text-white text-xs px-2 py-1.5 rounded-lg border border-emerald-700"
+                          onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, endH: e.target.value}})}
+                          className="bg-transparent text-white border-b border-emerald-700 text-xs py-1"
                         >
-                          {hoursList.map(h => <option key={h} value={h}>{h}</option>)}
+                          {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
                         </select>
                         <span>:</span>
                         <select 
                           value={sch.endM}
-                          onChange={(e) => setTempDailySchedule({ ...tempDailySchedule, [p]: { ...sch, endM: e.target.value } })}
-                          className="bg-[#1c2e25] text-white text-xs px-2 py-1.5 rounded-lg border border-emerald-700"
+                          onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, endM: e.target.value}})}
+                          className="bg-transparent text-white border-b border-emerald-700 text-xs py-1"
                         >
-                          {minutesList.map(m => <option key={m} value={m}>{m}</option>)}
+                          {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
                         </select>
                       </div>
                     </div>
@@ -1403,94 +1424,111 @@ export default function App() {
               </div>
             </div>
 
-            <div className="space-y-2 pt-2 border-t border-emerald-900/60">
-              <label className="text-xs text-amber-300 font-bold block">{editTargetGrade}학년 {editTargetClass}반 과목명 설정</label>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {[1, 2, 3, 4, 5, 6, 7].map((p) => (
-                  <div key={p} className="space-y-1">
-                    <label className="text-xs text-slate-300 font-bold">{p}교시 과목</label>
+            <div className="pt-6 border-t border-emerald-900/40 space-y-3">
+              <label className="text-xs text-amber-300 font-bold block">{adminDate} ({['일', '월', '화', '수', '목', '금', '토'][new Date(adminDate).getDay()]}요일) 학급 시간표</label>
+              
+              <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-emerald-200">자동 파싱 (Gemini API)</span>
+                  <div className="relative flex-1">
                     <input 
-                      type="text" 
-                      value={currentAdminTimetable[p] || ''}
-                      onChange={(e) => {
-                        const key = `${editTargetGrade}-${editTargetClass}`;
-                        const classData = tempClassTimetables[key] || {};
-                        const dayData = classData[adminDayOfWeek] || {};
-                        setTempClassTimetables({
-                          ...tempClassTimetables,
-                          [key]: {
-                            ...classData,
-                            [adminDayOfWeek]: { ...dayData, [p]: e.target.value }
-                          }
-                        });
-                      }}
-                      className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                      type="file" 
+                      accept="image/*, .csv, .txt, .pdf, .xls, .xlsx" 
+                      onChange={handleTimetableImageUpload}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      title="시간표 파일 선택"
                     />
+                    <div className="px-4 py-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md cursor-pointer transition-colors w-full border border-emerald-600">
+                      {isNeisLoading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                      {timetableFileName || '학급 시간표 파일(이미지/엑셀 등) 업로드하여 자동 채우기'}
+                    </div>
                   </div>
-                ))}
+                </div>
+                
+                <p className="text-[11px] text-emerald-400/80 text-center bg-emerald-900/30 py-2 rounded-lg">※ 이미지를 업로드하면 인공지능이 과목명을 자동으로 분석하여 빈칸을 채워줍니다. (API 키 필요)</p>
+
+                <div className="grid grid-cols-7 gap-2 mt-2">
+                  {[1, 2, 3, 4, 5, 6, 7].map((p) => {
+                    const currentMap = tempClassTimetables[`${editTargetGrade}-${editTargetClass}`] || {};
+                    const currentDayObj = currentMap[adminDayOfWeek] || {};
+                    return (
+                      <div key={p} className="flex flex-col gap-1">
+                        <span className="text-[10px] text-center text-emerald-500 font-bold">{p}교시</span>
+                        <input 
+                          type="text" 
+                          value={currentDayObj[p] || ''}
+                          onChange={(e) => {
+                            const newMap = { ...currentMap };
+                            newMap[adminDayOfWeek] = { ...currentDayObj, [p]: e.target.value };
+                            setTempClassTimetables({ ...tempClassTimetables, [`${editTargetGrade}-${editTargetClass}`]: newMap });
+                          }}
+                          className="w-full text-center px-1 py-2 bg-[#162d22] border border-emerald-800 rounded-lg text-xs text-white focus:border-amber-400 outline-none"
+                          placeholder="과목"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </section>
 
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🍲 급식 식단 설정 <span className="text-xs text-indigo-400 bg-indigo-950 px-2 py-1 rounded-lg ml-2">({adminDate})</span></h2>
-              
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => handleNeisFetch('meal')}
-                  disabled={isNeisLoading}
-                  className="px-4 py-2 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors"
-                >
-                  <Database size={14} /> 나이스(NEIS) 선택일 연동
-                </button>
-                <div className="relative">
+            <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🍽️ 급식 식단 관리</h2>
+            
+            <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-bold text-emerald-200">자동 파싱 (Gemini API)</span>
+                <div className="relative flex-1">
                   <input 
                     type="file" 
                     accept="image/*, .pdf" 
                     onChange={handleMealFileupload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    title="한 달 치 전체 자동 인식"
+                    title="급식표 파일 선택"
                   />
-                  <div className="px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer transition-colors">
-                    {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />} AI 1달치 전체 인식
+                  <div className="px-4 py-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md cursor-pointer transition-colors w-full border border-emerald-600">
+                    {isNeisLoading ? <Loader2 size={16} className="animate-spin" /> : <Utensils size={16} />}
+                    {mealFileName || '월간 급식표 이미지 업로드하여 자동 채우기'}
                   </div>
                 </div>
               </div>
-            </div>
 
-            {mealFileName && <p className="text-xs text-emerald-400">인식된 파일: {mealFileName}</p>}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs text-amber-300 font-bold">점심 메뉴 (줄바꿈으로 구분)</label>
-                <textarea 
-                  value={(currentAdminMeals.lunch || []).join('\n')}
-                  onChange={(e) => setTempMeals({ ...tempMeals, [adminDateKey]: { ...currentAdminMeals, lunch: e.target.value.split('\n') } })}
-                  className="w-full h-32 p-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm resize-none focus:border-amber-500 outline-none"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-indigo-300 font-bold">저녁 메뉴 (줄바꿈으로 구분)</label>
-                <textarea 
-                  value={(currentAdminMeals.dinner || []).join('\n')}
-                  onChange={(e) => setTempMeals({ ...tempMeals, [adminDateKey]: { ...currentAdminMeals, dinner: e.target.value.split('\n') } })}
-                  className="w-full h-32 p-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm resize-none focus:border-indigo-500 outline-none"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                <div className="space-y-2">
+                  <label className="text-xs text-amber-300 font-bold block">{adminDate} 중식 (점심)</label>
+                  <textarea 
+                    value={(tempMeals[adminDateKey] || {}).lunch || ''}
+                    onChange={(e) => {
+                      const dayMeals = tempMeals[adminDateKey] || {};
+                      setTempMeals({ ...tempMeals, [adminDateKey]: { ...dayMeals, lunch: e.target.value } });
+                    }}
+                    className="w-full h-24 p-3 bg-[#162d22] border border-emerald-800 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
+                    placeholder="예: 기장밥\n미역국\n불고기\n배추김치"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-amber-300 font-bold block">{adminDate} 석식 (저녁)</label>
+                  <textarea 
+                    value={(tempMeals[adminDateKey] || {}).dinner || ''}
+                    onChange={(e) => {
+                      const dayMeals = tempMeals[adminDateKey] || {};
+                      setTempMeals({ ...tempMeals, [adminDateKey]: { ...dayMeals, dinner: e.target.value } });
+                    }}
+                    className="w-full h-24 p-3 bg-[#162d22] border border-emerald-800 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
+                    placeholder="해당 없음"
+                  />
+                </div>
               </div>
             </div>
           </section>
 
-          {/* 💡 [핵심 수정] 긴급 복구용 버튼 추가 */}
-          <div className="flex justify-end gap-3 pt-4">
+          <div className="flex gap-4 pt-6">
             <button 
               onClick={() => {
-                if(window.confirm('저장 오류(용량 초과)가 발생했나요?\n이 버튼을 누르면 내부의 찌꺼기 시간표/급식 데이터가 완전히 비워져 오류가 해결됩니다.\n(학생 명단은 유지됩니다.)')) {
-                  localStorage.removeItem('class_timetables_map');
-                  localStorage.removeItem('meal_data');
-                  setTempClassTimetables({});
-                  setTempMeals({});
-                  alert('✅ 쓰레기 데이터가 비워졌습니다. 이제 다시 데이터를 불러오거나 저장해주세요!');
+                if (window.confirm('정말 모든 데이터를 초기화하시겠습니까? (복구 불가)')) {
+                  localStorage.clear();
+                  window.location.reload();
                 }
               }} 
               className="px-6 py-3.5 bg-rose-900/60 hover:bg-rose-800 text-rose-300 rounded-2xl text-xs font-bold cursor-pointer transition-colors border border-rose-800"
@@ -1513,7 +1551,6 @@ export default function App() {
       </div>
     );
   }
-
   if (isExited) {
     return (
       <div className="h-screen w-full bg-[#111a15] text-emerald-400 flex flex-col items-center justify-center space-y-4 select-none">
@@ -1521,14 +1558,25 @@ export default function App() {
         <h2 className="text-2xl font-black text-white tracking-tight">알림판 화면이 숨겨졌습니다.</h2>
         <p className="text-xs text-emerald-500/80">바탕화면에서 작업 중입니다. 새로운 알림이 오면 자동으로 깨어납니다.</p>
         <button 
-          onClick={() => setIsExited(false)} 
-          className="mt-6 px-6 py-3 bg-[#243e33] hover:bg-[#2c4a3e] text-white rounded-xl text-xs font-bold border border-emerald-700/60 shadow-lg cursor-pointer transition-all"
+          onClick={() => setIsExited(false)}
+          className="mt-8 px-6 py-3 bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 rounded-xl text-sm font-bold border border-emerald-700/50 transition-colors"
         >
-          알림판 강제로 깨우기
+          알림판 깨우기
         </button>
       </div>
     );
   }
+
+  const renderMealList = (mealData: any) => {
+    if (!mealData) return null;
+    if (Array.isArray(mealData)) {
+      return mealData.map((item, i) => <div key={i}>{item}</div>);
+    }
+    if (typeof mealData === 'string') {
+      return mealData.split('\n').map((item, i) => <div key={i}>{item}</div>);
+    }
+    return String(mealData);
+  };
 
   const parsedCall = (() => {
     if (!announcement || !announcement.includes('[대상:')) return null;
@@ -1544,11 +1592,19 @@ export default function App() {
   })();
 
   return (
-    <div className="h-screen w-full bg-[#1e382b] text-white font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 border-[#2b4c3b]">
+    <div 
+      className="h-screen w-full bg-[#1e382b] text-white font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 border-[#2b4c3b]"
+      style={{ WebkitAppRegion: 'drag' } as any}
+    >
       
       <header className="h-20 px-8 flex items-center justify-between border-b border-emerald-900/60 bg-[#162d22]/60 shrink-0">
         <div className="flex items-center gap-4">
-          <button onClick={handleGoHome} className="px-3 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-bold border border-emerald-800 cursor-pointer" title="홈 화면으로 이동 및 고정 설정 해제">
+          <button 
+            onClick={handleGoHome} 
+            className="px-3 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-bold border border-emerald-800 cursor-pointer" 
+            title="홈 화면으로 이동 및 고정 설정 해제"
+            style={{ WebkitAppRegion: 'no-drag' } as any}
+          >
             🏠 홈 (고정 해제)
           </button>
           <div className="flex flex-col">
@@ -1559,10 +1615,18 @@ export default function App() {
         
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <div className="text-3xl font-black tracking-widest text-emerald-100 font-mono">{timeString}</div>
-            <div className="text-xs text-emerald-400 font-semibold">{dateString}</div>
+            <div className="text-5xl font-black tracking-widest text-emerald-50 font-mono mb-1 drop-shadow-sm">{timeString}</div>
+            <div className="text-sm text-emerald-400 font-semibold tracking-wide">{dateString}</div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
+            <button 
+              onClick={toggleFullScreen}
+              className="px-3 py-2.5 rounded-xl bg-blue-950/80 hover:bg-blue-900 text-blue-200 text-xs font-bold border border-blue-700/60 shadow-inner cursor-pointer flex items-center gap-1 transition-colors"
+              title="전체화면 전환"
+            >
+              {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />} 
+              {isFullscreen ? '원래화면' : '전체화면'}
+            </button>
             <button 
               onClick={() => setIsPopupOpen(true)}
               className="px-3 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-bold border border-amber-700/60 shadow-inner cursor-pointer flex items-center gap-1"
@@ -1582,7 +1646,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-hidden">
+      <main className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
         
         <section className="col-span-7 flex flex-col bg-[#162d22]/40 rounded-3xl p-6 border border-emerald-900/40 shadow-sm h-full">
           <div className="flex items-center justify-between mb-4 shrink-0">
@@ -1601,65 +1665,89 @@ export default function App() {
               { period: '4교시', time: formatScheduleString(dailySchedule[4]), subject: todayTimetableObj[4] },
               { period: '5교시', time: formatScheduleString(dailySchedule[5]), subject: todayTimetableObj[5] },
               { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: todayTimetableObj[6] },
-              { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: todayTimetableObj[7] }
+              { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: todayTimetableObj[7] },
             ].map((item, idx) => {
+              if (!item.subject) return null;
+              
+              const isCurrent = (() => {
+                const now = new Date();
+                const nowTotal = now.getHours() * 60 + now.getMinutes();
+                const [sh, sm] = item.time.split(' - ')[0].split(':').map(Number);
+                const [eh, em] = item.time.split(' - ')[1].split(':').map(Number);
+                const startTotal = sh * 60 + sm;
+                const endTotal = eh * 60 + em;
+                return nowTotal >= startTotal && nowTotal < endTotal;
+              })();
+
               const colors = [
-                'bg-[#fff9c4] text-slate-900 rotate-[-0.8deg]',
-                'bg-[#fce4ec] text-slate-900 rotate-[0.8deg]',
-                'bg-[#e3f2fd] text-slate-900 rotate-[-0.5deg]',
-                'bg-[#e8f5e9] text-slate-900 rotate-[0.6deg]',
-                'bg-[#fff3e0] text-slate-900 rotate-[-1.0deg]',
-                'bg-[#f3e5f5] text-slate-900 rotate-[1.2deg]',
-                'bg-[#e0f2f1] text-slate-900 rotate-[-0.7deg]'
+                'bg-[#fefce8] text-slate-800 rotate-[0.5deg]',
+                'bg-[#fff1f2] text-slate-800 rotate-[-0.8deg]',
+                'bg-[#f0fdf4] text-slate-800 rotate-[1.0deg]',
+                'bg-[#f0f9ff] text-slate-800 rotate-[-0.5deg]',
+                'bg-[#fdf4ff] text-slate-800 rotate-[0.7deg]',
+                'bg-[#fff7ed] text-slate-800 rotate-[-0.3deg]'
               ];
               return (
-                <div key={idx} className={`${colors[idx % colors.length]} rounded-2xl p-4 flex flex-col justify-between shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full`}>
-                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-12 h-4 bg-amber-200/60 rotate-1 shadow-sm border border-amber-300/40"></div>
+                <div key={idx} className={`${colors[idx % colors.length]} rounded-3xl p-4 flex flex-col shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full`}>
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-6 bg-amber-400/40 rotate-2 shadow-sm border border-amber-200/20 backdrop-blur-sm z-10"></div>
                   
-                  <div className="flex justify-between items-center font-sans px-1">
+                  <div className="flex justify-between items-start font-sans px-1 relative z-0">
                     <span className="text-sm font-bold opacity-70 mt-1">{item.period}</span>
-                    <span className="text-xs opacity-60 mt-1 tracking-wider">{item.time}</span>
+                    {isCurrent && <span className="flex h-3 w-3 mt-1 mr-1"><span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-rose-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span></span>}
                   </div>
-                  
-                  <div className="flex flex-col items-center justify-center my-auto px-2">
-                    <span className="text-6xl mb-4 opacity-90 drop-shadow-md">{getSubjectIcon(item.subject)}</span>
-                    <span className="text-2xl 2xl:text-3xl font-black text-center break-keep leading-snug tracking-tight text-slate-800">{item.subject}</span>
+                  <div className="flex-1 flex flex-col items-center justify-center py-2 px-1 relative z-0">
+                    <div className="text-5xl mb-4 opacity-90 drop-shadow-sm">{getSubjectIcon(item.subject)}</div>
+                    <div className="text-2xl font-black tracking-tight break-keep leading-snug text-center">{item.subject}</div>
                   </div>
-                  
-                  <div className="w-2.5 h-2.5 bg-rose-500/80 rounded-full mx-auto shadow-sm mt-1"></div>
+                  <div className="text-[11px] text-center font-sans font-bold opacity-40 bg-black/5 rounded-full py-1.5 mt-auto w-full relative z-0">{item.time}</div>
                 </div>
               );
             })}
           </div>
         </section>
 
-        <section className="col-span-5 flex flex-col bg-[#162d22]/40 rounded-3xl p-6 border border-emerald-900/40 shadow-sm h-full">
-          <div className="flex items-center gap-2 mb-4 shrink-0">
+        <section className="col-span-5 flex flex-col h-full">
+          <div className="flex items-center gap-2 mb-4 shrink-0 px-2">
             <Utensils size={20} className="text-emerald-400" />
             <h2 className="text-base font-bold text-emerald-200">오늘의 급식</h2>
           </div>
-
-          <div className="grid grid-cols-2 gap-5 flex-1 min-h-0 pb-2">
-            
-            <div className="bg-[#11231b]/90 rounded-3xl p-8 border border-emerald-800/50 flex flex-col items-center justify-between text-center shadow-inner h-full">
-              <span className="text-base font-bold text-amber-300 bg-amber-950/80 px-6 py-2 rounded-full shadow-sm border border-amber-800/40 mb-6 shrink-0">🍴 점심 식단</span>
-              <ul className="text-2xl lg:text-3xl font-black text-emerald-100 space-y-5 leading-normal flex-1 flex flex-col justify-center w-full">
-                {todayMealsObj.lunch.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
-              </ul>
-              <div className="text-sm text-emerald-400/60 font-mono tracking-[0.3em] mt-6 shrink-0">LUNCH MENU</div>
+          
+          <div className="flex-1 grid grid-cols-2 gap-5 min-h-0">
+            {/* Lunch Card */}
+            <div className="bg-[#112017] rounded-3xl p-6 border border-emerald-900/30 shadow-xl flex flex-col relative overflow-hidden group">
+              <div className="flex justify-center mb-8">
+                <div className="bg-amber-900/40 border border-amber-800/50 text-amber-500 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                  <Utensils size={14} /> 점심 식단
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-start text-center">
+                <div className="text-xl md:text-2xl text-emerald-50 font-bold leading-[2.2] break-keep w-full flex flex-col gap-1">
+                  {todayMealsObj?.lunch ? renderMealList(todayMealsObj.lunch) : <span className="text-emerald-600/60 italic text-sm">급식 정보가 없습니다.</span>}
+                </div>
+              </div>
+              <div className="mt-6 text-center shrink-0">
+                <span className="text-[10px] font-bold text-emerald-600/60 tracking-[0.2em]">LUNCH MENU</span>
+              </div>
             </div>
 
-            <div className="bg-[#11231b]/90 rounded-3xl p-8 border border-emerald-800/50 flex flex-col items-center justify-between text-center shadow-inner h-full">
-              <span className="text-base font-bold text-indigo-300 bg-indigo-950/80 px-6 py-2 rounded-full shadow-sm border border-indigo-800/40 mb-6 shrink-0">🌙 저녁 식단</span>
-              <ul className="text-2xl lg:text-3xl font-black text-emerald-100 space-y-5 leading-normal flex-1 flex flex-col justify-center w-full">
-                {todayMealsObj.dinner.map((m: string, i: number) => <li key={i} className="break-keep drop-shadow-md">{m}</li>)}
-              </ul>
-              <div className="text-sm text-emerald-400/60 font-mono tracking-[0.3em] mt-6 shrink-0">DINNER MENU</div>
+            {/* Dinner Card */}
+            <div className="bg-[#112017] rounded-3xl p-6 border border-emerald-900/30 shadow-xl flex flex-col relative overflow-hidden group">
+              <div className="flex justify-center mb-8">
+                <div className="bg-indigo-900/30 border border-indigo-800/50 text-indigo-400 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
+                  <Moon size={14} /> 저녁 식단
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-start text-center">
+                <div className="text-xl md:text-2xl text-emerald-50 font-bold leading-[2.2] break-keep w-full flex flex-col gap-1">
+                  {todayMealsObj?.dinner ? renderMealList(todayMealsObj.dinner) : <span className="text-emerald-600/60 italic text-sm">해당 없음</span>}
+                </div>
+              </div>
+              <div className="mt-6 text-center shrink-0">
+                <span className="text-[10px] font-bold text-emerald-600/60 tracking-[0.2em]">DINNER MENU</span>
+              </div>
             </div>
-            
           </div>
         </section>
-
       </main>
 
       {isPopupOpen && (
@@ -1670,58 +1758,52 @@ export default function App() {
         >
           <div className="relative w-full max-w-4xl bg-[#050505] border-4 border-[#ff0055] rounded-3xl p-12 shadow-[0_0_80px_#ff0055,inset_0_0_40px_#ff0055] flex flex-col items-center text-center overflow-hidden" onClick={(e) => e.stopPropagation()}>
             
-            <div className="absolute -top-20 -left-20 w-80 h-80 bg-[#00ffcc] opacity-20 blur-[120px] rounded-full pointer-events-none"></div>
-            <div className="absolute -bottom-20 -right-20 w-80 h-80 bg-[#ff0055] opacity-20 blur-[120px] rounded-full pointer-events-none"></div>
-
-            <div className="relative z-10 w-full">
-              <div className="flex items-center justify-center gap-4 mb-8">
-                <span className="text-5xl animate-pulse">🚨</span>
-                <h2 className="text-5xl font-black text-white tracking-widest [text-shadow:0_0_10px_#fff,0_0_20px_#ff0055,0_0_40px_#ff0055,0_0_80px_#ff0055] animate-pulse">
-                  새로운 전달사항
-                </h2>
-              </div>
-
-              {parsedCall ? (
-                <div className="w-full space-y-6 mb-10">
-                  <div className="w-full bg-[#0a0a0a]/90 backdrop-blur-md rounded-3xl p-8 border border-[#00ffcc]/60 shadow-[0_0_40px_rgba(0,255,204,0.3)] flex flex-col items-center">
-                    <span className="px-6 py-2.5 bg-[#00ffcc]/20 text-[#00ffcc] rounded-full text-xl font-black tracking-widest border border-[#00ffcc]/40 mb-6 shadow-inner">
-                      대상: {parsedCall.target}
-                    </span>
-                    <p className="text-4xl md:text-5xl font-black text-white leading-tight [word-break:keep-all] [text-shadow:0_0_20px_rgba(255,255,255,0.5)]">
-                      {parsedCall.message}
-                    </p>
-                  </div>
-
-                  <div className="w-full bg-[#1a0510]/90 backdrop-blur-md rounded-3xl p-6 border border-[#ff0055]/60 shadow-[0_0_40px_rgba(255,0,85,0.3)] flex flex-wrap justify-center items-center gap-8">
-                    <div className="flex items-center gap-3 text-3xl font-bold text-[#ff0055] [text-shadow:0_0_15px_rgba(255,0,85,0.6)]">
-                      <MapPin size={36} /> {parsedCall.location}
-                    </div>
-                    <div className="hidden md:block w-2 h-10 bg-white/10 rounded-full"></div>
-                    <div className="flex items-center gap-3 text-3xl font-bold text-[#ff0055] [text-shadow:0_0_15px_rgba(255,0,85,0.6)]">
-                      <User size={36} /> {parsedCall.teacher} 선생님
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="w-full bg-[#0a0a0a]/80 backdrop-blur-md rounded-3xl p-10 border border-[#00ffcc]/50 shadow-[0_0_30px_rgba(0,255,204,0.2)] mb-10">
-                  <p className="text-4xl font-black text-[#00ffcc] leading-relaxed [word-break:keep-all] whitespace-pre-wrap [text-shadow:0_0_10px_#00ffcc,0_0_20px_#00ffcc]">
-                    {announcement}
-                  </p>
-                </div>
-              )}
-
-              <div className="flex flex-col items-center gap-4 w-full">
-                <button 
-                  onClick={handleClosePopupAndHide}
-                  className="px-12 py-5 bg-[#ff0055] hover:bg-[#ff3377] text-white font-black rounded-2xl shadow-[0_0_20px_#ff0055] transition-all text-xl flex items-center gap-3 cursor-pointer active:scale-95"
-                >
-                  <X size={28} strokeWidth={3} />
-                  확인 (닫기)
-                </button>
-                <span className="text-sm text-slate-400 font-bold tracking-widest mt-2">※ 1분이 지나면 팝업이 자동으로 닫히고 대시보드가 표시됩니다.</span>
-              </div>
+            <div className="absolute inset-0 border-8 border-transparent animate-neon-pulse pointer-events-none rounded-2xl"></div>
+            
+            <div className="flex items-center gap-4 text-[#ff0055] animate-bounce-slow mb-6">
+              <ShieldAlert size={48} strokeWidth={2.5} />
+              <h2 className="text-4xl font-black tracking-widest drop-shadow-[0_0_15px_#ff0055]">긴급 호출</h2>
+              <ShieldAlert size={48} strokeWidth={2.5} />
             </div>
 
+            {parsedCall ? (
+              <div className="w-full space-y-8 relative z-10 py-4">
+                <div className="inline-block px-8 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-full text-3xl font-black text-white shadow-[0_0_30px_#ff0055]">
+                  <span className="text-rose-300">대상: </span> 
+                  <span className={parsedCall.target === '학급 전체' ? 'text-amber-400' : 'text-white'}>{parsedCall.target}</span>
+                </div>
+                
+                <div className="text-5xl md:text-6xl font-black text-white leading-tight break-keep py-4 drop-shadow-2xl">
+                  {parsedCall.message}
+                </div>
+                
+                <div className="flex items-center justify-center gap-12 text-2xl font-bold pt-6 border-t border-white/10">
+                  <div className="flex items-center gap-3 bg-[#111] px-6 py-4 rounded-2xl border border-white/10 shadow-lg">
+                    <MapPin className="text-[#ff0055]" size={28} />
+                    <span className="text-slate-300">장소: <span className="text-white ml-2">{parsedCall.location}</span></span>
+                  </div>
+                  <div className="flex items-center gap-3 bg-[#111] px-6 py-4 rounded-2xl border border-white/10 shadow-lg">
+                    <User className="text-[#ff0055]" size={28} />
+                    <span className="text-slate-300">호출 교사: <span className="text-white ml-2">{parsedCall.teacher} 선생님</span></span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full text-4xl md:text-5xl font-black text-white leading-tight break-keep py-12 drop-shadow-2xl z-10 relative">
+                {announcement}
+              </div>
+            )}
+
+            <div className="flex flex-col items-center gap-4 w-full mt-8">
+              <button 
+                onClick={handleClosePopupAndHide}
+                className="px-12 py-5 bg-[#ff0055] hover:bg-[#ff3377] text-white font-black rounded-2xl shadow-[0_0_20px_#ff0055] transition-all text-xl flex items-center gap-3 cursor-pointer active:scale-95"
+              >
+                <X size={28} strokeWidth={3} />
+                확인 (닫기)
+              </button>
+            </div>
+            
           </div>
         </div>
       )}
@@ -1729,3 +1811,4 @@ export default function App() {
     </div>
   );
 }
+
