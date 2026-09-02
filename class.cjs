@@ -2,7 +2,7 @@ const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config();
+dotenv.config({ path: require('path').join(__dirname, '.env') });
 
 let mainWindow;
 let tray = null;
@@ -47,6 +47,7 @@ function getDelayUntilClassEnds() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    icon: path.join(__dirname, 'public', 'icon.ico'),
     width: 1280,
     height: 720,
     show: false,
@@ -60,7 +61,7 @@ function createWindow() {
     }
   });
 
-  const isDev = process.env.NODE_ENV !== 'production';
+  const isDev = !app.isPackaged;
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000/#tv-setup');
@@ -113,7 +114,7 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  tray = new Tray(path.join(__dirname, 'public', 'icon.png'));
+  tray = new Tray(path.join(__dirname, 'public', 'icon.ico'));
   const contextMenu = Menu.buildFromTemplate([
     { label: '화면 열기/숨기기', click: () => { 
         if (mainWindow) {
@@ -304,7 +305,7 @@ app.whenReady().then(() => {
 
 ipcMain.handle('fetch-local-url', async (event, { url }) => {
   try {
-    const res = await fetch(url.startsWith('http') ? url : 'http://' + url, {
+    const res = await require('electron').net.fetch((url.startsWith('http') ? url : 'http://' + url).replace(/\/(\d{2,5})$/, ':$1'), {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }

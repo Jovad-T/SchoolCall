@@ -1260,10 +1260,10 @@ ${htmlText.substring(0, 30000)}
 
   if (viewMode === 'remote') {
     return (
-      <div className="h-screen w-full bg-[#111111] text-white flex flex-col select-none overflow-y-auto">
+      <div className="h-screen w-full bg-[#111111] text-white flex flex-col select-none overflow-y-auto" style={{ WebkitAppRegion: "drag" } as any}>
         <header className="h-16 px-6 bg-[#161616] border-b border-white/10 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <button onClick={handleGoHome} className="p-2 rounded-xl bg-white/10 text-emerald-300 hover:bg-white/20 cursor-pointer flex items-center gap-1 text-xs font-bold" title="홈 화면으로 이동 및 고정 해제">
+            <button onClick={handleGoHome} style={{ WebkitAppRegion: "no-drag" } as any} className="p-2 rounded-xl bg-white/10 text-emerald-300 hover:bg-white/20 cursor-pointer flex items-center gap-1 text-xs font-bold" title="홈 화면으로 이동 및 고정 해제">
               <ArrowLeft size={16} /> 홈으로 (고정 해제)
             </button>
             <h1 className="text-lg font-bold text-amber-400">📱 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 스마트 리모컨</h1>
@@ -1271,7 +1271,7 @@ ${htmlText.substring(0, 30000)}
           <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
         </header>
 
-        <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-8 pb-12">
+        <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-8 pb-12" style={{ WebkitAppRegion: "no-drag" } as any}>
           
           <section className="grid grid-cols-2 gap-4">
             <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
@@ -1481,7 +1481,7 @@ ${htmlText.substring(0, 30000)}
     const isSchoolNameValid = adminSchoolName.trim().length > 0;
     const isPinValid = /^\d{4}$/.test(adminPinInput.trim());
     const isNeisApiKeyValid = !adminNeisApiKey.trim() || /^[a-fA-F0-9]{32}$/.test(adminNeisApiKey.trim());
-    const isGeminiApiKeyValid = !adminGeminiApiKey.trim() || /^AIza/.test(adminGeminiApiKey.trim());
+    const isGeminiApiKeyValid = !adminGeminiApiKey.trim() || adminGeminiApiKey.trim().length > 10;
     const isEduCodeValid = !adminEduCode.trim() || /^[A-Za-z]\d{2}$/.test(adminEduCode.trim());
     const isSchoolCodeValid = !adminSchoolCode.trim() || /^\d{7,8}$/.test(adminSchoolCode.trim());
     const isAppinUrlValid = !adminAppinServerUrl.trim() || /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:\:[0-9]{1,5})?(?:\/.*)?$/.test(adminAppinServerUrl.trim()) || /^https?:\/\//.test(adminAppinServerUrl.trim());
@@ -1493,7 +1493,7 @@ ${htmlText.substring(0, 30000)}
     if (!isSchoolNameValid) warningMessages.push("학교명을 입력해주세요.");
     if (!isPinValid) warningMessages.push("관리자 비밀번호는 4자리 숫자로 입력해야 합니다.");
     if (!isNeisApiKeyValid) warningMessages.push("나이스 API 키가 32자리 올바른 형식(영문/숫자)이 아닙니다.");
-    if (!isGeminiApiKeyValid) warningMessages.push("Gemini API 키가 올바르지 않습니다 ('AIza'로 시작).");
+    if (!isGeminiApiKeyValid) warningMessages.push("Gemini API 키가 너무 짧습니다.");
     if (!isEduCodeValid) warningMessages.push("시도교육청 코드가 올바르지 않습니다 (예: J10).");
     if (!isSchoolCodeValid) warningMessages.push("표준학교코드가 올바르지 않습니다 (7~8자리 숫자).");
     if (!isAppinUrlValid) warningMessages.push("압핀 서버 주소가 올바르지 않습니다 (IP:포트 또는 URL 형식).");
@@ -1509,16 +1509,15 @@ ${htmlText.substring(0, 30000)}
     };
 
     return (
-      <div className="h-screen w-full bg-[#111a15] text-white flex flex-col select-none overflow-y-auto">
+      <div className="h-screen w-full bg-[#111a15] text-white flex flex-col select-none overflow-y-auto" style={{ WebkitAppRegion: "drag" } as any}>
         <header className="h-16 px-6 bg-[#162d22] border-b border-emerald-900/60 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <button onClick={handleGoHome} className="p-2 rounded-xl bg-emerald-950 text-emerald-300 hover:bg-emerald-900 cursor-pointer flex items-center gap-1 text-xs font-bold">
+            <button onClick={handleGoHome} style={{ WebkitAppRegion: "no-drag" } as any} className="p-2 rounded-xl bg-emerald-950 text-emerald-300 hover:bg-emerald-900 cursor-pointer flex items-center gap-1 text-xs font-bold">
               <ArrowLeft size={16} /> 홈으로
             </button>
             <h1 className="text-lg font-bold text-indigo-300">⚙️ 관리자 환경설정 패널</h1>
           </div>
-          <button 
-            onClick={handleSaveClick} 
+          <button onClick={handleSaveClick} style={{ WebkitAppRegion: "no-drag" } as any} 
             disabled={!isConfigValid}
             className={`px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-colors ${isConfigValid ? 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
           >
@@ -1526,7 +1525,7 @@ ${htmlText.substring(0, 30000)}
           </button>
         </header>
 
-        <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-8 pb-16">
+        <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-8 pb-16" style={{ WebkitAppRegion: "no-drag" } as any}>
           
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl flex items-center justify-between">
             <div>
@@ -1609,7 +1608,7 @@ ${htmlText.substring(0, 30000)}
                       className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isGeminiApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
                       placeholder="발급받은 Google Gemini API KEY 입력"
                     />
-                    {!isGeminiApiKeyValid && <p className="text-[10px] text-rose-400">키는 'AIza'로 시작해야 합니다.</p>}
+                    {!isGeminiApiKeyValid && <p className="text-[10px] text-rose-400">키 길이가 너무 짧습니다.</p>}
                   </div>
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-3 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50">
                     <Key size={14} className="mr-1"/> 키 발급받기
@@ -1996,8 +1995,7 @@ ${htmlText.substring(0, 30000)}
                   {warningMessages.map((msg, i) => <div key={i}>• {msg}</div>)}
                 </div>
               )}
-              <button 
-                onClick={handleSaveClick} 
+              <button onClick={handleSaveClick} style={{ WebkitAppRegion: "no-drag" } as any} 
                 disabled={!isConfigValid}
                 className={`px-8 py-3.5 rounded-2xl text-sm font-bold shadow-lg transition-colors ${isConfigValid ? 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
               >

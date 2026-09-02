@@ -10,7 +10,7 @@ let hideTimeout = null;
 function getIconPath() {
   const possibleIcons = [
     path.join(__dirname, 'public', 'icon.ico'),
-    path.join(__dirname, 'public', 'icon.png'),
+    path.join(__dirname, 'public', 'icon.ico'),
     path.join(__dirname, 'public', 'icon.jpg'),
     path.join(__dirname, 'icon.ico'),
     path.join(__dirname, 'icon.png')
@@ -220,7 +220,7 @@ ipcMain.handle('extract-timetable', async (event, { base64, mimeType }) => {
 // AI URL 급식 추출 IPC 핸들러
 ipcMain.handle('extract-meal-url', async (event, { url, date }) => {
   try {
-    const fetchRes = await fetch(url, {
+    const fetchRes = await require('electron').net.fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     });
     const html = await fetchRes.text();
@@ -465,7 +465,7 @@ app.whenReady().then(() => {
 
 ipcMain.handle('fetch-local-url', async (event, { url }) => {
   try {
-    const res = await fetch(url.startsWith('http') ? url : 'http://' + url, {
+    const res = await require('electron').net.fetch((url.startsWith('http') ? url : 'http://' + url).replace(/\/(\d{2,5})$/, ':$1'), {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
