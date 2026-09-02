@@ -241,7 +241,7 @@ export default function App() {
     const unsubscribe = onValue(globalRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (data.schoolConfig) setSchoolConfig(data.schoolConfig);
+        if (data.schoolConfig) setSchoolConfig(prev => ({ ...data.schoolConfig, currentGrade: prev.currentGrade, currentClass: prev.currentClass }));
         if (data.classRosters) setClassRosters(data.classRosters);
         if (data.dailySchedule) setDailySchedule(data.dailySchedule);
         if (data.classTimetables) setClassTimetables(data.classTimetables);
@@ -630,7 +630,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.error(err);
+      console.log("Fetch error:", err.message);
       alert('❌ NEIS 연동 오류 발생');
     } finally {
       setIsNeisLoading(false);
@@ -713,11 +713,15 @@ ${htmlText.substring(0, 30000)}
 
       alert(`✅ 서버 접속 성공! ${editTargetGrade}학년 ${editTargetClass}반의 이번 주 시간표를 인공지능이 추출했습니다.`);
     } catch (err: any) {
-      console.error(err);
-      if (err.message === 'Failed to fetch') {
-         alert('❌ 서버 연동 실패 (Failed to fetch)\n웹 브라우저 보안 정책(CORS/Mixed Content)으로 인해 웹 환경에서는 로컬 내부망 IP 주소로 직접 접근할 수 없습니다.\n제공된 Electron PC 전용 앱을 설치하여 사용하시면 정상적으로 내부망 서버 연동이 가능합니다.');
+      console.log("Fetch error:", err.message);
+      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
+         if ((window as any).electron?.ipcRenderer) {
+           alert('❌ 서버 연동 실패\n입력하신 압핀 서버(서랍장) 주소로 접속할 수 없거나, 구글 AI 서버 접속에 실패했습니다.\n1. 압핀 서버 IP 주소와 포트 번호가 올바른지 확인해주세요.\n2. 컴퓨터가 인터넷에 정상적으로 연결되어 있는지 확인해주세요.');
+         } else {
+           alert('❌ 서버 연동 실패 (Failed to fetch)\n웹 브라우저 보안 정책(CORS/Mixed Content)으로 인해 웹 환경에서는 로컬 내부망 IP 주소로 직접 접근할 수 없습니다.\n제공된 Electron PC 전용 앱을 설치하여 사용하시면 정상적으로 내부망 서버 연동이 가능합니다.');
+         }
       } else {
-         alert('❌ 서버 연동 실패: ' + (err.message || '학교 내부망(IP) 접근 제한이거나 서버가 꺼져있을 수 있습니다. (Electron PC 앱 권장)'));
+         alert('❌ 서버 연동 실패: ' + (err.message || '입력하신 압핀 서버(IP) 주소가 잘못되었거나 서버가 꺼져있을 수 있습니다.'));
       }
     } finally {
       setIsNeisLoading(false);
@@ -809,7 +813,7 @@ ${htmlText.substring(0, 30000)}
         setTempClassTimetables(newTimetables);
         alert(`✅ 컴시간/압핀 엑셀 분석 완료! 총 ${updatedClasses}개 학급의 시간표가 일괄 업데이트되었습니다.`);
       } catch (err) {
-        console.error(err);
+        console.log("Fetch error:", err.message);
         alert('❌ 엑셀 파싱 중 오류가 발생했습니다.');
       } finally {
         setIsNeisLoading(false);
@@ -897,7 +901,7 @@ ${htmlText.substring(0, 30000)}
       alert(`✅ [${file.name}] 자동화 인식 성공!\n총 ${count}일 치 시간표 데이터가 달력에 자동 등록되었습니다.`);
 
     } catch (err: any) {
-      console.error(err);
+      console.log("Fetch error:", err.message);
       alert(`❌ 시간표 인식 실패: ${err.message}`);
     } finally {
       setIsNeisLoading(false);
@@ -979,7 +983,7 @@ ${htmlText.substring(0, 30000)}
       alert(`✅ [${file.name}] 자동화 인식 성공!\n총 ${count}일 치 식단 데이터가 달력에 자동 등록되었습니다.`);
 
     } catch (err: any) {
-      console.error(err);
+      console.log("Fetch error:", err.message);
       alert(`❌ 식단표 인식 실패: ${err.message}`);
     } finally {
       setIsNeisLoading(false);

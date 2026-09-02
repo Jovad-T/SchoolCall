@@ -514,7 +514,7 @@ export default function AdminDashboard() {
       setSchoolNameStatus("✅ 학교명이 성공적으로 저장되었습니다.");
       setTimeout(() => setSchoolNameStatus(null), 3000);
     } catch (err) {
-      console.error(err);
+      console.log("Fetch error:", err.message);
       alert("저장 중 오류가 발생했습니다.");
     }
   };
@@ -535,7 +535,7 @@ export default function AdminDashboard() {
       setScheduleStatus("✅ 일과시간이 성공적으로 저장되었습니다.");
       setTimeout(() => setScheduleStatus(null), 3000);
     } catch (err) {
-      console.error(err);
+      console.log("Fetch error:", err.message);
       alert("저장 중 오류가 발생했습니다.");
     }
   };
@@ -605,7 +605,7 @@ export default function AdminDashboard() {
         alert("유효한 데이터가 없습니다. 예시: '학번,이름'");
       }
     } catch (err) {
-      console.error(err);
+      console.log("Fetch error:", err.message);
       alert("데이터 처리 중 오류가 발생했습니다.");
     }
   };
