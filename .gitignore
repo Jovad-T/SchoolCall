@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+dist_class/
+dist_office/
+dist_electron/
+dist_installer/
+*.exe
+dist/

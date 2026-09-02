@@ -52,6 +52,7 @@ function createWindow() {
     show: false,
     frame: false,
     fullscreenable: true,
+    backgroundColor: '#111a15', // Prevents white screen
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -66,6 +67,10 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'tv-setup' });
   }
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -101,8 +106,8 @@ app.whenReady().then(() => {
   if (app.isPackaged) {
     app.setLoginItemSettings({
       openAtLogin: true,
-      openAsHidden: true,
-      args: ['--hidden']
+      openAsHidden: false, // Start normally, hide after 1 min
+      args: []
     });
   }
 
@@ -110,9 +115,30 @@ app.whenReady().then(() => {
 
   tray = new Tray(path.join(__dirname, 'public', 'icon.png'));
   const contextMenu = Menu.buildFromTemplate([
+    { label: '화면 열기/숨기기', click: () => { 
+        if (mainWindow) {
+            if (mainWindow.isVisible()) mainWindow.hide();
+            else mainWindow.show();
+        }
+    }},
     { label: '종료', click: () => app.quit() }
   ]);
   tray.setContextMenu(contextMenu);
+  tray.setToolTip('학생 호출 도우미');
+
+  tray.on('click', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) mainWindow.hide();
+      else mainWindow.show();
+    }
+  });
+
+  // 1분 후 백그라운드(트레이)로 자동 숨김
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
+  }, 60000);
 });
 
 app.on('window-all-closed', () => {

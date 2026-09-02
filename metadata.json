@@ -1,5 +1,5 @@
 {
-  "name": "학교 호출 시스템",
+  "name": "학생 호출 도우미",
   "description": "교무실에서 교실의 학생을 호출하는 시스템",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -367,30 +367,38 @@ export default function App() {
 
     const unsubscribe = onValue(announceRef, (snapshot) => {
       const data = snapshot.val();
+      const DEFAULT_MSG = '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
       
       if (data) {
+        const incomingText = data.text ? data.text.trim() : '';
+        
         if (isInitialSyncRef.current) {
-          setAnnouncement(data.text);
+          setAnnouncement(incomingText || DEFAULT_MSG);
           lastSyncTimeRef.current = data.time;
         } else if (data.time > lastSyncTimeRef.current) {
           lastSyncTimeRef.current = data.time;
+          
+          if (!incomingText) {
+             setAnnouncement(DEFAULT_MSG);
+             return;
+          }
           
           if (isClassTime()) {
             console.log("현재 수업 시간이므로 알림이 예약되었습니다. 쉬는 시간에 표시됩니다.");
             setPendingAnnouncements(prev => {
               if (!prev.some(a => a.id === data.time.toString())) {
-                return [...prev, { id: data.time.toString(), text: data.text, time: data.time }];
+                return [...prev, { id: data.time.toString(), text: incomingText, time: data.time }];
               }
               return prev;
             });
             return;
           }
-
-          setAnnouncement(data.text);
+          
+          setAnnouncement(incomingText);
           setIsPopupOpen(true);
           setIsExited(false);
           playNeonAlertSound(); 
-          speakAnnouncementText(data.text);
+          speakAnnouncementText(incomingText);
           
           if ((window as any).electron && (window as any).electron.ipcRenderer) {
             (window as any).electron.ipcRenderer.send('trigger-my-call');
@@ -2154,13 +2162,15 @@ ${htmlText.substring(0, 30000)}
               {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />} 
               {isFullscreen ? '원래화면' : '전체화면'}
             </button>
-            <button 
-              onClick={() => setIsPopupOpen(true)}
-              className="px-3 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-bold border border-amber-700/60 shadow-inner cursor-pointer flex items-center gap-1"
-              title="현재 전달사항 다시 보기"
-            >
-              <Bell size={16} /> 전달사항 보기
-            </button>
+            {announcement !== '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~' && (
+              <button 
+                onClick={() => setIsPopupOpen(true)}
+                className="px-3 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-bold border border-amber-700/60 shadow-inner cursor-pointer flex items-center gap-1 animate-fade-in"
+                title="현재 전달사항 다시 보기"
+              >
+                <Bell size={16} /> 전달사항 보기
+              </button>
+            )}
             <button 
               onClick={handleExitApp}
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-200 hover:text-white transition-colors border border-rose-800/60 shadow-inner text-xs font-bold cursor-pointer"

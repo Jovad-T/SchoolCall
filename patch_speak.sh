@@ -1,1 +1,0 @@
-sed -i 's/utterance.rate = 0.9;/utterance.rate = 0.9;\n      if (schoolConfig.ttsVoiceURI) {\n        const selectedVoice = availableVoices.find(v => v.voiceURI === schoolConfig.ttsVoiceURI);\n        if (selectedVoice) {\n          utterance.voice = selectedVoice;\n        }\n      }/' src/App.tsx
