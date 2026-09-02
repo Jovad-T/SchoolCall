@@ -274,3 +274,19 @@ function initAppinAutoSync() {
 app.whenReady().then(() => {
   setTimeout(initAppinAutoSync, 2000);
 });
+
+
+ipcMain.handle('fetch-local-url', async (event, { url }) => {
+  try {
+    const res = await fetch(url.startsWith('http') ? url : 'http://' + url, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+    });
+    const text = await res.text();
+    return { success: true, data: text };
+  } catch (err) {
+    console.error('Local fetch error:', err);
+    return { success: false, error: err.message };
+  }
+});

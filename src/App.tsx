@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { motion, AnimatePresence } from 'motion/react';
 import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
@@ -73,6 +74,7 @@ export default function App() {
       currentGrade: parsed.currentGrade || 0, 
       currentClass: parsed.currentClass || 0,
       classroomTheme: parsed.classroomTheme || 'default',
+      appinServerUrl: parsed.appinServerUrl || '',
       neisApiKey: parsed.neisApiKey || '',
       geminiApiKey: parsed.geminiApiKey || '',
       eduCode: parsed.eduCode || 'C10',
@@ -169,6 +171,7 @@ export default function App() {
   const [adminPopupTimeout, setAdminPopupTimeout] = useState(schoolConfig.popupTimeout !== undefined ? schoolConfig.popupTimeout : 60);
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
   const [adminClassroomTheme, setAdminClassroomTheme] = useState(schoolConfig.classroomTheme || 'default');
+  const [adminAppinServerUrl, setAdminAppinServerUrl] = useState(schoolConfig.appinServerUrl || '');
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
   const [editTargetClass, setEditTargetClass] = useState(schoolConfig.currentClass);
@@ -504,6 +507,7 @@ export default function App() {
       setAdminSelectedClass(schoolConfig.currentClass);
       setAdminNeisApiKey(schoolConfig.neisApiKey);
       setAdminClassroomTheme(schoolConfig.classroomTheme || 'default');
+      setAdminAppinServerUrl(schoolConfig.appinServerUrl || '');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
@@ -624,6 +628,94 @@ export default function App() {
       setIsNeisLoading(false);
     }
   };
+
+  
+  const handleFetchAppinServer = async () => {
+    if (!adminAppinServerUrl) {
+      alert("압핀 서버 주소(IP 등)를 입력해주세요.");
+      return;
+    }
+    const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
+    if (!apiKey) {
+      alert("❌ [API 키 필요] 관리자 모드에 Google Gemini API 키를 입력해주세요. (서버 HTML 분석용)");
+      return;
+    }
+    setIsNeisLoading(true);
+    try {
+      let htmlText = "";
+      if ((window as any).electron?.ipcRenderer) {
+        const res = await (window as any).electron.ipcRenderer.invoke('fetch-local-url', { url: adminAppinServerUrl });
+        if (!res.success) throw new Error(res.error);
+        htmlText = res.data;
+      } else {
+        const res = await fetch(adminAppinServerUrl.startsWith('http') ? adminAppinServerUrl : 'http://' + adminAppinServerUrl);
+        htmlText = await res.text();
+      }
+
+      if (!htmlText || htmlText.length < 100) {
+        throw new Error("서버에서 유효한 데이터를 받지 못했습니다.");
+      }
+
+      // Send HTML to Gemini
+      const promptText = `
+너는 학교 시간표 분석 AI야. 다음은 학교 내부망 시간표 서버에서 가져온 HTML 소스코드야.
+여기서 ${editTargetGrade}학년 ${editTargetClass}반의 이번 주(월~금요일), 1교시부터 7교시까지의 수업 과목을 전부 추출해줘.
+[엄격한 추출 규칙]
+1. 월요일은 "1", 화요일은 "2", 수요일은 "3", 목요일은 "4", 금요일은 "5" 를 최상위 키(key)로 사용해.
+2. 시간표 칸 안에 슬래시(/)나 괄호 뒤에 붙은 교사 이름이나 장소는 완벽하게 제거해. (예: "진로활동/구민" -> "진로활동", "미술과매체/박지/미술실" -> "미술과 매체")
+3. 과목명 앞의 A, B, C, D 등 이동수업 알파벳을 완벽하게 제거해. (예: "C세포와물질대사" -> "세포와 물질대사", "B미술감상과비평" -> "미술 감상과 비평")
+4. 띄어쓰기를 예쁘게 교정해 (예: 독서와작문 -> 독서와 작문)
+5. 빈칸은 "-" 로 표시해.
+6. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
+
+응답 예시:
+{
+  "1": { "1": "진로활동", "2": "독서와 작문", "3": "역학과 에너지", "4": "프랑스어 회화", "5": "세포와 물질대사", "6": "미술과 매체", "7": "미적분I" },
+  "2": { "1": "독서와 작문", "2": "자율활동", "3": "스포츠 과학", "4": "미술과 매체", "5": "미적분I", "6": "영어II", "7": "미술 감상과 비평" },
+  "3": { "1": "독서와 작문", "2": "프랑스어 회화", "3": "영어II", "4": "스포츠 과학", "5": "역학과 에너지", "6": "-", "7": "창체" },
+  "4": { "1": "...", ... },
+  "5": { "1": "...", ... }
+}
+
+HTML 소스코드:
+${htmlText.substring(0, 30000)}
+      `;
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: { temperature: 0.1 }
+        })
+      });
+
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message || 'API 오류');
+
+      let responseText = json.candidates[0].content.parts[0].text;
+      responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+      const parsedObj = JSON.parse(responseText);
+      const classKey = `${editTargetGrade}-${editTargetClass}`;
+      setTempClassTimetables(prev => ({
+        ...prev,
+        [classKey]: parsedObj
+      }));
+
+      alert(`✅ 서버 접속 성공! ${editTargetGrade}학년 ${editTargetClass}반의 이번 주 시간표를 인공지능이 추출했습니다.`);
+    } catch (err: any) {
+      console.error(err);
+      if (err.message === 'Failed to fetch') {
+         alert('❌ 서버 연동 실패 (Failed to fetch)\n웹 브라우저 보안 정책(CORS/Mixed Content)으로 인해 웹 환경에서는 로컬 내부망 IP 주소로 직접 접근할 수 없습니다.\n제공된 Electron PC 전용 앱을 설치하여 사용하시면 정상적으로 내부망 서버 연동이 가능합니다.');
+      } else {
+         alert('❌ 서버 연동 실패: ' + (err.message || '학교 내부망(IP) 접근 제한이거나 서버가 꺼져있을 수 있습니다. (Electron PC 앱 권장)'));
+      }
+    } finally {
+      setIsNeisLoading(false);
+    }
+  };
+
 
   const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -951,7 +1043,8 @@ export default function App() {
       ttsVoiceURI: adminTtsVoiceURI,
       ttsRate: adminTtsRate,
       popupTimeout: adminPopupTimeout,
-      classroomTheme: adminClassroomTheme
+      classroomTheme: adminClassroomTheme,
+      appinServerUrl: adminAppinServerUrl
     };
     
     setSchoolConfig(newConfig);
@@ -1374,7 +1467,39 @@ export default function App() {
       </div>
     );
   }
+
   if (viewMode === 'admin') {
+    // === [입력 유효성 검사 로직 추가] ===
+    const isSchoolNameValid = adminSchoolName.trim().length > 0;
+    const isPinValid = /^\d{4}$/.test(adminPinInput.trim());
+    const isNeisApiKeyValid = !adminNeisApiKey.trim() || /^[a-fA-F0-9]{32}$/.test(adminNeisApiKey.trim());
+    const isGeminiApiKeyValid = !adminGeminiApiKey.trim() || /^AIza/.test(adminGeminiApiKey.trim());
+    const isEduCodeValid = !adminEduCode.trim() || /^[A-Za-z]\d{2}$/.test(adminEduCode.trim());
+    const isSchoolCodeValid = !adminSchoolCode.trim() || /^\d{7,8}$/.test(adminSchoolCode.trim());
+    const isAppinUrlValid = !adminAppinServerUrl.trim() || /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:\:[0-9]{1,5})?(?:\/.*)?$/.test(adminAppinServerUrl.trim()) || /^https?:\/\//.test(adminAppinServerUrl.trim());
+
+    // 시간표 입력 검증: 1교시가 비어있는 요일이 있으면 경고 표시 (선택적)
+    // 여기서는 형식적 오류 방지를 위해 입력칸들에 대한 주요 검증만 진행
+    
+    const warningMessages = [];
+    if (!isSchoolNameValid) warningMessages.push("학교명을 입력해주세요.");
+    if (!isPinValid) warningMessages.push("관리자 비밀번호는 4자리 숫자로 입력해야 합니다.");
+    if (!isNeisApiKeyValid) warningMessages.push("나이스 API 키가 32자리 올바른 형식(영문/숫자)이 아닙니다.");
+    if (!isGeminiApiKeyValid) warningMessages.push("Gemini API 키가 올바르지 않습니다 ('AIza'로 시작).");
+    if (!isEduCodeValid) warningMessages.push("시도교육청 코드가 올바르지 않습니다 (예: J10).");
+    if (!isSchoolCodeValid) warningMessages.push("표준학교코드가 올바르지 않습니다 (7~8자리 숫자).");
+    if (!isAppinUrlValid) warningMessages.push("압핀 서버 주소가 올바르지 않습니다 (IP:포트 또는 URL 형식).");
+
+    const isConfigValid = warningMessages.length === 0;
+
+    const handleSaveClick = () => {
+      if (!isConfigValid) {
+        alert("입력값이 올바르지 않습니다. 경고 문구를 확인해주세요.\n\n" + warningMessages.join("\n"));
+        return;
+      }
+      handleSaveAdminSettings();
+    };
+
     return (
       <div className="h-screen w-full bg-[#111a15] text-white flex flex-col select-none overflow-y-auto">
         <header className="h-16 px-6 bg-[#162d22] border-b border-emerald-900/60 flex items-center justify-between shrink-0">
@@ -1384,7 +1509,11 @@ export default function App() {
             </button>
             <h1 className="text-lg font-bold text-indigo-300">⚙️ 관리자 환경설정 패널</h1>
           </div>
-          <button onClick={handleSaveAdminSettings} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold cursor-pointer shadow-md">
+          <button 
+            onClick={handleSaveClick} 
+            disabled={!isConfigValid}
+            className={`px-5 py-2 rounded-xl text-xs font-bold shadow-md transition-colors ${isConfigValid ? 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
+          >
             저장 후 달력 동기화
           </button>
         </header>
@@ -1425,9 +1554,10 @@ export default function App() {
                   type="text" 
                   value={adminSchoolName}
                   onChange={e => setAdminSchoolName(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isSchoolNameValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
                   placeholder="예: 사직여자고등학교"
                 />
+                {!isSchoolNameValid && <p className="text-[10px] text-rose-400 mt-1">학교명을 입력해주세요.</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400">NEIS 학교코드 (schoolCode)</label>
@@ -1455,20 +1585,24 @@ export default function App() {
                   type="password" 
                   value={adminNeisApiKey}
                   onChange={e => setAdminNeisApiKey(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isNeisApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
                   placeholder="발급받은 NEIS API KEY 입력"
                 />
+                {!isNeisApiKeyValid && <p className="text-[10px] text-rose-400 mt-1">32자리 영문/숫자 형식이어야 합니다.</p>}
               </div>
               <div className="space-y-2 col-span-2">
                 <label className="text-xs font-bold text-slate-400">Google Gemini API KEY (학생 명렬, 시간표 등 자동파싱 AI용)</label>
                 <div className="flex gap-2">
-                  <input 
-                    type="password" 
-                    value={adminGeminiApiKey}
-                    onChange={e => setAdminGeminiApiKey(e.target.value)}
-                    className="flex-1 px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
-                    placeholder="발급받은 Google Gemini API KEY 입력"
-                  />
+                  <div className="flex-1 flex flex-col gap-1">
+                    <input 
+                      type="password" 
+                      value={adminGeminiApiKey}
+                      onChange={e => setAdminGeminiApiKey(e.target.value)}
+                      className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isGeminiApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
+                      placeholder="발급받은 Google Gemini API KEY 입력"
+                    />
+                    {!isGeminiApiKeyValid && <p className="text-[10px] text-rose-400">키는 'AIza'로 시작해야 합니다.</p>}
+                  </div>
                   <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-3 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50">
                     <Key size={14} className="mr-1"/> 키 발급받기
                   </a>
@@ -1735,6 +1869,31 @@ export default function App() {
                 
                 <p className="text-[11px] text-emerald-400/80 text-center bg-emerald-900/30 py-2 rounded-lg">※ 컴시간/압핀 엑셀 파일을 올리면 전체 학급이 1초 만에 최신화됩니다. (이미지는 현재 학급만 AI로 분석)</p>
 
+                <div className="flex flex-col gap-2 mt-2 pt-4 border-t border-emerald-900/40">
+                  <span className="text-sm font-bold text-emerald-200">내부망 서버 직접 연동 (URL/IP)</span>
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex flex-col gap-1">
+                      <input
+                        type="text"
+                        value={adminAppinServerUrl}
+                        onChange={e => setAdminAppinServerUrl(e.target.value)}
+                        placeholder="예: 192.168.1.100/1053"
+                        className={`w-full px-4 py-2.5 bg-black/40 text-white rounded-xl border text-sm outline-none transition-colors ${!isAppinUrlValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-800 focus:border-emerald-500'}`}
+                      />
+                      {!isAppinUrlValid && <p className="text-[10px] text-rose-400">올바른 IP/포트 또는 URL 형식이 아닙니다.</p>}
+                    </div>
+                    <button
+                      onClick={handleFetchAppinServer}
+                      disabled={isNeisLoading || !adminAppinServerUrl}
+                      className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md transition-colors whitespace-nowrap"
+                    >
+                      {isNeisLoading ? "접속 중..." : "서버에서 추출"}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-emerald-400/60">※ 접속상태 하단에 표시된 서버 주소를 입력하면, 해당 서버의 시간표 정보를 인공지능이 분석하여 채워줍니다.</p>
+                </div>
+
+
                 <div className="grid grid-cols-7 gap-2 mt-2">
                   {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                     const currentMap = tempClassTimetables[`${editTargetGrade}-${editTargetClass}`] || {};
@@ -1823,9 +1982,20 @@ export default function App() {
             >
               🧹 용량 초과 오류 해결 (초기화)
             </button>
-            <button onClick={handleSaveAdminSettings} className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-sm font-bold cursor-pointer shadow-lg">
-              설정 저장 및 달력 동기화
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              {!isConfigValid && (
+                <div className="text-rose-400 text-xs font-bold bg-rose-900/30 px-3 py-2 rounded-lg border border-rose-800 text-right">
+                  {warningMessages.map((msg, i) => <div key={i}>• {msg}</div>)}
+                </div>
+              )}
+              <button 
+                onClick={handleSaveClick} 
+                disabled={!isConfigValid}
+                className={`px-8 py-3.5 rounded-2xl text-sm font-bold shadow-lg transition-colors ${isConfigValid ? 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer' : 'bg-slate-700 text-slate-400 cursor-not-allowed'}`}
+              >
+                설정 저장 및 달력 동기화
+              </button>
+            </div>
           </div>
 
         </main>
@@ -2155,13 +2325,24 @@ export default function App() {
         </div>
       )}
 
-      {isPopupOpen && (
-        <div 
-          onClick={handleClosePopupAndHide} 
-          className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-fade-in cursor-pointer"
-          title="클릭하거나 터치하면 팝업이 닫힙니다."
-        >
-          <div className="relative w-full max-w-4xl bg-[#050505] border-4 border-[#ff0055] rounded-3xl p-12 shadow-[0_0_80px_#ff0055,inset_0_0_40px_#ff0055] flex flex-col items-center text-center overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <AnimatePresence>
+        {isPopupOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={handleClosePopupAndHide} 
+            className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-6 cursor-pointer"
+            title="클릭하거나 터치하면 팝업이 닫힙니다."
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.8, y: -60 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.8, y: 60 }}
+              transition={{ type: "spring", damping: 15, stiffness: 200 }}
+              className="relative w-full max-w-4xl bg-[#050505] border-4 border-[#ff0055] rounded-3xl p-12 shadow-[0_0_80px_#ff0055,inset_0_0_40px_#ff0055] flex flex-col items-center text-center overflow-hidden" 
+              onClick={(e: any) => e.stopPropagation()}
+            >
             
             <div className="absolute inset-0 border-8 border-transparent animate-neon-pulse pointer-events-none rounded-2xl"></div>
             
@@ -2242,10 +2423,10 @@ export default function App() {
               </button>
             </div>
             
-          </div>
-        </div>
-      )}
-
+          </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
