@@ -16,6 +16,7 @@
       "preload.js",
       "public/**/*",
       "class.cjs",
+      "main.cjs",
       ".env"
     ],
     "win": {
