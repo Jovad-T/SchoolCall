@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import * as XLSX from 'xlsx';
 import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
@@ -72,7 +71,6 @@ export default function App() {
       gradeCounts: parsed.gradeCounts || { 1: 8, 2: 8, 3: 8 },
       currentGrade: parsed.currentGrade || 0, 
       currentClass: parsed.currentClass || 0,
-      classroomTheme: parsed.classroomTheme || 'default',
       neisApiKey: parsed.neisApiKey || '',
       geminiApiKey: parsed.geminiApiKey || '',
       eduCode: parsed.eduCode || 'C10',
@@ -143,9 +141,9 @@ export default function App() {
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [isExited, setIsExited] = useState(false);
 
-  const [selectedStudent, setSelectedStudent] = useState<string[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [selectedCallMessage, setSelectedCallMessage] = useState<string>('교무실로 오세요');
-  const [teacherName, setTeacherName] = useState<string>('');
+  const [teacherName, setTeacherName] = useState<string>('선생님 이름');
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
 
@@ -168,7 +166,6 @@ export default function App() {
   const [adminTtsRate, setAdminTtsRate] = useState(schoolConfig.ttsRate !== undefined ? schoolConfig.ttsRate : 0.75);
   const [adminPopupTimeout, setAdminPopupTimeout] = useState(schoolConfig.popupTimeout !== undefined ? schoolConfig.popupTimeout : 60);
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
-  const [adminClassroomTheme, setAdminClassroomTheme] = useState(schoolConfig.classroomTheme || 'default');
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
   const [editTargetClass, setEditTargetClass] = useState(schoolConfig.currentClass);
@@ -211,26 +208,6 @@ export default function App() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-
-  useEffect(() => {
-    if ((window as any).electron && (window as any).electron.ipcRenderer) {
-      (window as any).electron.ipcRenderer.on('timetable-auto-updated', (newData: any) => {
-        console.log("[자동 동기화] 압핀 시간표 데이터 수신 완료", newData);
-        setClassTimetables(newData);
-        setTempClassTimetables(newData);
-        try {
-          localStorage.setItem('class_timetables_map', JSON.stringify(newData));
-        } catch(e) {}
-        
-        if (db) {
-           import("firebase/database").then(({ ref: dbRef, set }) => {
-             set(dbRef(db, 'globalData/classTimetables'), JSON.parse(JSON.stringify(newData))).catch(console.error);
-           });
-        }
-      });
-    }
-  }, [db]);
 
   useEffect(() => {
     if (!db) return;
@@ -503,7 +480,6 @@ export default function App() {
       setAdminSelectedGrade(schoolConfig.currentGrade);
       setAdminSelectedClass(schoolConfig.currentClass);
       setAdminNeisApiKey(schoolConfig.neisApiKey);
-      setAdminClassroomTheme(schoolConfig.classroomTheme || 'default');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
@@ -628,94 +604,6 @@ export default function App() {
   const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-      setIsNeisLoading(true);
-      setTimetableFileName(file.name);
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const wb = XLSX.read(arrayBuffer);
-        const newTimetables = { ...tempClassTimetables };
-        let updatedClasses = 0;
-
-        wb.SheetNames.forEach(sheetName => {
-          const ws = wb.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
-          
-          let defaultGrade = String(editTargetGrade);
-          if (sheetName.includes('1')) defaultGrade = '1';
-          if (sheetName.includes('2')) defaultGrade = '2';
-          if (sheetName.includes('3')) defaultGrade = '3';
-
-          for (let r = 0; r < data.length; r++) {
-            const row = data[r];
-            if (!row) continue;
-            for (let c = 0; c < row.length; c++) {
-              if (row[c] === '월' && row[c+1] === '화' && row[c+2] === '수' && row[c+3] === '목' && row[c+4] === '금') {
-                let className = '';
-                for (let searchRow = Math.max(0, r - 4); searchRow < r; searchRow++) {
-                  for (let searchCol = Math.max(0, c - 2); searchCol <= c + 4; searchCol++) {
-                    const val = String(data[searchRow]?.[searchCol] || '').trim();
-                    if (val.match(/^[0-9]+반$/) || val.match(/^[0-9]+-[0-9]+$/) || val.match(/^[0-9]+학년\s*[0-9]+반$/)) {
-                      className = val;
-                    }
-                  }
-                }
-                
-                let gradeStr = defaultGrade;
-                let classStr = "";
-                const m1 = className.match(/([0-9]+)학년\s*([0-9]+)반/);
-                const m2 = className.match(/([0-9]+)-([0-9]+)/);
-                const m3 = className.match(/([0-9]+)반/);
-                if (m1) { gradeStr = m1[1]; classStr = m1[2]; }
-                else if (m2) { gradeStr = m2[1]; classStr = m2[2]; }
-                else if (m3) { classStr = m3[1]; }
-                else {
-                  const m4 = className.match(/^([0-9]+)$/);
-                  if (m4) classStr = m4[1];
-                  else classStr = String(editTargetClass); // fallback
-                }
-
-                const cleanSubj = (val: string) => {
-                  if (!val) return "-";
-                  let s = String(val).trim();
-                  s = s.split('/')[0].split('(')[0];
-                  s = s.replace(/^[A-Z](?=[가-힣])/, '');
-                  s = s.trim();
-                  return s || "-";
-                };
-
-                const classKey = `${gradeStr}-${classStr}`;
-                if (!newTimetables[classKey]) newTimetables[classKey] = {};
-                
-                // Read 7 periods (r+1 to r+7)
-                for (let period = 1; period <= 7; period++) {
-                  const targetRow = data[r + period];
-                  if (!targetRow) continue;
-                  
-                  // Days: 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri
-                  for (let dayOffset = 0; dayOffset < 5; dayOffset++) {
-                    const dayKey = String(dayOffset + 1); // 1 to 5
-                    if (!newTimetables[classKey][dayKey]) newTimetables[classKey][dayKey] = {};
-                    newTimetables[classKey][dayKey][period] = cleanSubj(targetRow[c + dayOffset]);
-                  }
-                }
-                updatedClasses++;
-              }
-            }
-          }
-        });
-
-        setTempClassTimetables(newTimetables);
-        alert(`✅ 컴시간/압핀 엑셀 분석 완료! 총 ${updatedClasses}개 학급의 시간표가 일괄 업데이트되었습니다.`);
-      } catch (err) {
-        console.error(err);
-        alert('❌ 엑셀 파싱 중 오류가 발생했습니다.');
-      } finally {
-        setIsNeisLoading(false);
-      }
-      return;
-    }
 
     const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
     if (!apiKey) {
@@ -912,14 +800,7 @@ export default function App() {
 
   const handleSendSmartCall = (e: React.FormEvent) => {
     e.preventDefault();
-    const actualMessage = selectedCallMessage === '직접 입력' ? customAnnouncement.trim() : selectedCallMessage;
-    if (!actualMessage) {
-      alert("호출 메시지를 입력해주세요.");
-      return;
-    }
-    const targetStr = selectedStudent.length > 0 ? selectedStudent.join(', ') : '학급 전체';
-    const teacherStr = teacherName.trim() ? `\n(${teacherName.trim()} 선생님 호출)` : '';
-    const finalMsg = `[대상: ${targetStr}]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
+    const finalMsg = `[대상: ${selectedStudent || '학급 전체'}]\n호출 내용: ${selectedCallMessage}\n장소: ${locationName}\n(${teacherName} 선생님 호출)`;
     sendFirebaseMessage(finalMsg);
   };
 
@@ -950,8 +831,7 @@ export default function App() {
       adminPin: adminPinInput.trim() || '0000',
       ttsVoiceURI: adminTtsVoiceURI,
       ttsRate: adminTtsRate,
-      popupTimeout: adminPopupTimeout,
-      classroomTheme: adminClassroomTheme
+      popupTimeout: adminPopupTimeout
     };
     
     setSchoolConfig(newConfig);
@@ -1199,18 +1079,18 @@ export default function App() {
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-400 tracking-wider">SELECT STUDENT ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 학생 명렬 - 총 {currentStudents.length}명)</label>
-              <span className="text-xs text-amber-400 font-bold">{selectedStudent.length > 0 ? selectedStudent.join(', ') : '전체 선택됨'} <span className="text-slate-400 ml-1 font-normal">(다중 선택 가능)</span></span>
+              <span className="text-xs text-amber-400 font-bold">{selectedStudent || '전체 선택됨'}</span>
             </div>
             
             {currentStudents.length > 0 ? (
               <div className="grid grid-cols-3 md:grid-cols-6 gap-3 overflow-y-visible pr-1">
                 {currentStudents.map((stu, i) => {
-                  const isSelected = selectedStudent.includes(stu);
+                  const isSelected = selectedStudent === stu;
                   return (
                     <button
                       type="button"
                       key={i}
-                      onClick={() => setSelectedStudent(prev => prev.includes(stu) ? prev.filter(s => s !== stu) : [...prev, stu])}
+                      onClick={() => setSelectedStudent(isSelected ? '' : stu)}
                       className={`py-3 px-2 rounded-2xl text-xs font-bold transition-all border cursor-pointer truncate ${isSelected ? 'bg-rose-600 text-white border-rose-500 shadow-lg scale-105' : 'bg-[#222] text-slate-300 border-white/10 hover:bg-[#2a2a2a]'}`}
                     >
                       {stu}
@@ -1225,8 +1105,8 @@ export default function App() {
 
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3">
             <label className="text-xs font-bold text-slate-400 tracking-wider">CALL MESSAGE (호출 메시지)</label>
-                        <div className="space-y-2">
-              {['교무실로 오세요', '수행평가 평가지 가지고 오세요', '상담이 있으니 교무실로 오세요', '프린트물을 챙겨가세요', '긴급 호출입니다. 즉시 교무실로 오세요', '직접 입력'].map((msg) => {
+            <div className="space-y-2">
+              {['교무실로 오세요', '수행평가 평가지 가지고 오세요', '상담이 있으니 교무실로 오세요', '프린트물을 챙겨가세요', '긴급 호출입니다. 즉시 교무실로 오세요'].map((msg) => {
                 const isSelected = selectedCallMessage === msg;
                 return (
                   <div
@@ -1239,14 +1119,6 @@ export default function App() {
                   </div>
                 );
               })}
-              {selectedCallMessage === '직접 입력' && (
-                <textarea
-                  value={customAnnouncement}
-                  onChange={e => setCustomAnnouncement(e.target.value)}
-                  placeholder="직접 전달할 메시지를 자유롭게 입력하세요... (줄바꿈 지원)"
-                  className="w-full h-32 bg-[#111] border border-rose-900/50 rounded-xl p-4 text-sm font-bold text-white outline-none focus:border-rose-500 resize-none mt-4 leading-relaxed"
-                />
-              )}
             </div>
           </section>
 
@@ -1277,7 +1149,7 @@ export default function App() {
           <form onSubmit={handleSendSmartCall} className="pt-4">
             <button 
               type="submit"
-              disabled={!selectedCallMessage || !locationName}
+              disabled={!selectedCallMessage || !locationName || !teacherName}
               className="w-full py-5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-[0_0_20px_rgba(225,29,72,0.4)] transition-all text-lg flex items-center justify-center gap-3 active:scale-95 cursor-pointer"
             >
               <Send size={24} /> 스마트 리모컨 호출 전송
@@ -1317,10 +1189,10 @@ export default function App() {
           </section>
         </main>
 
-      {viewMode === "classroom" && pendingAnnouncements.length > 0 && (
+      {viewMode === '\''classroom'\'' && pendingAnnouncements.length > 0 && (
         <div 
           className="absolute bottom-6 left-6 w-80 bg-[#162d22]/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-40 animate-fade-in"
-          style={{ WebkitAppRegion: "no-drag" } as any}
+          style={{ WebkitAppRegion: '\''no-drag'\'' } as any}
         >
           <div className="bg-emerald-900/80 px-4 py-3 border-b border-emerald-500/30 flex items-center justify-between">
             <h3 className="text-sm font-bold text-emerald-100 flex items-center gap-2 drop-shadow">
@@ -1334,7 +1206,7 @@ export default function App() {
                 <p className="text-xs text-emerald-100 line-clamp-2 font-medium leading-relaxed">{ann.text}</p>
                 <div className="flex justify-between items-center mt-1">
                   <span className="text-[10px] text-emerald-400/80 font-mono">
-                    {new Date(ann.time).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 예약됨
+                    {new Date(ann.time).toLocaleTimeString('\''ko-KR'\'', { hour: '\''2-digit'\'', minute: '\''2-digit'\'' })} 예약됨
                   </span>
                   <button 
                     onClick={() => setPendingAnnouncements(prev => prev.filter(a => a.id !== ann.id))}
@@ -1408,18 +1280,6 @@ export default function App() {
             <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🏫 기본 학교 정보 & 외부 API 설정</h2>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-400">교실 화면 테마 (색감)</label>
-                <select 
-                  value={adminClassroomTheme}
-                  onChange={e => setAdminClassroomTheme(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
-                >
-                  <option value="default">기본 (그린/에메랄드)</option>
-                  <option value="dark">다크 모드 (어두운 회색/블랙)</option>
-                  <option value="light">라이트 모드 (화이트/밝은 파랑)</option>
-                </select>
-              </div>
                 <label className="text-xs font-bold text-slate-400">학교명 (UI 표시용)</label>
                 <input 
                   type="text" 
@@ -1717,7 +1577,7 @@ export default function App() {
               
               <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-4">
                 <div className="flex items-center gap-4">
-                  <span className="text-sm font-bold text-emerald-200">엑셀/이미지 자동 인식 (컴시간/압핀 연동)</span>
+                  <span className="text-sm font-bold text-emerald-200">자동 파싱 (Gemini API)</span>
                   <div className="relative flex-1">
                     <input 
                       type="file" 
@@ -1728,12 +1588,12 @@ export default function App() {
                     />
                     <div className="px-4 py-3 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md cursor-pointer transition-colors w-full border border-emerald-600">
                       {isNeisLoading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                      {timetableFileName || '컴시간/압핀 엑셀 파일(.xlsx) 업로드 (전교생 일괄 갱신)'}
+                      {timetableFileName || '학급 시간표 파일(이미지/엑셀 등) 업로드하여 자동 채우기'}
                     </div>
                   </div>
                 </div>
                 
-                <p className="text-[11px] text-emerald-400/80 text-center bg-emerald-900/30 py-2 rounded-lg">※ 컴시간/압핀 엑셀 파일을 올리면 전체 학급이 1초 만에 최신화됩니다. (이미지는 현재 학급만 AI로 분석)</p>
+                <p className="text-[11px] text-emerald-400/80 text-center bg-emerald-900/30 py-2 rounded-lg">※ 이미지를 업로드하면 인공지능이 과목명을 자동으로 분석하여 빈칸을 채워줍니다. (API 키 필요)</p>
 
                 <div className="grid grid-cols-7 gap-2 mt-2">
                   {[1, 2, 3, 4, 5, 6, 7].map((p) => {
@@ -1766,7 +1626,7 @@ export default function App() {
             
             <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-4">
               <div className="flex items-center gap-4">
-                <span className="text-sm font-bold text-emerald-200">엑셀/이미지 자동 인식 (컴시간/압핀 연동)</span>
+                <span className="text-sm font-bold text-emerald-200">자동 파싱 (Gemini API)</span>
                 <div className="relative flex-1">
                   <input 
                     type="file" 
@@ -1868,100 +1728,36 @@ export default function App() {
 
   const parsedCall = (() => {
     if (!announcement || !announcement.includes('[대상:')) return null;
-    
-    const targetMatch = announcement.match(/\[대상:\s*(.*?)\]/);
-    const locationMatch = announcement.match(/\n장소:\s*(.*?)(?=\n\(|$)/);
-    const teacherMatch = announcement.match(/\n\((.*?)\s*선생님 호출\)$/);
-    
-    if (targetMatch && locationMatch) {
-      const target = targetMatch[1];
-      const location = locationMatch[1];
-      const teacher = teacherMatch ? teacherMatch[1] : '';
-      
-      const msgMatch = announcement.match(/호출 내용:\s*([\s\S]*?)\n장소:/);
-      const message = msgMatch ? msgMatch[1] : '';
-      
+    const lines = announcement.split('\n');
+    if (lines.length >= 4) {
+      const target = lines[0].replace(/\[대상:\s*/, '').replace(']', '');
+      const message = lines[1].replace('호출 내용: ', '');
+      const location = lines[2].replace('장소: ', '');
+      const teacher = lines[3].replace(/^\(/, '').replace(/ 선생님 호출\)$/, '');
       return { target, message, location, teacher };
     }
-    
     return null;
   })();
 
-
-  const th = (() => {
-    const t = schoolConfig.classroomTheme || 'default';
-    if (t === 'light') {
-      return {
-        mainBg: 'bg-slate-50', mainBorder: 'border-slate-300', textMain: 'text-slate-800',
-        headerBg: 'bg-white', headerBorder: 'border-slate-200', 
-        homeBtn: 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300',
-        schoolName: 'text-blue-600',
-        title: 'text-slate-800',
-        timeText: 'text-slate-800', dateText: 'text-blue-600',
-        sectionBg: 'bg-white', sectionBorder: 'border-slate-200 shadow-md',
-        sectionIcon: 'text-blue-500', sectionTitle: 'text-blue-700',
-        tableHeader: 'bg-slate-100 border-slate-200 text-slate-700',
-        tableRow: 'border-slate-200 text-slate-800',
-        tableRowHover: 'hover:bg-slate-50',
-        periodText: 'text-slate-500', subjectText: 'text-slate-900',
-        mealBoxBg: 'bg-slate-50', mealBoxBorder: 'border-slate-200',
-        mealTitle: 'text-slate-700', mealText: 'text-slate-600',
-      };
-    } else if (t === 'dark') {
-      return {
-        mainBg: 'bg-[#0a0a0a]', mainBorder: 'border-[#1a1a1a]', textMain: 'text-white',
-        headerBg: 'bg-[#111]', headerBorder: 'border-[#222]', 
-        homeBtn: 'bg-[#222] hover:bg-[#333] text-slate-300 border-[#333]',
-        schoolName: 'text-slate-400',
-        title: 'text-white',
-        timeText: 'text-slate-100', dateText: 'text-slate-400',
-        sectionBg: 'bg-[#111]', sectionBorder: 'border-[#222]',
-        sectionIcon: 'text-slate-300', sectionTitle: 'text-slate-300',
-        tableHeader: 'bg-[#1a1a1a] border-[#222] text-slate-300',
-        tableRow: 'border-[#222] text-slate-300',
-        tableRowHover: 'hover:bg-[#1a1a1a]',
-        periodText: 'text-slate-500', subjectText: 'text-slate-100',
-        mealBoxBg: 'bg-[#151515]', mealBoxBorder: 'border-[#222]',
-        mealTitle: 'text-slate-400', mealText: 'text-slate-300',
-      };
-    } else {
-      return {
-        mainBg: 'bg-[#1e382b]', mainBorder: 'border-[#2b4c3b]', textMain: 'text-white',
-        headerBg: 'bg-[#162d22]/60', headerBorder: 'border-emerald-900/60', 
-        homeBtn: 'bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border-emerald-800',
-        schoolName: 'text-emerald-400',
-        title: 'text-white',
-        timeText: 'text-emerald-50', dateText: 'text-emerald-400',
-        sectionBg: 'bg-[#162d22]/40', sectionBorder: 'border-emerald-900/40 shadow-sm',
-        sectionIcon: 'text-emerald-400', sectionTitle: 'text-emerald-300',
-        tableHeader: 'bg-[#112017] border-emerald-900 text-emerald-200',
-        tableRow: 'border-emerald-900/50 text-emerald-100',
-        tableRowHover: 'hover:bg-[#112017]/50',
-        periodText: 'text-emerald-600', subjectText: 'text-white',
-        mealBoxBg: 'bg-[#162d22]/80', mealBoxBorder: 'border-emerald-900/60',
-        mealTitle: 'text-emerald-400', mealText: 'text-emerald-200',
-      };
-    }
-  })();
   return (
     <div 
-      className={`h-screen w-full font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
+      className="h-screen w-full bg-[#1e382b] text-white font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 border-[#2b4c3b]"
       style={{ WebkitAppRegion: 'drag' } as any}
     >
       
-      <header className={`h-20 px-8 flex items-center justify-between border-b shrink-0 ${th.headerBg} ${th.headerBorder}`}>
+      <header className="h-20 px-8 flex items-center justify-between border-b border-emerald-900/60 bg-[#162d22]/60 shrink-0">
         <div className="flex items-center gap-4">
           <button 
             onClick={handleGoHome} 
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${th.homeBtn}`} 
+            className="px-3 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 text-emerald-300 text-xs font-bold border border-emerald-800 cursor-pointer" 
             title="홈 화면으로 이동 및 고정 설정 해제"
             style={{ WebkitAppRegion: 'no-drag' } as any}
           >
             🏠 홈 (고정 해제)
           </button>
           <div className="flex flex-col">
-            <span className={`text-xs font-medium tracking-wider ${th.schoolName}`}>{schoolConfig.schoolName}</span>
-            <h1 className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title}`}>{schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판</h1>
+            <span className="text-xs text-emerald-400 font-medium tracking-wider">{schoolConfig.schoolName}</span>
+            <h1 className="text-2xl font-black tracking-tight text-white drop-shadow-md">{schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판</h1>
           </div>
         </div>
         
@@ -1972,8 +1768,8 @@ export default function App() {
                 <Bell size={10} /> 새 알림 대기중 ({pendingAnnouncements.length})
               </div>
             )}
-            <div className={`text-5xl font-black tracking-widest font-mono mb-1 drop-shadow-sm ${th.timeText}`}>{timeString}</div>
-            <div className={`text-sm font-semibold tracking-wide ${th.dateText}`}>{dateString}</div>
+            <div className="text-5xl font-black tracking-widest text-emerald-50 font-mono mb-1 drop-shadow-sm">{timeString}</div>
+            <div className="text-sm text-emerald-400 font-semibold tracking-wide">{dateString}</div>
           </div>
           <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
             <button 
@@ -2005,13 +1801,13 @@ export default function App() {
 
       <main className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
         
-        <section className={`col-span-7 flex flex-col rounded-3xl p-6 border h-full ${th.sectionBg} ${th.sectionBorder}`}>
+        <section className="col-span-7 flex flex-col bg-[#162d22]/40 rounded-3xl p-6 border border-emerald-900/40 shadow-sm h-full">
           <div className="flex items-center justify-between mb-4 shrink-0">
             <div className="flex items-center gap-2">
-              <BookOpen size={20} className={th.sectionIcon} />
-              <h2 className={`text-base font-bold ${th.sectionTitle}`}>오늘의 시간표</h2>
+              <BookOpen size={20} className="text-emerald-400" />
+              <h2 className="text-base font-bold text-emerald-200">오늘의 시간표</h2>
             </div>
-            <span className={`text-xs font-mono ${th.schoolName}`}>1교시 {formatScheduleString(dailySchedule[1])}</span>
+            <span className="text-xs text-emerald-400/80 font-mono">1교시 {formatScheduleString(dailySchedule[1])}</span>
           </div>
           
           <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
@@ -2065,13 +1861,13 @@ export default function App() {
 
         <section className="col-span-5 flex flex-col h-full">
           <div className="flex items-center gap-2 mb-4 shrink-0 px-2">
-            <Utensils size={20} className={th.sectionIcon} />
-            <h2 className={`text-base font-bold ${th.sectionTitle}`}>오늘의 급식</h2>
+            <Utensils size={20} className="text-emerald-400" />
+            <h2 className="text-base font-bold text-emerald-200">오늘의 급식</h2>
           </div>
           
           <div className="flex-1 grid grid-cols-2 gap-5 min-h-0">
             {/* Lunch Card */}
-            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group ${th.tableHeader}`}>
+            <div className="bg-[#112017] rounded-3xl p-6 border border-emerald-900/30 shadow-xl flex flex-col relative overflow-hidden group">
               <div className="flex justify-center mb-8">
                 <div className="bg-amber-900/40 border border-amber-800/50 text-amber-500 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Utensils size={14} /> 점심 식단
@@ -2083,12 +1879,12 @@ export default function App() {
                 </div>
               </div>
               <div className="mt-6 text-center shrink-0">
-                <span className={`text-[10px] font-bold tracking-[0.2em] ${th.periodText}`}>LUNCH MENU</span>
+                <span className="text-[10px] font-bold text-emerald-600/60 tracking-[0.2em]">LUNCH MENU</span>
               </div>
             </div>
 
             {/* Dinner Card */}
-            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group ${th.tableHeader}`}>
+            <div className="bg-[#112017] rounded-3xl p-6 border border-emerald-900/30 shadow-xl flex flex-col relative overflow-hidden group">
               <div className="flex justify-center mb-8">
                 <div className="bg-indigo-900/30 border border-indigo-800/50 text-indigo-400 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Moon size={14} /> 저녁 식단
@@ -2100,7 +1896,7 @@ export default function App() {
                 </div>
               </div>
               <div className="mt-6 text-center shrink-0">
-                <span className={`text-[10px] font-bold tracking-[0.2em] ${th.periodText}`}>DINNER MENU</span>
+                <span className="text-[10px] font-bold text-emerald-600/60 tracking-[0.2em]">DINNER MENU</span>
               </div>
             </div>
           </div>
@@ -2167,48 +1963,19 @@ export default function App() {
             
             <div className="flex items-center gap-4 text-[#ff0055] animate-bounce-slow mb-6">
               <ShieldAlert size={48} strokeWidth={2.5} />
-              <h2 className="text-4xl font-black tracking-widest drop-shadow-[0_0_15px_#ff0055]">메시지</h2>
+              <h2 className="text-4xl font-black tracking-widest drop-shadow-[0_0_15px_#ff0055]">긴급 호출</h2>
               <ShieldAlert size={48} strokeWidth={2.5} />
             </div>
 
             {parsedCall ? (
               <div className="w-full space-y-8 relative z-10 py-4">
-                {(() => {
-                  const targets = parsedCall.target.split(',').map((s: string) => s.trim());
-                  if (parsedCall.target === '학급 전체') {
-                    return (
-                      <div className="inline-block px-8 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-full text-3xl font-black text-white shadow-[0_0_30px_#ff0055]">
-                        <span className="text-rose-300">대상: </span> 
-                        <span className="text-amber-400">학급 전체</span>
-                      </div>
-                    );
-                  } else if (targets.length === 1) {
-                    return (
-                      <div className="inline-block px-8 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-full text-3xl font-black text-white shadow-[0_0_30px_#ff0055]">
-                        <span className="text-rose-300">대상: </span> 
-                        <span className="text-white">{targets[0]}</span>
-                      </div>
-                    );
-                  } else {
-                    return (
-                      <div className="flex flex-col items-center gap-3 w-full">
-                        <div className="flex flex-wrap justify-center gap-3">
-                          {targets.map((t: string) => (
-                            <div key={t} className="px-5 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-2xl text-2xl font-black text-white shadow-[0_0_20px_#ff0055] flex items-center gap-2">
-                              <User size={24} className="text-rose-400" />
-                              {t}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  }
-                })()}
+                <div className="inline-block px-8 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-full text-3xl font-black text-white shadow-[0_0_30px_#ff0055]">
+                  <span className="text-rose-300">대상: </span> 
+                  <span className={parsedCall.target === '학급 전체' ? 'text-amber-400' : 'text-white'}>{parsedCall.target}</span>
+                </div>
                 
-                <div className="bg-[#111] border border-white/10 rounded-3xl p-8 shadow-inner my-6 w-full text-center">
-                  <div className="text-4xl md:text-5xl font-black text-white leading-[1.4] break-keep whitespace-pre-wrap break-words mx-auto">
-                    {parsedCall.message}
-                  </div>
+                <div className="text-5xl md:text-6xl font-black text-white leading-tight break-keep py-4 drop-shadow-2xl">
+                  {parsedCall.message}
                 </div>
                 
                 <div className="flex items-center justify-center gap-12 text-2xl font-bold pt-6 border-t border-white/10">
@@ -2216,19 +1983,15 @@ export default function App() {
                     <MapPin className="text-[#ff0055]" size={28} />
                     <span className="text-slate-300">장소: <span className="text-white ml-2">{parsedCall.location}</span></span>
                   </div>
-                  {parsedCall.teacher && parsedCall.teacher.trim() !== '' && (
-                    <div className="flex items-center gap-3 bg-[#111] px-6 py-4 rounded-2xl border border-white/10 shadow-lg">
-                      <User className="text-[#ff0055]" size={28} />
-                      <span className="text-slate-300">호출 교사: <span className="text-white ml-2">{parsedCall.teacher} 선생님</span></span>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-3 bg-[#111] px-6 py-4 rounded-2xl border border-white/10 shadow-lg">
+                    <User className="text-[#ff0055]" size={28} />
+                    <span className="text-slate-300">호출 교사: <span className="text-white ml-2">{parsedCall.teacher} 선생님</span></span>
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="w-full bg-[#111] border border-white/10 rounded-3xl p-10 shadow-inner z-10 relative my-8 max-w-4xl mx-auto">
-                <div className="text-4xl md:text-5xl font-black text-white leading-[1.4] break-keep whitespace-pre-wrap text-center break-words mx-auto">
-                  {announcement}
-                </div>
+              <div className="w-full text-4xl md:text-5xl font-black text-white leading-tight break-keep py-12 drop-shadow-2xl z-10 relative">
+                {announcement}
               </div>
             )}
 
