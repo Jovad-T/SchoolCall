@@ -487,7 +487,7 @@ export default function App() {
   };
 
   const handleModeSelect = (mode: 'classroom' | 'remote' | 'admin') => {
-    if ((mode === 'classroom' || mode === 'remote') && (!schoolConfig.currentGrade || !schoolConfig.currentClass)) {
+    if (mode === 'classroom' && (!schoolConfig.currentGrade || !schoolConfig.currentClass)) {
       alert('학년과 반을 먼저 선택해주세요.');
       return;
     }
