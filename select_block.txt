@@ -1,0 +1,101 @@
+  if (viewMode === 'select') {
+    return (
+      <div 
+        className="h-screen w-full bg-[#162d22] text-white flex flex-col items-center justify-center p-6 select-none overflow-y-auto relative"
+        style={{ WebkitAppRegion: 'drag' } as any}
+      >
+        <button 
+          onClick={() => window.close()} 
+          className="absolute top-6 right-6 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors z-50 cursor-pointer"
+          style={{ WebkitAppRegion: 'no-drag' } as any}
+          title="종료"
+        >
+          <X size={24} />
+        </button>
+
+        <div className="max-w-4xl w-full text-center space-y-12 my-auto pt-16 relative z-10" style={{ WebkitAppRegion: 'no-drag' } as any}>
+          <div className="space-y-4">
+            <div className="inline-block px-5 py-2 rounded-full bg-emerald-900/80 text-emerald-300 text-xs font-bold border border-emerald-600/60 shadow-md">
+              {schoolConfig.schoolName}
+            </div>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white drop-shadow-lg">
+              학급 알림판 & 스마트 제어 시스템
+            </h1>
+            <p className="text-emerald-300/80 text-sm">사용하실 모드를 선택해 주세요.</p>
+          </div>
+
+          <div className="max-w-2xl mx-auto space-y-6 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-[#1e382b] border-2 border-emerald-700/60 rounded-3xl p-8 flex flex-col items-center text-center shadow-xl relative group hover:-translate-y-1 transition-transform h-full">
+                <div className="w-16 h-16 rounded-2xl bg-emerald-900/80 flex items-center justify-center text-emerald-300 mb-6 shadow-inner">
+                  <Monitor size={36} />
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2 break-keep">교실 화면 (알림판)</h2>
+                <p className="text-xs text-emerald-300/70 leading-relaxed mb-8 break-keep">
+                  아이들을 위해 전자칠판에 띄워둘 실시간<br/>시간표 및 급식 대시보드입니다.
+                </p>
+                
+                <div className="mt-auto w-full space-y-3">
+                  <div className="flex gap-2 w-full">
+                    <select 
+                      value={schoolConfig.currentGrade}
+                      onChange={(e) => {
+                        const newConfig = { ...schoolConfig, currentGrade: Number(e.target.value) };
+                        setSchoolConfig(newConfig);
+                        localStorage.setItem('school_config', JSON.stringify(newConfig));
+                      }}
+                      className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
+                    >
+                      <option value={0} disabled>학년</option>
+                      {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                    </select>
+                    <select 
+                      value={schoolConfig.currentClass}
+                      onChange={(e) => {
+                        const newConfig = { ...schoolConfig, currentClass: Number(e.target.value) };
+                        setSchoolConfig(newConfig);
+                        localStorage.setItem('school_config', JSON.stringify(newConfig));
+                      }}
+                      className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
+                    >
+                      <option value={0} disabled>반</option>
+                      {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as 1|2|3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                    </select>
+                  </div>
+                  <button 
+                    onClick={() => handleModeSelect('classroom')}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md transition-colors text-sm flex items-center justify-center gap-2"
+                  >
+                    <Monitor size={16} /> 화면 띄우기
+                  </button>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => handleModeSelect('remote')}
+                className="group bg-[#1e382b] hover:bg-[#254636] border-2 border-emerald-700/60 hover:border-emerald-400 rounded-3xl p-8 flex flex-col items-center text-center transition-all shadow-xl cursor-pointer hover:-translate-y-1 h-full"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-amber-900/80 flex items-center justify-center text-amber-300 mb-6 group-hover:scale-110 transition-transform shadow-inner">
+                  <Smartphone size={36} />
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2 break-keep">교사용 리모컨 모드</h2>
+                <p className="text-xs text-amber-200/70 leading-relaxed mt-1 mb-auto break-keep">
+                  학생들을 호출하고 공지사항을<br/>전자칠판으로 즉시 전송하는 조종 패널입니다.
+                </p>
+              </button>
+            </div>
+
+            <div className="flex justify-center mt-6">
+              <button 
+                onClick={() => setPinModal({ isOpen: true, input: '', error: '' })}
+                className="group bg-[#1e382b]/80 hover:bg-[#254636] border border-emerald-700/40 hover:border-emerald-400/80 rounded-2xl px-6 py-4 flex items-center gap-4 transition-all shadow-md cursor-pointer hover:-translate-y-0.5"
+              >
+                <div className="w-10 h-10 rounded-xl bg-indigo-900/60 flex items-center justify-center text-indigo-300 group-hover:scale-110 transition-transform shadow-inner">
+                  <Wrench size={20} />
+                </div>
+                <div className="text-left">
+                  <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                    관리자 모드 <Lock size={12} className="text-emerald-500/50" />
+                  </h2>
+                  <p className="text-[10px] text-indigo-200/60 mt-0.5">명단 업로드, NEIS 연동 및 보안 설정</p>
+                </div>

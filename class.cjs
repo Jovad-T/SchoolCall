@@ -317,3 +317,5 @@ ipcMain.handle('fetch-local-url', async (event, { url }) => {
     return { success: false, error: err.message };
   }
 });
+
+ipcMain.handle('get-app-mode', () => 'class');

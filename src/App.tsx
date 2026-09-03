@@ -31,6 +31,28 @@ export default function App() {
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [appEnvMode, setAppEnvMode] = useState<'all' | 'office' | 'class'>('all');
+
+  useEffect(() => {
+    if ((window as any).electron?.ipcRenderer) {
+      (window as any).electron.ipcRenderer.invoke('get-app-mode')
+        .then((mode: any) => {
+           setAppEnvMode(mode);
+           if (mode === 'class') {
+             setSchoolConfig((prev: any) => {
+               if (!prev.currentGrade || !prev.currentClass) {
+                 const newConfig = { ...prev, currentGrade: prev.currentGrade || 1, currentClass: prev.currentClass || 1 };
+                 localStorage.setItem('school_config', JSON.stringify(newConfig));
+                 return newConfig;
+               }
+               return prev;
+             });
+             setViewMode('classroom');
+           }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     const loadVoices = () => {
@@ -488,8 +510,14 @@ export default function App() {
 
   const handleModeSelect = (mode: 'classroom' | 'remote' | 'admin') => {
     if (mode === 'classroom' && (!schoolConfig.currentGrade || !schoolConfig.currentClass)) {
-      alert('학년과 반을 먼저 선택해주세요.');
-      return;
+      if (schoolConfig) {
+        const newConfig = { ...schoolConfig, currentGrade: schoolConfig.currentGrade || 1, currentClass: schoolConfig.currentClass || 1 };
+        setSchoolConfig(newConfig);
+        localStorage.setItem('school_config', JSON.stringify(newConfig));
+      } else {
+        alert('학년과 반을 먼저 선택해주세요.');
+        return;
+      }
     }
     if (rememberChoice) {
       localStorage.setItem('default_view_mode', mode);
@@ -670,11 +698,13 @@ export default function App() {
 여기서 ${editTargetGrade}학년 ${editTargetClass}반의 이번 주(월~금요일), 1교시부터 7교시까지의 수업 과목을 전부 추출해줘.
 [엄격한 추출 규칙]
 1. 월요일은 "1", 화요일은 "2", 수요일은 "3", 목요일은 "4", 금요일은 "5" 를 최상위 키(key)로 사용해.
-2. 시간표 칸 안에 슬래시(/)나 괄호 뒤에 붙은 교사 이름이나 장소는 완벽하게 제거해. (예: "진로활동/구민" -> "진로활동", "미술과매체/박지/미술실" -> "미술과 매체")
-3. 과목명 앞의 A, B, C, D 등 이동수업 알파벳을 완벽하게 제거해. (예: "C세포와물질대사" -> "세포와 물질대사", "B미술감상과비평" -> "미술 감상과 비평")
-4. 띄어쓰기를 예쁘게 교정해 (예: 독서와작문 -> 독서와 작문)
-5. 빈칸은 "-" 로 표시해.
-6. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
+2. [가장 중요] 시간표 텍스트에 교사 이름(2~3글자 한글)이나 장소명(미술실, 강당 등)이 섞여있다면 100% 제거하고 오직 '순수 과목명'만 남겨.
+3. 슬래시(/), 괄호(), 하이픈(-), 쉼표(,), 줄바꿈 등으로 구분된 텍스트는 교사/장소일 확률이 높으므로 완벽히 삭제해. (예: "진로활동/구민" -> "진로활동", "체육(박지성)" -> "체육")
+4. 과목명과 교사명이 기호 없이 붙어있는 경우에도 의미를 유추해 사람 이름을 제거해. (예: "미적분I김교사" -> "미적분I")
+5. 과목명 앞의 A, B, C, D 등 이동수업 알파벳을 완벽하게 제거해. (예: "C세포와물질대사" -> "세포와 물질대사")
+6. 띄어쓰기를 예쁘게 교정해 (예: 독서와작문 -> 독서와 작문)
+7. 빈칸은 "-" 로 표시해.
+8. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
 
 응답 예시:
 {
@@ -851,11 +881,13 @@ ${htmlText.substring(0, 30000)}
 
 [엄격한 추출 규칙]
 1. 월요일은 "1", 화요일은 "2", 수요일은 "3", 목요일은 "4", 금요일은 "5" 를 최상위 키(key)로 사용해.
-2. 시간표 칸 안에 슬래시(/)나 괄호 뒤에 붙은 교사 이름이나 장소는 완벽하게 제거해. (예: "진로활동/구민" -> "진로활동", "미술과매체/박지/미술실" -> "미술과 매체")
-3. 과목명 앞의 A, B, C, D 등 이동수업 알파벳을 완벽하게 제거해. (예: "C세포와물질대사" -> "세포와 물질대사", "B미술감상과비평" -> "미술 감상과 비평")
-4. 띄어쓰기를 예쁘게 교정해 (예: 독서와작문 -> 독서와 작문)
-5. 빈칸은 "-" 로 표시해.
-6. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
+2. [가장 중요] 시간표 텍스트에 교사 이름(2~3글자 한글)이나 장소명(미술실, 강당 등)이 섞여있다면 100% 제거하고 오직 '순수 과목명'만 남겨.
+3. 슬래시(/), 괄호(), 하이픈(-), 쉼표(,), 줄바꿈 등으로 구분된 텍스트는 교사/장소일 확률이 높으므로 완벽히 삭제해. (예: "진로활동/구민" -> "진로활동", "체육(박지성)" -> "체육")
+4. 과목명과 교사명이 기호 없이 붙어있는 경우에도 의미를 유추해 사람 이름을 제거해. (예: "미적분I김교사" -> "미적분I")
+5. 과목명 앞의 A, B, C, D 등 이동수업 알파벳을 완벽하게 제거해. (예: "C세포와물질대사" -> "세포와 물질대사")
+6. 띄어쓰기를 예쁘게 교정해 (예: 독서와작문 -> 독서와 작문)
+7. 빈칸은 "-" 로 표시해.
+8. 반드시 마크다운 백틱 없이 순수 JSON 포맷으로만 응답해.
 
 응답 예시:
 {
@@ -1131,13 +1163,13 @@ ${htmlText.substring(0, 30000)}
               {schoolConfig.schoolName}
             </div>
             <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white drop-shadow-lg">
-              학급 알림판 & 스마트 제어 시스템
+              {appEnvMode === 'office' ? '교무실 스마트 제어 시스템' : '학급 알림판 & 스마트 제어 시스템'}
             </h1>
             <p className="text-emerald-300/80 text-sm">사용하실 모드를 선택해 주세요.</p>
           </div>
-
           <div className="max-w-2xl mx-auto space-y-6 pt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {(appEnvMode === 'all' || appEnvMode === 'class') && (
               <div className="bg-[#1e382b] border-2 border-emerald-700/60 rounded-3xl p-8 flex flex-col items-center text-center shadow-xl relative group hover:-translate-y-1 transition-transform h-full">
                 <div className="w-16 h-16 rounded-2xl bg-emerald-900/80 flex items-center justify-center text-emerald-300 mb-6 shadow-inner">
                   <Monitor size={36} />
@@ -1182,7 +1214,9 @@ ${htmlText.substring(0, 30000)}
                   </button>
                 </div>
               </div>
-
+              )}
+              
+              {(appEnvMode === 'all' || appEnvMode === 'office') && (
               <button 
                 onClick={() => handleModeSelect('remote')}
                 className="group bg-[#1e382b] hover:bg-[#254636] border-2 border-emerald-700/60 hover:border-emerald-400 rounded-3xl p-8 flex flex-col items-center text-center transition-all shadow-xl cursor-pointer hover:-translate-y-1 h-full"
@@ -1195,8 +1229,27 @@ ${htmlText.substring(0, 30000)}
                   학생들을 호출하고 공지사항을<br/>전자칠판으로 즉시 전송하는 조종 패널입니다.
                 </p>
               </button>
+              )}
+
+              {appEnvMode === 'office' && (
+              <button 
+                onClick={() => setPinModal({ isOpen: true, input: '', error: '' })}
+                className="group bg-[#1e382b] hover:bg-[#254636] border-2 border-emerald-700/60 hover:border-emerald-400 rounded-3xl p-8 flex flex-col items-center text-center transition-all shadow-xl cursor-pointer hover:-translate-y-1 h-full"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-indigo-900/80 flex items-center justify-center text-indigo-300 mb-6 group-hover:scale-110 transition-transform shadow-inner">
+                  <Wrench size={36} />
+                </div>
+                <h2 className="text-xl font-bold text-white mb-2 break-keep flex items-center gap-2">
+                  관리자 모드
+                </h2>
+                <p className="text-xs text-indigo-200/70 leading-relaxed mt-1 mb-auto break-keep">
+                  명단 업로드, NEIS 연동 및<br/>전체 보안 환경을 설정합니다.
+                </p>
+              </button>
+              )}
             </div>
 
+            {appEnvMode === 'all' && (
             <div className="flex justify-center mt-6">
               <button 
                 onClick={() => setPinModal({ isOpen: true, input: '', error: '' })}
@@ -1213,8 +1266,8 @@ ${htmlText.substring(0, 30000)}
                 </div>
               </button>
             </div>
+            )}
           </div>
-
           <div className="flex items-center justify-center gap-3 pt-6 border-t border-emerald-900/40">
             <input 
               type="checkbox" 
@@ -2131,6 +2184,7 @@ ${htmlText.substring(0, 30000)}
       
       <header className={`h-20 px-8 flex items-center justify-between border-b shrink-0 ${th.headerBg} ${th.headerBorder}`}>
         <div className="flex items-center gap-4">
+          {appEnvMode !== 'class' && (
           <button 
             onClick={handleGoHome} 
             className={`px-3 py-1.5 rounded-xl text-xs font-bold border cursor-pointer ${th.homeBtn}`} 
@@ -2139,9 +2193,26 @@ ${htmlText.substring(0, 30000)}
           >
             🏠 홈 (고정 해제)
           </button>
+          )}
           <div className="flex flex-col">
             <span className={`text-xs font-medium tracking-wider ${th.schoolName}`}>{schoolConfig.schoolName}</span>
-            <h1 className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title}`}>{schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판</h1>
+            <h1 
+              className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title} ${appEnvMode === 'class' ? 'cursor-pointer hover:opacity-80' : ''}`}
+              onClick={() => {
+                if (appEnvMode === 'class') {
+                  const g = prompt('학년을 입력하세요 (1~3)', String(schoolConfig.currentGrade));
+                  if (g) {
+                    const c = prompt('반을 입력하세요 (1~15)', String(schoolConfig.currentClass));
+                    if (c) {
+                      const newConfig = { ...schoolConfig, currentGrade: Number(g), currentClass: Number(c) };
+                      setSchoolConfig(newConfig);
+                      localStorage.setItem('school_config', JSON.stringify(newConfig));
+                    }
+                  }
+                }
+              }}
+              title={appEnvMode === 'class' ? "클릭하여 학년/반 변경" : ""}
+            >{schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판</h1>
           </div>
         </div>
         
