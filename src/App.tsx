@@ -27,11 +27,22 @@ try {
 
 export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
-  const [viewMode, setViewMode] = useState<'select' | 'classroom' | 'remote' | 'admin'>(defaultMode || 'select');
+  const urlParamsForView = new URLSearchParams(window.location.search);
+  const urlG = urlParamsForView.get('g');
+  const urlC = urlParamsForView.get('c');
+  const isDirectClass = window.location.pathname.includes('/class') && urlG && urlC;
+  
+  const [viewMode, setViewMode] = useState<'select' | 'classroom' | 'remote' | 'admin'>(
+    isDirectClass ? 'classroom' : (defaultMode || 'select')
+  );
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [appEnvMode, setAppEnvMode] = useState<'all' | 'office' | 'class'>('all');
+  const urlParams = new URLSearchParams(window.location.search);
+  let initialMode = (urlParams.get('mode') as 'all' | 'office' | 'class') || 'all';
+  if (window.location.pathname.includes('/office')) initialMode = 'office';
+  if (window.location.pathname.includes('/class')) initialMode = 'class';
+  const [appEnvMode, setAppEnvMode] = useState<'all' | 'office' | 'class'>(initialMode);
 
   useEffect(() => {
     if ((window as any).electron?.ipcRenderer) {
@@ -93,8 +104,8 @@ export default function App() {
     return { 
       schoolName: parsed.schoolName || '사직여자고등학교', 
       gradeCounts: parsed.gradeCounts || { 1: 8, 2: 8, 3: 8 },
-      currentGrade: parsed.currentGrade || 0, 
-      currentClass: parsed.currentClass || 0,
+      currentGrade: Number(urlG) || parsed.currentGrade || 0, 
+      currentClass: Number(urlC) || parsed.currentClass || 0,
       classroomTheme: parsed.classroomTheme || 'default',
       appinServerUrl: parsed.appinServerUrl || '',
       neisApiKey: parsed.neisApiKey || '',
@@ -1069,7 +1080,6 @@ ${htmlText.substring(0, 30000)}
 
   const handleResetClassAnnouncement = () => {
     setCustomAnnouncement('');
-    sendFirebaseMessage('');
   };
 
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
@@ -1168,7 +1178,7 @@ ${htmlText.substring(0, 30000)}
             <p className="text-emerald-300/80 text-sm">사용하실 모드를 선택해 주세요.</p>
           </div>
           <div className="max-w-2xl mx-auto space-y-6 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className={`grid grid-cols-1 ${appEnvMode === 'all' ? 'md:grid-cols-2 max-w-none' : 'max-w-sm'} gap-6 mx-auto`}>
               {(appEnvMode === 'all' || appEnvMode === 'class') && (
               <div className="bg-[#1e382b] border-2 border-emerald-700/60 rounded-3xl p-8 flex flex-col items-center text-center shadow-xl relative group hover:-translate-y-1 transition-transform h-full">
                 <div className="w-16 h-16 rounded-2xl bg-emerald-900/80 flex items-center justify-center text-emerald-300 mb-6 shadow-inner">
@@ -1231,25 +1241,10 @@ ${htmlText.substring(0, 30000)}
               </button>
               )}
 
-              {appEnvMode === 'office' && (
-              <button 
-                onClick={() => setPinModal({ isOpen: true, input: '', error: '' })}
-                className="group bg-[#1e382b] hover:bg-[#254636] border-2 border-emerald-700/60 hover:border-emerald-400 rounded-3xl p-8 flex flex-col items-center text-center transition-all shadow-xl cursor-pointer hover:-translate-y-1 h-full"
-              >
-                <div className="w-16 h-16 rounded-2xl bg-indigo-900/80 flex items-center justify-center text-indigo-300 mb-6 group-hover:scale-110 transition-transform shadow-inner">
-                  <Wrench size={36} />
-                </div>
-                <h2 className="text-xl font-bold text-white mb-2 break-keep flex items-center gap-2">
-                  관리자 모드
-                </h2>
-                <p className="text-xs text-indigo-200/70 leading-relaxed mt-1 mb-auto break-keep">
-                  명단 업로드, NEIS 연동 및<br/>전체 보안 환경을 설정합니다.
-                </p>
-              </button>
-              )}
+
             </div>
 
-            {appEnvMode === 'all' && (
+            {(appEnvMode === 'all' || appEnvMode === 'office') && (
             <div className="flex justify-center mt-6">
               <button 
                 onClick={() => setPinModal({ isOpen: true, input: '', error: '' })}
