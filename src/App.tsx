@@ -300,6 +300,52 @@ export default function App() {
     return false;
   };
 
+  const getCurrentPeriodText = () => {
+    const currentH = currentTime.getHours();
+    const currentM = currentTime.getMinutes();
+    const currentTotalM = currentH * 60 + currentM;
+
+    for (let p = 1; p <= 7; p++) {
+      const sch = dailySchedule[p];
+      if (sch && sch.startH && sch.startM && sch.endH && sch.endM) {
+        const startTotalM = Number(sch.startH) * 60 + Number(sch.startM);
+        const endTotalM = Number(sch.endH) * 60 + Number(sch.endM);
+
+        // 일과 전
+        if (p === 1 && currentTotalM < startTotalM) {
+          return `수업 전 (${sch.startH}:${sch.startM} 시작)`;
+        }
+
+        // 현재 수업 중
+        if (currentTotalM >= startTotalM && currentTotalM <= endTotalM) {
+          return `${p}교시 수업 중 (${sch.startH}:${sch.startM} - ${sch.endH}:${sch.endM})`;
+        }
+        
+        // 쉬는 시간 (다음 교시 시작 전까지)
+        const nextSch = dailySchedule[p + 1];
+        if (nextSch && nextSch.startH && nextSch.startM) {
+          const nextStartTotalM = Number(nextSch.startH) * 60 + Number(nextSch.startM);
+          if (currentTotalM > endTotalM && currentTotalM < nextStartTotalM) {
+            return `쉬는 시간 (${nextSch.startH}:${nextSch.startM}에 ${p + 1}교시 시작)`;
+          }
+        } else if (p === 7 && currentTotalM > endTotalM) {
+          return "모든 일과 종료";
+        }
+      }
+    }
+    
+    // Fallback if loop ends and no condition met, check if past last period
+    const lastSch = dailySchedule[7];
+    if (lastSch && lastSch.endH && lastSch.endM) {
+      const endTotalM = Number(lastSch.endH) * 60 + Number(lastSch.endM);
+      if (currentTotalM > endTotalM) {
+        return "모든 일과 종료";
+      }
+    }
+
+    return "일과 시간 외";
+  };
+
   const playNeonAlertSound = () => {
     try {
       const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
@@ -2256,7 +2302,7 @@ ${htmlText.substring(0, 30000)}
               <BookOpen size={20} className={th.sectionIcon} />
               <h2 className={`text-base font-bold ${th.sectionTitle}`}>오늘의 시간표</h2>
             </div>
-            <span className={`text-xs font-mono ${th.schoolName}`}>1교시 {formatScheduleString(dailySchedule[1])}</span>
+            <span className={`text-xs font-mono font-bold ${th.schoolName}`}>{getCurrentPeriodText()}</span>
           </div>
           
           <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
