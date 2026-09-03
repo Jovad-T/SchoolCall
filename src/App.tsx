@@ -454,8 +454,10 @@ export default function App() {
         } else if (data.time > lastSyncTimeRef.current) {
           lastSyncTimeRef.current = data.time;
           
-          if (!incomingText) {
+          if (!incomingText || incomingText === DEFAULT_MSG) {
              setAnnouncement(DEFAULT_MSG);
+             setIsPopupOpen(false);
+             setPendingAnnouncements([]);
              return;
           }
           
@@ -1125,6 +1127,7 @@ ${htmlText.substring(0, 30000)}
 
   const handleResetClassAnnouncement = () => {
     setCustomAnnouncement('');
+    sendFirebaseMessage('');
   };
 
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
