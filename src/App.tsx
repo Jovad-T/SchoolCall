@@ -51,14 +51,11 @@ export default function App() {
            setAppEnvMode(mode);
            if (mode === 'class') {
              setSchoolConfig((prev: any) => {
-               if (!prev.currentGrade || !prev.currentClass) {
-                 const newConfig = { ...prev, currentGrade: prev.currentGrade || 1, currentClass: prev.currentClass || 1 };
-                 localStorage.setItem('school_config', JSON.stringify(newConfig));
-                 return newConfig;
+               if (prev.currentGrade && prev.currentClass) {
+                 setTimeout(() => setViewMode('classroom'), 0);
                }
                return prev;
              });
-             setViewMode('classroom');
            }
         })
         .catch(() => {});
@@ -465,7 +462,9 @@ export default function App() {
   const handleExitApp = () => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
       (window as any).electron.ipcRenderer.send('hide-window');
+      setIsExited(true);
     } else {
+      try { window.close(); } catch(e) {}
       setIsExited(true);  
     }
   };
@@ -2191,23 +2190,21 @@ ${htmlText.substring(0, 30000)}
           )}
           <div className="flex flex-col">
             <span className={`text-xs font-medium tracking-wider ${th.schoolName}`}>{schoolConfig.schoolName}</span>
-            <h1 
-              className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title} ${appEnvMode === 'class' ? 'cursor-pointer hover:opacity-80' : ''}`}
-              onClick={() => {
-                if (appEnvMode === 'class') {
-                  const g = prompt('학년을 입력하세요 (1~3)', String(schoolConfig.currentGrade));
-                  if (g) {
-                    const c = prompt('반을 입력하세요 (1~15)', String(schoolConfig.currentClass));
-                    if (c) {
-                      const newConfig = { ...schoolConfig, currentGrade: Number(g), currentClass: Number(c) };
-                      setSchoolConfig(newConfig);
-                      localStorage.setItem('school_config', JSON.stringify(newConfig));
-                    }
-                  }
-                }
-              }}
-              title={appEnvMode === 'class' ? "클릭하여 학년/반 변경" : ""}
-            >{schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판</h1>
+            <div className="flex items-center gap-3">
+              <h1 className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title}`}>
+                {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판
+              </h1>
+              <button
+                onClick={() => {
+                  setViewMode('select');
+                }}
+                className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                title="학년/반 변경하기"
+                style={{ WebkitAppRegion: 'no-drag' } as any}
+              >
+                🔄 반 변경
+              </button>
+            </div>
           </div>
         </div>
         
