@@ -180,6 +180,7 @@ export default function App() {
   const [teacherName, setTeacherName] = useState<string>('');
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
+  const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
 
   const [adminDate, setAdminDate] = useState(() => {
     const now = new Date();
@@ -440,8 +441,9 @@ export default function App() {
 
     const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
     const announceRef = ref(db, `announcements/${classKey}`);
+    const globalAnnounceRef = ref(db, 'announcements/global');
 
-    const unsubscribe = onValue(announceRef, (snapshot) => {
+    const handleSnapshot = (snapshot: any) => {
       const data = snapshot.val();
       const DEFAULT_MSG = '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
       
@@ -484,9 +486,15 @@ export default function App() {
         }
       }
       isInitialSyncRef.current = false;
-    });
+    };
 
-    return () => unsubscribe();
+    const unsubscribeLocal = onValue(announceRef, handleSnapshot);
+    const unsubscribeGlobal = onValue(globalAnnounceRef, handleSnapshot);
+
+    return () => {
+      unsubscribeLocal();
+      unsubscribeGlobal();
+    };
   }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule]);
 
   useEffect(() => {
@@ -1081,7 +1089,7 @@ ${htmlText.substring(0, 30000)}
     }
   };
 
-  const sendFirebaseMessage = (msg: string) => {
+  const sendFirebaseMessage = (msg: string, isGlobal = false) => {
     if (!db) {
       alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
       localStorage.setItem('class_announcement', msg);
@@ -1091,8 +1099,8 @@ ${htmlText.substring(0, 30000)}
       return;
     }
 
-    const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-    set(ref(db, `announcements/${classKey}`), {
+    const targetPath = isGlobal ? 'announcements/global' : `announcements/${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    set(ref(db, targetPath), {
       text: msg,
       time: Date.now()
     }).then(() => {
@@ -1114,7 +1122,7 @@ ${htmlText.substring(0, 30000)}
     const targetStr = selectedStudent.length > 0 ? selectedStudent.join(', ') : '학급 전체';
     const teacherStr = teacherName.trim() ? `\n(${teacherName.trim()} 선생님 호출)` : '';
     const finalMsg = `[대상: ${targetStr}]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
-    sendFirebaseMessage(finalMsg);
+    sendFirebaseMessage(finalMsg, isGlobalSend);
   };
 
   const handleSendClassAnnouncement = () => {
@@ -1122,12 +1130,12 @@ ${htmlText.substring(0, 30000)}
       alert('내용을 입력해주세요.');
       return;
     }
-    sendFirebaseMessage(customAnnouncement.trim());
+    sendFirebaseMessage(customAnnouncement.trim(), isGlobalSend);
   };
 
   const handleResetClassAnnouncement = () => {
     setCustomAnnouncement('');
-    sendFirebaseMessage('');
+    sendFirebaseMessage('', isGlobalSend);
   };
 
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
@@ -1476,6 +1484,12 @@ ${htmlText.substring(0, 30000)}
           </section>
 
           <form onSubmit={handleSendSmartCall} className="pt-4">
+            <div className="flex justify-end mb-3">
+              <label className="flex items-center gap-2 cursor-pointer text-rose-400">
+                <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-rose-500" />
+                <span className="text-xs font-bold">전체 교실로 전송</span>
+              </label>
+            </div>
             <button 
               type="submit"
               disabled={!selectedCallMessage || !locationName}
@@ -1492,7 +1506,12 @@ ${htmlText.substring(0, 30000)}
           </div>
 
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
-            <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 (CUSTOM CALL)</label>
+            <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 (CUSTOM CALL)
+              <label className="ml-auto flex items-center gap-2 cursor-pointer text-emerald-400">
+                <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
+                <span className="text-xs font-bold">전체 교실로 전송</span>
+              </label>
+            </label>
             <textarea 
               value={customAnnouncement}
               onChange={e => setCustomAnnouncement(e.target.value)}
