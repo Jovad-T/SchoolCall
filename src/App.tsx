@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon } from 'lucide-react';
+import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon , RefreshCw } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
@@ -142,6 +142,13 @@ export default function App() {
   });
 
   // 💡 [안전망 추가] 로딩할 때 저장소가 비정상적으로 크면(쓰레기 데이터) 자동으로 비워줍니다.
+  const [timetableDetails, setTimetableDetails] = useState<Record<string, { location: string, memo: string }>>(() => {
+    const saved = localStorage.getItem('timetable_details');
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  const [subjectModal, setSubjectModal] = useState<{ isOpen: boolean; period: number; subject: string; location: string; memo: string }>({ isOpen: false, period: 0, subject: '', location: '', memo: '' });
+
   const [classTimetables, setClassTimetables] = useState<Record<string, Record<string, Record<number, string>>>>(() => {
     const saved = localStorage.getItem('class_timetables_map');
     if (saved) {
@@ -172,6 +179,7 @@ export default function App() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number}[]>([]);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
+  const [memoSuccessToast, setMemoSuccessToast] = useState(false);
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [isExited, setIsExited] = useState(false);
 
@@ -276,6 +284,7 @@ export default function App() {
         if (data.classRosters) setClassRosters(data.classRosters);
         if (data.dailySchedule) setDailySchedule(data.dailySchedule);
         if (data.classTimetables) setClassTimetables(data.classTimetables);
+        if (data.timetableDetails) setTimetableDetails(data.timetableDetails);
         if (data.meals) setMeals(data.meals);
       }
     });
@@ -1169,6 +1178,7 @@ ${htmlText.substring(0, 30000)}
         classRosters: tempClassRosters,
         dailySchedule: tempDailySchedule,
         classTimetables: tempClassTimetables,
+        timetableDetails: timetableDetails,
         meals: tempMeals
       }));
 
@@ -1332,6 +1342,8 @@ ${htmlText.substring(0, 30000)}
             </label>
           </div>
         </div>
+
+        
 
         {pinModal.isOpen && (
           <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -1535,7 +1547,6 @@ ${htmlText.substring(0, 30000)}
               </button>
             </div>
           </section>
-        </main>
 
       {viewMode === "classroom" && pendingAnnouncements.length > 0 && (
         <div 
@@ -1585,10 +1596,117 @@ ${htmlText.substring(0, 30000)}
         </div>
       )}
         
+        
+          <section className="bg-[#1a1a1a] border border-amber-900/40 rounded-3xl p-6 space-y-4 relative z-0">
+            <div className="flex items-center gap-2 mb-4 text-amber-400">
+              <Calendar size={18} />
+              <h2 className="font-bold text-sm">오늘의 시간표 알림장/이동수업 메모 작성</h2>
+            </div>
+            <p className="text-xs text-slate-400 mb-4 break-keep">
+              아래에 입력한 메모는 교실 앞 전자칠판의 시간표 카드에 즉시 반영되어 표시됩니다.
+            </p>
+            
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5, 6, 7].map(period => {
+                const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                const todaySubject = classTimetables[todayKey]?.[currentDayOfWeekStr]?.[period];
+                
+                if (!todaySubject || todaySubject === '-') return null;
+                
+                const detailKey = `${todayKey}-${currentDayOfWeekStr}-${period}`;
+                const detail = timetableDetails[detailKey] || { location: '', memo: '' };
+                
+                return (
+                  <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
+                    <div className="flex items-center gap-2 w-full md:w-32 shrink-0">
+                      <span className="text-amber-500 font-black text-sm">{period}교시</span>
+                      <span className="text-white font-bold">{todaySubject}</span>
+                    </div>
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 relative z-0">
+                      <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-3 border border-white/10 focus-within:border-amber-500/50">
+                        <MapPin size={12} className="text-slate-500 shrink-0"/>
+                        <input
+                          type="text"
+                          placeholder="장소 (예: 과학실)"
+                          value={detail.location}
+                          onChange={(e) => {
+                            const newDetails = { ...timetableDetails, [detailKey]: { ...detail, location: e.target.value } };
+                            setTimetableDetails(newDetails);
+                          }}
+                          className="w-full bg-transparent text-xs text-white py-2 outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-3 border border-white/10 focus-within:border-amber-500/50">
+                        <FileText size={12} className="text-slate-500 shrink-0"/>
+                        <input
+                          type="text"
+                          placeholder="메모 (예: 체육복 준비)"
+                          value={detail.memo}
+                          onChange={(e) => {
+                            const newDetails = { ...timetableDetails, [detailKey]: { ...detail, memo: e.target.value } };
+                            setTimetableDetails(newDetails);
+                          }}
+                          className="w-full bg-transparent text-xs text-white py-2 outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button 
+                onClick={() => {
+                  // Removed window.confirm due to iframe sandbox restrictions
+                  const newDetails = { ...timetableDetails };
+                  const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                  [1, 2, 3, 4, 5, 6, 7].forEach(period => {
+                    const detailKey = `${todayKey}-${currentDayOfWeekStr}-${period}`;
+                    delete newDetails[detailKey];
+                  });
+                  setTimetableDetails(newDetails);
+                }}
+                className="bg-[#2a2a2a] hover:bg-[#333] text-slate-300 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Trash2 size={18} />
+                내용 초기화
+              </button>
+              <button 
+                onClick={() => {
+                  try { localStorage.setItem('timetable_details', JSON.stringify(timetableDetails)); } catch(e) {}
+                  if (db) {
+                    import("firebase/database").then(({ ref: dbRef, set }) => {
+                      set(dbRef(db, 'globalData/timetableDetails'), timetableDetails).then(() => {
+                        setMemoSuccessToast(true);
+                        setTimeout(() => setMemoSuccessToast(false), 3000);
+                      }).catch(console.error);
+                    });
+                  } else {
+                    setMemoSuccessToast(true);
+                    setTimeout(() => setMemoSuccessToast(false), 3000);
+                  }
+                }}
+                className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-3 rounded-xl font-bold shadow-[0_0_15px_rgba(217,119,6,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+              >
+                <Send size={18} />
+                전자칠판으로 일괄 전송 (저장)
+              </button>
+            </div>
+          </section>
+
+        </main>
+
         {sendSuccessToast && (
           <div className="fixed bottom-10 left-1/2 -translate-x-1/2 p-4 px-6 bg-emerald-500 text-white rounded-2xl text-sm font-bold flex items-center gap-3 animate-fade-in shadow-2xl z-50">
             <CheckCircle2 size={20} />
             전송 완료! 교실 알림판에 팝업이 표시됩니다.
+          </div>
+        )}
+        
+        {memoSuccessToast && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 p-4 px-6 bg-amber-500 text-white rounded-2xl text-sm font-bold flex items-center gap-3 animate-fade-in shadow-2xl z-50">
+            <CheckCircle2 size={20} />
+            알림장/메모가 전자칠판으로 성공적으로 전송되었습니다!
           </div>
         )}
       </div>
@@ -2018,6 +2136,19 @@ ${htmlText.substring(0, 30000)}
                   </div>
                   <p className="text-[10px] text-emerald-400/60">※ 접속상태 하단에 표시된 서버 주소를 입력하면, 해당 서버의 시간표 정보를 인공지능이 분석하여 채워줍니다.</p>
                 </div>
+                
+                <div className="pt-3 mt-3 border-t border-emerald-900/40">
+                  <span className="text-sm font-bold text-amber-300">나이스(NEIS) 연동 (공공데이터)</span>
+                  <p className="text-[10px] text-amber-200/60 mb-2">※ 내부망이 막혀있을 경우, 위에서 설정한 NEIS API 키를 사용하여 나이스 서버에서 시간표를 직접 가져옵니다.</p>
+                  <button
+                    onClick={() => handleNeisFetch('timetable')}
+                    disabled={isNeisLoading || !adminNeisApiKey || !adminSchoolCode || !adminEduCode}
+                    className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isNeisLoading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                    나이스(NEIS) 서버에서 현재 학급 시간표 추출
+                  </button>
+                </div>
 
 
                 <div className="grid grid-cols-7 gap-2 mt-2">
@@ -2065,6 +2196,18 @@ ${htmlText.substring(0, 30000)}
                     {mealFileName || '월간 급식표 이미지 업로드하여 자동 채우기'}
                   </div>
                 </div>
+              </div>
+
+              <div className="pt-3 mt-3 border-t border-emerald-900/40">
+                  <p className="text-[10px] text-amber-200/60 mb-2">※ 나이스 서버에서 해당 날짜({adminDate})의 급식 정보를 바로 가져옵니다.</p>
+                  <button
+                    onClick={() => handleNeisFetch('meal')}
+                    disabled={isNeisLoading || !adminNeisApiKey || !adminSchoolCode || !adminEduCode}
+                    className="w-full px-4 py-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isNeisLoading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                    나이스(NEIS) 서버에서 선택한 날짜의 급식 추출
+                  </button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
@@ -2357,17 +2500,51 @@ ${htmlText.substring(0, 30000)}
                 'bg-[#fdf4ff] text-slate-800 rotate-[0.7deg]',
                 'bg-[#fff7ed] text-slate-800 rotate-[-0.3deg]'
               ];
+              const detailKey = `${currentKey}-${currentDayOfWeekStr}-${idx + 1}`;
+              const detail = timetableDetails[detailKey];
+              const hasDetail = detail && (detail.location || detail.memo);
               return (
-                <div key={idx} className={`${colors[idx % colors.length]} rounded-3xl p-4 flex flex-col shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full`}>
+                <div 
+                  key={idx} 
+                  onClick={() => {
+                    setSubjectModal({
+                      isOpen: true,
+                      period: idx + 1,
+                      subject: item.subject,
+                      location: detail?.location || '',
+                      memo: detail?.memo || ''
+                    });
+                  }}
+                  className={`${colors[idx % colors.length]} rounded-3xl p-4 flex flex-col shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full cursor-pointer`}
+                >
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-6 bg-amber-400/40 rotate-2 shadow-sm border border-amber-200/20 backdrop-blur-sm z-10"></div>
                   
                   <div className="flex justify-between items-start font-sans px-1 relative z-0">
                     <span className="text-sm font-bold opacity-70 mt-1">{item.period}</span>
-                    {isCurrent && <span className="flex h-3 w-3 mt-1 mr-1"><span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-rose-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span></span>}
+                    <div className="flex items-center gap-1">
+                      {hasDetail && <FileText size={14} className="text-amber-600 opacity-80" />}
+                      {isCurrent && <span className="flex h-3 w-3 mt-1 mr-1"><span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-rose-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span></span>}
+                    </div>
                   </div>
                   <div className="flex-1 flex flex-col items-center justify-center py-2 px-1 relative z-0">
                     <div className="text-5xl mb-4 opacity-90 drop-shadow-sm">{getSubjectIcon(item.subject)}</div>
                     <div className="text-2xl font-black tracking-tight break-keep leading-snug text-center">{item.subject}</div>
+                    {detail?.location && <div className="mt-2 text-sm font-sans font-bold text-slate-700 bg-white/40 px-2 py-0.5 rounded-md flex items-center gap-1"><MapPin size={12}/>{detail.location}</div>}
+                    {detail?.memo && (
+                      <div className="mt-2 w-full animate-fade-in relative z-20">
+                        <div className="absolute -top-1.5 -right-1 flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                        </div>
+                        <div className="text-[11px] font-sans font-bold text-rose-900 bg-rose-100 border border-rose-300 px-2 py-1.5 rounded-lg line-clamp-2 leading-tight w-full break-keep shadow-sm">
+                          <div className="flex items-center gap-1 mb-0.5 text-rose-600">
+                            <Bell size={12} className="animate-pulse" />
+                            <span className="text-[9px] font-black tracking-widest">알림</span>
+                          </div>
+                          {detail.memo}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="text-[11px] text-center font-sans font-bold opacity-40 bg-black/5 rounded-full py-1.5 mt-auto w-full relative z-0">{item.time}</div>
                 </div>
@@ -2419,6 +2596,84 @@ ${htmlText.substring(0, 30000)}
           </div>
         </section>
       </main>
+
+      {subjectModal.isOpen && (
+          <div 
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            style={{ WebkitAppRegion: 'no-drag' } as any}
+          >
+            <div className="bg-[#1a1a1a] border border-amber-500/50 p-8 rounded-3xl w-full max-w-md shadow-2xl animate-fade-in relative text-white">
+              <button 
+                onClick={() => setSubjectModal({ ...subjectModal, isOpen: false })}
+                className="absolute top-6 right-6 text-slate-400 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+              
+              <div className="flex items-center gap-4 mb-6 border-b border-white/10 pb-4">
+                <div className="text-4xl">{getSubjectIcon(subjectModal.subject)}</div>
+                <div>
+                  <h3 className="text-2xl font-black text-amber-400">{subjectModal.period}교시 {subjectModal.subject}</h3>
+                  <p className="text-xs text-slate-400 mt-1">교과 교실 및 간단한 수업 메모를 작성하세요.</p>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2 text-left">
+                  <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><MapPin size={16}/> 장소 (교과교실)</label>
+                  <input 
+                    type="text" 
+                    value={subjectModal.location}
+                    onChange={e => setSubjectModal({ ...subjectModal, location: e.target.value })}
+                    className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-amber-400"
+                    placeholder="예: 과학실, 체육관, 미술실 등"
+                  />
+                </div>
+                
+                <div className="space-y-2 text-left">
+                  <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><FileText size={16}/> 알림장/메모</label>
+                  <textarea 
+                    value={subjectModal.memo}
+                    onChange={e => setSubjectModal({ ...subjectModal, memo: e.target.value })}
+                    className="w-full h-32 bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-amber-400 resize-none"
+                    placeholder="예: 체육복 지참, 리코더 준비 등"
+                  />
+                </div>
+              </div>
+              
+              <div className="mt-6 flex justify-end gap-2">
+                <button 
+                  onClick={() => setSubjectModal({ ...subjectModal, isOpen: false })}
+                  className="px-6 py-3 bg-[#333] hover:bg-[#444] text-white rounded-xl text-sm font-bold transition-colors"
+                >
+                  취소
+                </button>
+                <button 
+                  onClick={() => {
+                    const detailKey = `${currentKey}-${currentDayOfWeekStr}-${subjectModal.period}`;
+                    const newDetails = { ...timetableDetails, [detailKey]: { location: subjectModal.location, memo: subjectModal.memo } };
+                    setTimetableDetails(newDetails);
+                    
+                    try {
+                      localStorage.setItem('timetable_details', JSON.stringify(newDetails));
+                    } catch(e) {}
+                    
+                    if (db) {
+                       import("firebase/database").then(({ ref: dbRef, set }) => {
+                         set(dbRef(db, 'globalData/timetableDetails'), newDetails).catch(console.error);
+                       });
+                    }
+                    
+                    setSubjectModal({ ...subjectModal, isOpen: false });
+                  }}
+                  className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-bold transition-colors shadow-lg"
+                >
+                  저장하기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       {viewMode === 'classroom' && pendingAnnouncements.length > 0 && (
         <div 
