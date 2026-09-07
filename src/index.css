@@ -40,3 +40,11 @@
     display: none;
   }
 }
+
+
+@layer base {
+  select option {
+    background-color: #1a1a1a;
+    color: #ffffff;
+  }
+}
