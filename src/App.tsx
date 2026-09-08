@@ -754,12 +754,22 @@ export default function App() {
     setIsNeisLoading(true);
     try {
       let htmlText = "";
+      // 자동 교정: 슬래시(/)를 콜론(:)으로 잘못 입력한 경우 포트 번호로 교정
+      let formattedUrl = adminAppinServerUrl.trim();
+      formattedUrl = formattedUrl.replace(/^(\d+\.\d+\.\d+\.\d+)\/(\d+)$/, '$1:$2');
+      if (!formattedUrl.startsWith('http')) {
+        formattedUrl = 'http://' + formattedUrl;
+      }
+
       if ((window as any).electron?.ipcRenderer) {
-        const res = await (window as any).electron.ipcRenderer.invoke('fetch-local-url', { url: adminAppinServerUrl });
+        const res = await (window as any).electron.ipcRenderer.invoke('fetch-local-url', { url: formattedUrl });
         if (!res.success) throw new Error(res.error);
         htmlText = res.data;
       } else {
-        const res = await fetch(adminAppinServerUrl.startsWith('http') ? adminAppinServerUrl : 'http://' + adminAppinServerUrl);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8초 타임아웃
+        const res = await fetch(formattedUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
         htmlText = await res.text();
       }
 
@@ -819,7 +829,13 @@ ${htmlText.substring(0, 30000)}
       alert(`✅ 서버 접속 성공! ${editTargetGrade}학년 ${editTargetClass}반의 이번 주 시간표를 인공지능이 추출했습니다.`);
     } catch (err: any) {
       console.log("Fetch error:", err.message);
-      if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        if ((window as any).electron?.ipcRenderer) {
+          alert('❌ 서버 연동 실패 (시간 초과)\n압핀 서버(IP: ' + adminAppinServerUrl + ')가 응답하지 않습니다.\n\n1. 입력하신 IP가 올바른지 확인해주세요. (예: 10.123.45.67:1053)\n2. 해당 컴퓨터(서버)가 켜져 있고 압핀 프로그램이 실행 중인지 확인해주세요.');
+        } else {
+          alert('❌ 서버 연동 실패 (웹 브라우저 보안 및 시간 초과)\n입력하신 내부망 IP 주소로 접근할 수 없습니다.\n웹 브라우저에서는 내부망 IP 접근이 보안상 차단되므로 제공된 Electron PC 전용 앱을 설치하여 사용하셔야 합니다.');
+        }
+      } else if (err.message === 'Failed to fetch' || err.message.includes('fetch')) {
          if ((window as any).electron?.ipcRenderer) {
            alert('❌ 서버 연동 실패\n입력하신 압핀 서버(서랍장) 주소로 접속할 수 없거나, 구글 AI 서버 접속에 실패했습니다.\n1. 압핀 서버 IP 주소와 포트 번호가 올바른지 확인해주세요.\n2. 컴퓨터가 인터넷에 정상적으로 연결되어 있는지 확인해주세요.');
          } else {
