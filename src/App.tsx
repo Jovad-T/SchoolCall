@@ -142,6 +142,12 @@ export default function App() {
   });
 
   // 💡 [안전망 추가] 로딩할 때 저장소가 비정상적으로 크면(쓰레기 데이터) 자동으로 비워줍니다.
+  const [classPopupTimeouts, setClassPopupTimeouts] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem('class_popup_timeouts');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const [tempClassPopupTimeouts, setTempClassPopupTimeouts] = useState<Record<string, number>>(classPopupTimeouts);
+
   const [timetableDetails, setTimetableDetails] = useState<Record<string, { location: string, memo: string }>>(() => {
     const saved = localStorage.getItem('timetable_details');
     return saved ? JSON.parse(saved) : {};
@@ -284,6 +290,7 @@ export default function App() {
         if (data.classRosters) setClassRosters(data.classRosters);
         if (data.dailySchedule) setDailySchedule(data.dailySchedule);
         if (data.classTimetables) setClassTimetables(data.classTimetables);
+        if (data.classPopupTimeouts) setClassPopupTimeouts(data.classPopupTimeouts);
         if (data.timetableDetails) setTimetableDetails(data.timetableDetails);
         if (data.meals) setMeals(data.meals);
       }
@@ -551,13 +558,17 @@ export default function App() {
 
   useEffect(() => {
     if (isPopupOpen && viewMode === 'classroom') {
-      const timeoutMs = (schoolConfig.popupTimeout || 60) * 1000;
+      const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+      const effectiveTimeout = classPopupTimeouts[classKey] !== undefined
+        ? classPopupTimeouts[classKey]
+        : (schoolConfig.popupTimeout || 60);
+      const timeoutMs = effectiveTimeout * 1000;
       const timer = setTimeout(() => {
         handleClosePopupAndHide();
       }, timeoutMs);
       return () => clearTimeout(timer);
     }
-  }, [isPopupOpen, viewMode, schoolConfig.popupTimeout]);
+  }, [isPopupOpen, viewMode, schoolConfig.popupTimeout, schoolConfig.currentGrade, schoolConfig.currentClass, classPopupTimeouts]);
 
   const dateString = `${currentTime.getMonth() + 1}월 ${currentTime.getDate()}일 ${['일', '월', '화', '수', '목', '금', '토'][currentTime.getDay()]}요일`;
   const timeString = currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -633,6 +644,10 @@ export default function App() {
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
       setAdminPinInput(schoolConfig.adminPin);
+      setAdminTtsVoiceURI(schoolConfig.ttsVoiceURI || '');
+      setAdminTtsRate(schoolConfig.ttsRate !== undefined ? schoolConfig.ttsRate : 0.75);
+      setAdminPopupTimeout(schoolConfig.popupTimeout !== undefined ? schoolConfig.popupTimeout : 60);
+      setTempClassPopupTimeouts(classPopupTimeouts);
       setEditTargetGrade(schoolConfig.currentGrade);
       setEditTargetClass(schoolConfig.currentClass);
       
@@ -1197,6 +1212,7 @@ ${htmlText.substring(0, 30000)}
     setDailySchedule(tempDailySchedule);
     setClassTimetables(tempClassTimetables);
     setMeals(tempMeals);
+    setClassPopupTimeouts(tempClassPopupTimeouts);
 
     if (db) {
       const cleanData = JSON.parse(JSON.stringify({
@@ -1204,6 +1220,7 @@ ${htmlText.substring(0, 30000)}
         classRosters: tempClassRosters,
         dailySchedule: tempDailySchedule,
         classTimetables: tempClassTimetables,
+        classPopupTimeouts: tempClassPopupTimeouts,
         timetableDetails: timetableDetails,
         meals: tempMeals
       }));
@@ -1232,6 +1249,7 @@ ${htmlText.substring(0, 30000)}
       safeSave('daily_schedule', tempDailySchedule);
       safeSave('class_timetables_map', tempClassTimetables);
       safeSave('meal_data', tempMeals);
+      safeSave('class_popup_timeouts', tempClassPopupTimeouts);
       
       setSaveSuccessToast(true);
       setTimeout(() => setSaveSuccessToast(false), 3000);
@@ -1945,22 +1963,61 @@ ${htmlText.substring(0, 30000)}
               <p className="text-[10px] text-blue-400/60 mt-2">※ 기기(PC, 브라우저)에 설치된 음성만 표시됩니다.</p>
             </div>
 
-            <div className="pt-4 border-t border-emerald-900/60 mt-4">
+            <div className="pt-4 border-t border-emerald-900/60 mt-4 space-y-3">
               <label className="text-xs text-amber-300 font-bold mb-2 flex items-center gap-1.5"><Clock size={14}/> 알림 팝업 자동 닫힘 시간 설정</label>
-              <div className="flex items-center gap-4 bg-[#111a15] p-3 rounded-xl border border-amber-900/50 mt-2">
-                <label className="text-xs text-amber-200 font-bold whitespace-nowrap">유지 시간</label>
-                <input
-                  type="range"
-                  min="10"
-                  max="300"
-                  step="10"
-                  value={adminPopupTimeout}
-                  onChange={(e) => setAdminPopupTimeout(parseInt(e.target.value))}
-                  className="flex-1 accent-amber-500 h-1.5 bg-amber-900/40 rounded-lg appearance-none cursor-pointer"
-                />
-                <span className="text-xs font-mono text-amber-300 w-12 text-right">{adminPopupTimeout}초</span>
+              
+              <div className="bg-[#111a15] p-3 rounded-xl border border-amber-900/50 space-y-3">
+                <div className="flex items-center gap-4">
+                  <label className="text-xs text-amber-200 font-bold whitespace-nowrap">전체 기본 유지 시간</label>
+                  <input
+                    type="range"
+                    min="10"
+                    max="300"
+                    step="10"
+                    value={adminPopupTimeout}
+                    onChange={(e) => setAdminPopupTimeout(parseInt(e.target.value))}
+                    className="flex-1 accent-amber-500 h-1.5 bg-amber-900/40 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <span className="text-xs font-mono text-amber-300 w-12 text-right">{adminPopupTimeout}초</span>
+                </div>
+
+                <div className="pt-2 border-t border-amber-900/30 flex items-center gap-4">
+                  <label className="text-xs text-emerald-300 font-bold whitespace-nowrap">
+                    {editTargetGrade}학년 {editTargetClass}반 개별 유지 시간
+                  </label>
+                  <input
+                    type="range"
+                    min="10"
+                    max="300"
+                    step="10"
+                    value={tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined ? tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] : adminPopupTimeout}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      const key = editTargetGrade + '-' + editTargetClass;
+                      setTempClassPopupTimeouts(prev => ({ ...prev, [key]: val }));
+                    }}
+                    className="flex-1 accent-emerald-500 h-1.5 bg-emerald-900/40 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <span className="text-xs font-mono text-emerald-300 w-12 text-right">
+                    {(tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined ? tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] : adminPopupTimeout)}초
+                  </span>
+                  {tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const key = editTargetGrade + '-' + editTargetClass;
+                        const newMap = { ...tempClassPopupTimeouts };
+                        delete newMap[key];
+                        setTempClassPopupTimeouts(newMap);
+                      }}
+                      className="text-[10px] bg-rose-900/60 hover:bg-rose-800 text-rose-200 px-2 py-1 rounded border border-rose-700 whitespace-nowrap"
+                    >
+                      기본값 복원
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="text-[10px] text-amber-400/60 mt-2">※ 설정한 시간이 지나면 교실 화면의 알림 팝업이 자동으로 닫힙니다.</p>
+              <p className="text-[10px] text-amber-400/60">※ 전체 기본 유지 시간 외에, 선택한 학급별로 팝업 자동 닫힘 시간을 각각 다르게 설정할 수 있습니다.</p>
             </div>
           </section>
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
