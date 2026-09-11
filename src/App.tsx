@@ -291,13 +291,23 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  const getScheduleForPeriod = (p: number) => {
+    if (!dailySchedule) return null;
+    if (Array.isArray(dailySchedule)) {
+      if (dailySchedule.length >= 8) return dailySchedule[p];
+      if (dailySchedule.length === 7) return dailySchedule[p - 1];
+      return dailySchedule[p] || dailySchedule[p - 1];
+    }
+    return dailySchedule[p] || dailySchedule[String(p)] || dailySchedule[p - 1];
+  };
+
   const isClassTime = () => {
     const currentH = currentTime.getHours();
     const currentM = currentTime.getMinutes();
     const currentTotalM = currentH * 60 + currentM;
 
     for (let p = 1; p <= 7; p++) {
-      const sch = dailySchedule[p];
+      const sch = getScheduleForPeriod(p);
       if (sch && sch.startH && sch.startM && sch.endH && sch.endM) {
         const startTotalM = Number(sch.startH) * 60 + Number(sch.startM);
         const endTotalM = Number(sch.endH) * 60 + Number(sch.endM);
@@ -316,7 +326,7 @@ export default function App() {
     const currentTotalM = currentH * 60 + currentM;
 
     for (let p = 1; p <= 7; p++) {
-      const sch = dailySchedule[p];
+      const sch = getScheduleForPeriod(p);
       if (sch && sch.startH && sch.startM && sch.endH && sch.endM) {
         const startTotalM = Number(sch.startH) * 60 + Number(sch.startM);
         const endTotalM = Number(sch.endH) * 60 + Number(sch.endM);
@@ -332,7 +342,7 @@ export default function App() {
         }
         
         // 쉬는 시간 (다음 교시 시작 전까지)
-        const nextSch = dailySchedule[p + 1];
+        const nextSch = getScheduleForPeriod(p + 1);
         if (nextSch && nextSch.startH && nextSch.startM) {
           const nextStartTotalM = Number(nextSch.startH) * 60 + Number(nextSch.startM);
           if (currentTotalM > endTotalM && currentTotalM < nextStartTotalM) {
@@ -345,7 +355,7 @@ export default function App() {
     }
     
     // Fallback if loop ends and no condition met, check if past last period
-    const lastSch = dailySchedule[7];
+    const lastSch = getScheduleForPeriod(7);
     if (lastSch && lastSch.endH && lastSch.endM) {
       const endTotalM = Number(lastSch.endH) * 60 + Number(lastSch.endM);
       if (currentTotalM > endTotalM) {
@@ -2488,13 +2498,13 @@ ${htmlText.substring(0, 30000)}
           
           <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
             {[
-              { period: '1교시', time: formatScheduleString(dailySchedule[1]), subject: todayTimetableObj[1] },
-              { period: '2교시', time: formatScheduleString(dailySchedule[2]), subject: todayTimetableObj[2] },
-              { period: '3교시', time: formatScheduleString(dailySchedule[3]), subject: todayTimetableObj[3] },
-              { period: '4교시', time: formatScheduleString(dailySchedule[4]), subject: todayTimetableObj[4] },
-              { period: '5교시', time: formatScheduleString(dailySchedule[5]), subject: todayTimetableObj[5] },
-              { period: '6교시', time: formatScheduleString(dailySchedule[6]), subject: todayTimetableObj[6] },
-              { period: '7교시', time: formatScheduleString(dailySchedule[7]), subject: todayTimetableObj[7] },
+              { period: '1교시', time: formatScheduleString(getScheduleForPeriod(1)), subject: todayTimetableObj[1] },
+              { period: '2교시', time: formatScheduleString(getScheduleForPeriod(2)), subject: todayTimetableObj[2] },
+              { period: '3교시', time: formatScheduleString(getScheduleForPeriod(3)), subject: todayTimetableObj[3] },
+              { period: '4교시', time: formatScheduleString(getScheduleForPeriod(4)), subject: todayTimetableObj[4] },
+              { period: '5교시', time: formatScheduleString(getScheduleForPeriod(5)), subject: todayTimetableObj[5] },
+              { period: '6교시', time: formatScheduleString(getScheduleForPeriod(6)), subject: todayTimetableObj[6] },
+              { period: '7교시', time: formatScheduleString(getScheduleForPeriod(7)), subject: todayTimetableObj[7] },
             ].map((item, idx) => {
               if (!item.subject) return null;
               
