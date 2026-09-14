@@ -62,11 +62,23 @@ function createWindow() {
   });
 
   const isDev = !app.isPackaged;
+  const REMOTE_APP_URL = 'https://ais-pre-fv4egwegpkksktl5lf33lk-456577435075.asia-east1.run.app/#tv-setup';
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000/#tv-setup');
   } else {
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'tv-setup' });
+    // 온라인 상태일 경우 최신 웹 배포 버전을 우선 로드하여 .exe 재빌드 없이 영구 자동 업데이트 지원
+    mainWindow.loadURL(REMOTE_APP_URL).catch(() => {
+      console.log('원격 서버 로드 실패: 로컬 내장 파일로 로드합니다.');
+      mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'tv-setup' });
+    });
+
+    mainWindow.webContents.on('did-fail-load', (event, errorCode) => {
+      if (errorCode !== -3) {
+        console.log(`원격 로드 실패 (코드: ${errorCode}): 로컬 내장 파일로 전환합니다.`);
+        mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'), { hash: 'tv-setup' });
+      }
+    });
   }
 
   mainWindow.once('ready-to-show', () => {

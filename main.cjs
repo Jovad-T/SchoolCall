@@ -35,12 +35,24 @@ function createWindow() {
     }
   });
 
+  const REMOTE_APP_URL = 'https://ais-pre-fv4egwegpkksktl5lf33lk-456577435075.asia-east1.run.app/#/class';
   const distIndexPath = path.join(__dirname, 'dist', 'index.html');
-  if (fs.existsSync(distIndexPath)) {
-    mainWindow.loadFile(distIndexPath, { hash: '/class' });
-  } else {
+
+  if (process.env.NODE_ENV === 'development') {
     const startUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
     mainWindow.loadURL(`${startUrl}/#/class`);
+  } else {
+    mainWindow.loadURL(REMOTE_APP_URL).catch(() => {
+      if (fs.existsSync(distIndexPath)) {
+        mainWindow.loadFile(distIndexPath, { hash: '/class' });
+      }
+    });
+
+    mainWindow.webContents.on('did-fail-load', (event, errorCode) => {
+      if (errorCode !== -3 && fs.existsSync(distIndexPath)) {
+        mainWindow.loadFile(distIndexPath, { hash: '/class' });
+      }
+    });
   }
 
   mainWindow.on('closed', () => {
