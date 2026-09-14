@@ -317,7 +317,6 @@ export default function App() {
   const [pinModal, setPinModal] = useState({ isOpen: false, input: '', error: '' });
 
   const lastSyncTimeRef = useRef<number>(Date.now());
-  const isInitialSyncRef = useRef<boolean>(true);
 
   const todayStr = `${currentTime.getFullYear()}${String(currentTime.getMonth() + 1).padStart(2, '0')}${String(currentTime.getDate()).padStart(2, '0')}`;
   const currentKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
@@ -577,18 +576,25 @@ export default function App() {
     const announceRef = ref(db, `announcements/${classKey}`);
     const globalAnnounceRef = ref(db, 'announcements/global');
 
-    const handleSnapshot = (snapshot: any) => {
+    let isLocalInitial = true;
+    let isGlobalInitial = true;
+
+    const createHandler = (getIsInitial: () => boolean, setNotInitial: () => void) => (snapshot: any) => {
       const data = snapshot.val();
       const DEFAULT_MSG = '';
       
       if (data) {
         const incomingText = data.text ? data.text.trim() : '';
         
-        if (isInitialSyncRef.current) {
+        if (getIsInitial()) {
           // 최초 로드 시 24시간이 지난 메시지면 빈 문자열로 무시
           const isExpired = Date.now() - (data.time || 0) > 24 * 60 * 60 * 1000;
-          setAnnouncement(isExpired ? DEFAULT_MSG : incomingText);
-          lastSyncTimeRef.current = data.time;
+          
+          // 여러 초기 동기화 중 가장 최신 메시지만 표시되도록 시간 비교
+          if (data.time >= (lastSyncTimeRef.current || 0)) {
+            setAnnouncement(isExpired ? DEFAULT_MSG : incomingText);
+            lastSyncTimeRef.current = data.time;
+          }
         } else if (data.time > lastSyncTimeRef.current) {
           lastSyncTimeRef.current = data.time;
           
@@ -636,11 +642,11 @@ export default function App() {
           }
         }
       }
-      isInitialSyncRef.current = false;
+      setNotInitial();
     };
 
-    const unsubscribeLocal = onValue(announceRef, handleSnapshot);
-    const unsubscribeGlobal = onValue(globalAnnounceRef, handleSnapshot);
+    const unsubscribeLocal = onValue(announceRef, createHandler(() => isLocalInitial, () => { isLocalInitial = false; }));
+    const unsubscribeGlobal = onValue(globalAnnounceRef, createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; }));
 
     return () => {
       unsubscribeLocal();
