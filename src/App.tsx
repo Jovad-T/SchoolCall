@@ -45,6 +45,53 @@ export default function App() {
   if (window.location.pathname.includes('/office')) initialMode = 'office';
   if (window.location.pathname.includes('/class')) initialMode = 'class';
   const [appEnvMode, setAppEnvMode] = useState<'all' | 'office' | 'class'>(initialMode);
+  
+  const [updateAvailable, setUpdateAvailable] = useState<{isAvailable: boolean, latest: string, url: string} | null>(null);
+
+  useEffect(() => {
+    const checkForUpdates = async () => {
+      try {
+        const response = await fetch('https://school-call-five.vercel.app/version.json?t=' + new Date().getTime());
+        const data = await response.json();
+        
+        const currentParts = APP_VERSION.replace('v', '').split('.').map(Number);
+        const latestParts = data.latestVersion.replace('v', '').split('.').map(Number);
+        
+        let isNewer = false;
+        for(let i=0; i<3; i++) {
+            if ((latestParts[i] || 0) > (currentParts[i] || 0)) { isNewer = true; break; }
+            if ((latestParts[i] || 0) < (currentParts[i] || 0)) { break; }
+        }
+
+        if (isNewer) {
+          setUpdateAvailable({
+            isAvailable: true,
+            latest: data.latestVersion,
+            url: data.downloadUrl
+          });
+        }
+      } catch (e) {
+        console.log('버전 확인 실패:', e);
+      }
+    };
+    checkForUpdates();
+  }, []);
+
+  const renderUpdateBadge = () => {
+    if (!updateAvailable?.isAvailable) return null;
+    return (
+      <a 
+        href={updateAvailable.url} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] font-bold animate-pulse hover:bg-red-500/30 transition-colors"
+        title="새로운 설치 파일(.exe) 다운로드"
+        style={{ WebkitAppRegion: "no-drag" } as any}
+      >
+        <span>🚀 업데이트: {updateAvailable.latest}</span>
+      </a>
+    );
+  };
 
   useEffect(() => {
     if ((window as any).electron?.ipcRenderer) {
@@ -1390,7 +1437,7 @@ ${htmlText.substring(0, 30000)}
         <div className="max-w-4xl w-full text-center space-y-12 my-auto pt-16 relative z-10" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <div className="space-y-4">
             <div className="inline-block px-5 py-2 rounded-full bg-emerald-900/80 text-emerald-300 text-xs font-bold border border-emerald-600/60 shadow-md">
-              {schoolConfig.schoolName} <span className="text-[11px] font-mono text-emerald-400/90 ml-1.5 font-bold">({APP_VERSION})</span>
+              {schoolConfig.schoolName} <span className="text-[11px] font-mono text-emerald-400/90 ml-1.5 font-bold">({APP_VERSION})</span>{renderUpdateBadge()}
             </div>
             <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white drop-shadow-lg">
               {appEnvMode === 'office' ? '교무실 스마트 제어 시스템' : '학급 알림판 & 스마트 제어 시스템'}
@@ -1541,7 +1588,7 @@ ${htmlText.substring(0, 30000)}
               <ArrowLeft size={16} /> 홈으로 (고정 해제)
             </button>
             <h1 className="text-lg font-bold text-amber-400 flex items-center gap-2">
-              📱 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 스마트 리모컨 <span className="text-xs font-mono bg-black/50 text-amber-400/80 px-2 py-0.5 rounded border border-white/10 font-normal">{APP_VERSION}</span>
+              📱 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 스마트 리모컨 <span className="text-xs font-mono bg-black/50 text-amber-400/80 px-2 py-0.5 rounded border border-white/10 font-normal">{APP_VERSION}</span>{renderUpdateBadge()}
             </h1>
           </div>
           <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
@@ -1943,7 +1990,7 @@ ${htmlText.substring(0, 30000)}
               <ArrowLeft size={16} /> 홈으로
             </button>
             <h1 className="text-lg font-bold text-indigo-300 flex items-center gap-2">
-              ⚙️ 관리자 환경설정 패널 <span className="text-xs font-mono bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-700/50 font-bold">{APP_VERSION}</span>
+              ⚙️ 관리자 환경설정 패널 <span className="text-xs font-mono bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-700/50 font-bold">{APP_VERSION}</span>{renderUpdateBadge()}
             </h1>
           </div>
           <button onClick={handleSaveClick} style={{ WebkitAppRegion: "no-drag" } as any} 
@@ -2859,7 +2906,7 @@ ${htmlText.substring(0, 30000)}
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
               <span className={`text-xs font-medium tracking-wider ${th.schoolName}`}>{schoolConfig.schoolName}</span>
-              <span className="text-[10px] font-mono text-emerald-400/80 bg-black/40 px-1.5 py-0.2 rounded border border-white/10 font-bold">{APP_VERSION}</span>
+              <span className="text-[10px] font-mono text-emerald-400/80 bg-black/40 px-1.5 py-0.2 rounded border border-white/10 font-bold">{APP_VERSION}</span>{renderUpdateBadge()}
             </div>
             <div className="flex items-center gap-3">
               <h1 className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title}`}>

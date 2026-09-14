@@ -35,22 +35,22 @@ function createWindow() {
     }
   });
 
-  const REMOTE_APP_URL = 'https://school-call-five.vercel.app/#/class';
+  const REMOTE_APP_URL = 'https://school-call-five.vercel.app/#/office';
   const distIndexPath = path.join(__dirname, 'dist', 'index.html');
 
   if (process.env.NODE_ENV === 'development') {
     const startUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
-    mainWindow.loadURL(`${startUrl}/#/class`);
+    mainWindow.loadURL(`${startUrl}/#/office`);
   } else {
     mainWindow.loadURL(REMOTE_APP_URL).catch(() => {
       if (fs.existsSync(distIndexPath)) {
-        mainWindow.loadFile(distIndexPath, { hash: '/class' });
+        mainWindow.loadFile(distIndexPath, { hash: '/office' });
       }
     });
 
     mainWindow.webContents.on('did-fail-load', (event, errorCode) => {
       if (errorCode !== -3 && fs.existsSync(distIndexPath)) {
-        mainWindow.loadFile(distIndexPath, { hash: '/class' });
+        mainWindow.loadFile(distIndexPath, { hash: '/office' });
       }
     });
   }
