@@ -231,6 +231,12 @@ export default function App() {
     return {};
   });
 
+  const [customCallPresets, setCustomCallPresets] = useState<string[]>(() => {
+    const saved = localStorage.getItem('custom_call_presets');
+    return saved ? JSON.parse(saved) : ['교무실로 오세요', '수행평가 평가지 가지고 오세요', '상담이 있으니 교무실로 오세요', '프린트물을 챙겨가세요', '긴급 호출입니다. 즉시 교무실로 오세요'];
+  });
+  const [tempCustomCallPresets, setTempCustomCallPresets] = useState<string[]>(customCallPresets);
+
   const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number, duration?: number}[]>(() => {
@@ -385,6 +391,10 @@ export default function App() {
           try { localStorage.setItem('timetable_details', JSON.stringify(data.timetableDetails)); } catch(e) {}
         }
         if (data.meals) setMeals(data.meals);
+        if (data.customCallPresets) {
+          setCustomCallPresets(data.customCallPresets);
+          try { localStorage.setItem('custom_call_presets', JSON.stringify(data.customCallPresets)); } catch(e) {}
+        }
       }
     });
     return () => unsubscribe();
@@ -794,6 +804,7 @@ export default function App() {
       setAdminTtsRate(schoolConfig.ttsRate !== undefined ? schoolConfig.ttsRate : 0.75);
       setAdminPopupTimeout(schoolConfig.popupTimeout !== undefined ? schoolConfig.popupTimeout : 60);
       setTempClassPopupTimeouts(classPopupTimeouts);
+      setTempCustomCallPresets(customCallPresets);
       setEditTargetGrade(schoolConfig.currentGrade);
       setEditTargetClass(schoolConfig.currentClass);
       
@@ -1323,6 +1334,12 @@ ${htmlText.substring(0, 30000)}
       alert("호출 메시지를 입력해주세요.");
       return;
     }
+
+    const targetLabel = isGlobalSend ? '전체 교실' : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
+    if (!window.confirm(`[확인] ${targetLabel}에 호출 메시지를 전송하시겠습니까?`)) {
+      return;
+    }
+
     const targetStr = selectedStudent.length > 0 ? selectedStudent.join(', ') : '학급 전체';
     const teacherStr = teacherName.trim() ? `\n(${teacherName.trim()} 선생님 호출)` : '';
     const finalMsg = `[대상: ${targetStr}]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
@@ -1334,6 +1351,12 @@ ${htmlText.substring(0, 30000)}
       alert('내용을 입력해주세요.');
       return;
     }
+
+    const targetLabel = isGlobalSend ? '전체 교실' : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
+    if (!window.confirm(`[확인] ${targetLabel}에 이 메시지를 전송하시겠습니까?`)) {
+      return;
+    }
+
     sendFirebaseMessage(customAnnouncement.trim(), isGlobalSend);
   };
 
@@ -1383,6 +1406,8 @@ ${htmlText.substring(0, 30000)}
     setClassTimetables(tempClassTimetables);
     setMeals(tempMeals);
     setClassPopupTimeouts(tempClassPopupTimeouts);
+    setCustomCallPresets(tempCustomCallPresets);
+    try { localStorage.setItem('custom_call_presets', JSON.stringify(tempCustomCallPresets)); } catch(e) {}
 
     if (db) {
       const cleanData = JSON.parse(JSON.stringify({
@@ -1392,7 +1417,8 @@ ${htmlText.substring(0, 30000)}
         classTimetables: tempClassTimetables,
         classPopupTimeouts: tempClassPopupTimeouts,
         timetableDetails: timetableDetails,
-        meals: tempMeals
+        meals: tempMeals,
+        customCallPresets: tempCustomCallPresets
       }));
 
       set(ref(db, 'globalData'), cleanData).catch(e => {
@@ -1703,7 +1729,7 @@ ${htmlText.substring(0, 30000)}
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3">
             <label className="text-xs font-bold text-slate-400 tracking-wider">호출 메시지</label>
                         <div className="space-y-2">
-              {['교무실로 오세요', '수행평가 평가지 가지고 오세요', '상담이 있으니 교무실로 오세요', '프린트물을 챙겨가세요', '긴급 호출입니다. 즉시 교무실로 오세요', '직접 입력'].map((msg) => {
+              {[...customCallPresets, '직접 입력'].map((msg) => {
                 const isSelected = selectedCallMessage === msg;
                 return (
                   <div
@@ -2132,6 +2158,7 @@ ${htmlText.substring(0, 30000)}
                   <option value="default">기본 (그린/에메랄드)</option>
                   <option value="dark">다크 모드 (어두운 회색/블랙)</option>
                   <option value="light">라이트 모드 (화이트/밝은 파랑)</option>
+                  <option value="auto">자동 스케줄러 (오후 6시~오전 6시 다크모드)</option>
                 </select>
               </div>
                 <label className="text-xs font-bold text-slate-400">학교명 (UI 표시용)</label>
@@ -2778,6 +2805,54 @@ ${htmlText.substring(0, 30000)}
             </div>
           </section>
 
+          <section className="bg-[#1e382b] border border-indigo-900 rounded-3xl p-6 shadow-xl relative z-10">
+            <h2 className="text-xl font-black text-indigo-300 mb-6 flex items-center gap-3">
+              <div className="p-2 bg-indigo-900/60 rounded-xl"><Edit3 size={20} /></div>
+              리모컨 호출 메시지 프리셋 관리
+            </h2>
+            <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 space-y-4">
+              <p className="text-xs text-slate-400">
+                선생님들이 리모컨 모드에서 자주 사용하는 호출 메시지 목록을 수정하거나 추가할 수 있습니다.
+              </p>
+              
+              <div className="space-y-3">
+                {tempCustomCallPresets.map((preset, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-indigo-400 w-6">{idx + 1}.</span>
+                    <input 
+                      type="text"
+                      value={preset}
+                      onChange={(e) => {
+                        const newPresets = [...tempCustomCallPresets];
+                        newPresets[idx] = e.target.value;
+                        setTempCustomCallPresets(newPresets);
+                      }}
+                      className="flex-1 bg-[#162d22] border border-emerald-800 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-indigo-400"
+                      placeholder="메시지를 입력하세요 (예: 교무실로 오세요)"
+                    />
+                    <button 
+                      onClick={() => {
+                        const newPresets = tempCustomCallPresets.filter((_, i) => i !== idx);
+                        setTempCustomCallPresets(newPresets);
+                      }}
+                      className="p-2 bg-rose-900/40 hover:bg-rose-900 text-rose-400 rounded-xl transition-colors"
+                      title="삭제"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              
+              <button 
+                onClick={() => setTempCustomCallPresets([...tempCustomCallPresets, '새 호출 메시지'])}
+                className="w-full mt-2 py-3 bg-indigo-900/30 hover:bg-indigo-900/60 border border-indigo-800/50 text-indigo-300 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+              >
+                + 새 프리셋 추가하기
+              </button>
+            </div>
+          </section>
+
           <div className="flex gap-4 pt-6">
             <button 
               onClick={() => {
@@ -2933,7 +3008,12 @@ ${htmlText.substring(0, 30000)}
 
 
   const th = (() => {
-    const t = schoolConfig.classroomTheme || 'default';
+    let t = schoolConfig.classroomTheme || 'default';
+    if (t === 'auto') {
+      const currentH = currentTime.getHours();
+      t = (currentH >= 18 || currentH < 6) ? 'dark' : 'default';
+    }
+
     if (t === 'light') {
       return {
         mainBg: 'bg-slate-50', mainBorder: 'border-slate-300', textMain: 'text-slate-800',
@@ -2989,11 +3069,11 @@ ${htmlText.substring(0, 30000)}
   })();
   return (
     <div 
-      className={`h-screen w-full font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
+      className={`h-screen w-full font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
       style={{ WebkitAppRegion: 'drag' } as any}
     >
       
-      <header className={`h-20 px-8 flex items-center justify-between border-b shrink-0 ${th.headerBg} ${th.headerBorder}`}>
+      <header className={`h-20 px-8 flex items-center justify-between border-b shrink-0 transition-colors duration-1000 ${th.headerBg} ${th.headerBorder}`}>
         <div className="flex items-center gap-4">
           {appEnvMode !== 'class' && (
           <button 
@@ -3078,7 +3158,7 @@ ${htmlText.substring(0, 30000)}
 
       <main className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
         
-        <section className={`col-span-7 flex flex-col rounded-3xl p-6 border h-full ${th.sectionBg} ${th.sectionBorder}`}>
+        <section className={`col-span-7 flex flex-col rounded-3xl p-6 border h-full transition-colors duration-1000 ${th.sectionBg} ${th.sectionBorder}`}>
           <div className="flex items-center justify-between mb-4 shrink-0">
             <div className="flex items-center gap-2">
               <BookOpen size={20} className={th.sectionIcon} />
@@ -3190,36 +3270,36 @@ ${htmlText.substring(0, 30000)}
           
           <div className="flex-1 grid grid-cols-2 gap-5 min-h-0">
             {/* Lunch Card */}
-            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group ${th.tableHeader}`}>
+            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
               <div className="flex justify-center mb-8">
                 <div className="bg-amber-900/40 border border-amber-800/50 text-amber-500 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Utensils size={14} /> 점심 식단
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-start text-center">
-                <div className="text-xl md:text-2xl text-emerald-50 font-bold leading-[2.2] break-keep w-full flex flex-col gap-1">
+                <div className={`text-xl md:text-2xl font-bold leading-[2.2] break-keep w-full flex flex-col gap-1 transition-colors duration-1000 ${th.textMain}`}>
                   {todayMealsObj?.lunch ? renderMealList(todayMealsObj.lunch) : <span className="text-emerald-600/60 italic text-sm">급식 정보가 없습니다.</span>}
                 </div>
               </div>
               <div className="mt-6 text-center shrink-0">
-                <span className={`text-[10px] font-bold tracking-[0.2em] ${th.periodText}`}>LUNCH MENU</span>
+                <span className={`text-[10px] font-bold tracking-[0.2em] transition-colors duration-1000 ${th.periodText}`}>LUNCH MENU</span>
               </div>
             </div>
 
             {/* Dinner Card */}
-            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group ${th.tableHeader}`}>
+            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
               <div className="flex justify-center mb-8">
                 <div className="bg-indigo-900/30 border border-indigo-800/50 text-indigo-400 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Moon size={14} /> 저녁 식단
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-start text-center">
-                <div className="text-xl md:text-2xl text-emerald-50 font-bold leading-[2.2] break-keep w-full flex flex-col gap-1">
+                <div className={`text-xl md:text-2xl font-bold leading-[2.2] break-keep w-full flex flex-col gap-1 transition-colors duration-1000 ${th.textMain}`}>
                   {todayMealsObj?.dinner ? renderMealList(todayMealsObj.dinner) : <span className="text-emerald-600/60 italic text-sm">해당 없음</span>}
                 </div>
               </div>
               <div className="mt-6 text-center shrink-0">
-                <span className={`text-[10px] font-bold tracking-[0.2em] ${th.periodText}`}>DINNER MENU</span>
+                <span className={`text-[10px] font-bold tracking-[0.2em] transition-colors duration-1000 ${th.periodText}`}>DINNER MENU</span>
               </div>
             </div>
           </div>
