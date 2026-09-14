@@ -35,7 +35,7 @@ function createWindow() {
     }
   });
 
-  const REMOTE_APP_URL = 'https://ais-pre-fv4egwegpkksktl5lf33lk-456577435075.asia-east1.run.app/#/class';
+  const REMOTE_APP_URL = 'https://school-call-five.vercel.app/#/class';
   const distIndexPath = path.join(__dirname, 'dist', 'index.html');
 
   if (process.env.NODE_ENV === 'development') {

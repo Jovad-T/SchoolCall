@@ -62,7 +62,7 @@ function createWindow() {
   });
 
   const isDev = !app.isPackaged;
-  const REMOTE_APP_URL = 'https://ais-pre-fv4egwegpkksktl5lf33lk-456577435075.asia-east1.run.app/#tv-setup';
+  const REMOTE_APP_URL = 'https://school-call-five.vercel.app/#tv-setup';
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000/#tv-setup');
