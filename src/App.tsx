@@ -569,19 +569,21 @@ export default function App() {
 
     const handleSnapshot = (snapshot: any) => {
       const data = snapshot.val();
-      const DEFAULT_MSG = '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
+      const DEFAULT_MSG = '';
       
       if (data) {
         const incomingText = data.text ? data.text.trim() : '';
         
         if (isInitialSyncRef.current) {
-          setAnnouncement(incomingText || DEFAULT_MSG);
+          // 최초 로드 시 24시간이 지난 메시지면 빈 문자열로 무시
+          const isExpired = Date.now() - (data.time || 0) > 24 * 60 * 60 * 1000;
+          setAnnouncement(isExpired ? DEFAULT_MSG : incomingText);
           lastSyncTimeRef.current = data.time;
         } else if (data.time > lastSyncTimeRef.current) {
           lastSyncTimeRef.current = data.time;
           
-          if (!incomingText || incomingText === DEFAULT_MSG) {
-             setAnnouncement(DEFAULT_MSG);
+          if (!incomingText) {
+             setAnnouncement('');
              setIsPopupOpen(false);
              setPendingAnnouncements([]);
              try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
@@ -1609,7 +1611,7 @@ ${htmlText.substring(0, 30000)}
           
           <section className="grid grid-cols-2 gap-4">
             <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider">GRADE (학년)</label>
+              <label className="text-[11px] font-bold text-slate-400 tracking-wider">학년</label>
               <select 
                 value={schoolConfig.currentGrade}
                 onChange={(e) => setSchoolConfig({ ...schoolConfig, currentGrade: Number(e.target.value) })}
@@ -1620,7 +1622,7 @@ ${htmlText.substring(0, 30000)}
             </div>
 
             <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider">CLASS (반)</label>
+              <label className="text-[11px] font-bold text-slate-400 tracking-wider">반</label>
               <select 
                 value={schoolConfig.currentClass}
                 onChange={(e) => setSchoolConfig({ ...schoolConfig, currentClass: Number(e.target.value) })}
@@ -1673,7 +1675,7 @@ ${htmlText.substring(0, 30000)}
 
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-400 tracking-wider">SELECT STUDENT ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 학생 명렬 - 총 {currentStudents.length}명)</label>
+              <label className="text-xs font-bold text-slate-400 tracking-wider">학생 선택 ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 학생 명렬 - 총 {currentStudents.length}명)</label>
               <span className="text-xs text-amber-400 font-bold">{selectedStudent.length > 0 ? selectedStudent.join(', ') : '전체 선택됨'} <span className="text-slate-400 ml-1 font-normal">(다중 선택 가능)</span></span>
             </div>
             
@@ -1699,7 +1701,7 @@ ${htmlText.substring(0, 30000)}
           </section>
 
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3">
-            <label className="text-xs font-bold text-slate-400 tracking-wider">CALL MESSAGE (호출 메시지)</label>
+            <label className="text-xs font-bold text-slate-400 tracking-wider">호출 메시지</label>
                         <div className="space-y-2">
               {['교무실로 오세요', '수행평가 평가지 가지고 오세요', '상담이 있으니 교무실로 오세요', '프린트물을 챙겨가세요', '긴급 호출입니다. 즉시 교무실로 오세요', '직접 입력'].map((msg) => {
                 const isSelected = selectedCallMessage === msg;
@@ -1727,7 +1729,7 @@ ${htmlText.substring(0, 30000)}
 
           <section className="grid grid-cols-2 gap-4">
             <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3 flex flex-col justify-center">
-              <label className="text-xs font-bold text-slate-400 tracking-wider">LOCATION (장소)</label>
+              <label className="text-xs font-bold text-slate-400 tracking-wider">호출 장소</label>
               <input 
                 type="text" 
                 value={locationName}
@@ -1738,7 +1740,7 @@ ${htmlText.substring(0, 30000)}
             </div>
             
             <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3 flex flex-col justify-center">
-              <label className="text-xs font-bold text-slate-400 tracking-wider">TEACHER (호출 교사)</label>
+              <label className="text-xs font-bold text-slate-400 tracking-wider">호출 교사</label>
               <input 
                 type="text" 
                 value={teacherName}
@@ -1777,7 +1779,7 @@ ${htmlText.substring(0, 30000)}
 
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 (CUSTOM CALL)</label>
+              <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 메시지</label>
               <div className="flex items-center gap-3 flex-wrap">
                 <label className="flex items-center gap-2 cursor-pointer text-amber-400 bg-amber-950/40 px-3 py-1 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
                   <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
