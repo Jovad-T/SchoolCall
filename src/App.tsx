@@ -25,6 +25,8 @@ try {
   console.error("Firebase 연결 실패:", e);
 }
 
+export const APP_VERSION = 'v1.1.0';
+
 export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
   const urlParamsForView = new URLSearchParams(window.location.search);
@@ -112,7 +114,8 @@ export default function App() {
       adminPin: parsed.adminPin || '0000',
       ttsVoiceURI: parsed.ttsVoiceURI || '',
       ttsRate: parsed.ttsRate !== undefined ? parsed.ttsRate : 0.75,
-      popupTimeout: parsed.popupTimeout !== undefined ? parsed.popupTimeout : 60
+      popupTimeout: parsed.popupTimeout !== undefined ? parsed.popupTimeout : 60,
+      forcePopupDuringClass: parsed.forcePopupDuringClass !== undefined ? Boolean(parsed.forcePopupDuringClass) : false
     };
   });
 
@@ -183,7 +186,14 @@ export default function App() {
 
   const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number, duration?: number}[]>([]);
+  const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number, duration?: number}[]>(() => {
+    try {
+      const saved = localStorage.getItem('pending_announcements_queue');
+      return saved ? JSON.parse(saved) : [];
+    } catch(e) {
+      return [];
+    }
+  });
   const [currentAnnouncementDuration, setCurrentAnnouncementDuration] = useState<number | null>(null);
   const [popupCountdown, setPopupCountdown] = useState<number | null>(null);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
@@ -197,6 +207,7 @@ export default function App() {
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
   const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
+  const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(false);
   const [remoteDayOfWeek, setRemoteDayOfWeek] = useState<string>(() => {
     const d = new Date().getDay();
     return (d >= 1 && d <= 5) ? String(d) : '1';
@@ -220,6 +231,7 @@ export default function App() {
   const [adminTtsVoiceURI, setAdminTtsVoiceURI] = useState(schoolConfig.ttsVoiceURI || '');
   const [adminTtsRate, setAdminTtsRate] = useState(schoolConfig.ttsRate !== undefined ? schoolConfig.ttsRate : 0.75);
   const [adminPopupTimeout, setAdminPopupTimeout] = useState(schoolConfig.popupTimeout !== undefined ? schoolConfig.popupTimeout : 60);
+  const [adminForcePopupDuringClass, setAdminForcePopupDuringClass] = useState<boolean>(Boolean(schoolConfig.forcePopupDuringClass));
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
   const [adminClassroomTheme, setAdminClassroomTheme] = useState(schoolConfig.classroomTheme || 'default');
   const [adminAppinServerUrl, setAdminAppinServerUrl] = useState(schoolConfig.appinServerUrl || '');
@@ -297,7 +309,12 @@ export default function App() {
     const unsubscribe = onValue(globalRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (data.schoolConfig) setSchoolConfig(prev => ({ ...data.schoolConfig, currentGrade: prev.currentGrade, currentClass: prev.currentClass }));
+        if (data.schoolConfig) {
+          setSchoolConfig(prev => ({ ...data.schoolConfig, currentGrade: prev.currentGrade, currentClass: prev.currentClass }));
+          if (data.schoolConfig.forcePopupDuringClass !== undefined) {
+            setAdminForcePopupDuringClass(Boolean(data.schoolConfig.forcePopupDuringClass));
+          }
+        }
         if (data.classRosters) setClassRosters(data.classRosters);
         if (data.dailySchedule) setDailySchedule(data.dailySchedule);
         if (data.classTimetables) setClassTimetables(data.classTimetables);
@@ -326,6 +343,9 @@ export default function App() {
   };
 
   const isClassTime = () => {
+    const day = currentTime.getDay();
+    if (day === 0 || day === 6) return false;
+
     const currentH = currentTime.getHours();
     const currentM = currentTime.getMinutes();
     const currentTotalM = currentH * 60 + currentM;
@@ -345,6 +365,9 @@ export default function App() {
   };
 
   const getCurrentPeriodText = () => {
+    const day = currentTime.getDay();
+    if (day === 0 || day === 6) return "주말 (일과 없음)";
+
     const currentH = currentTime.getHours();
     const currentM = currentTime.getMinutes();
     const currentTotalM = currentH * 60 + currentM;
@@ -503,6 +526,7 @@ export default function App() {
              setAnnouncement(DEFAULT_MSG);
              setIsPopupOpen(false);
              setPendingAnnouncements([]);
+             try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
              return;
           }
 
@@ -512,11 +536,15 @@ export default function App() {
             setCurrentAnnouncementDuration(null);
           }
           
-          if (isClassTime()) {
-            console.log("현재 수업 시간이므로 알림이 예약되었습니다. 쉬는 시간에 표시됩니다.");
+          const isForced = Boolean(data.forcePopup || schoolConfig.forcePopupDuringClass);
+
+          if (isClassTime() && !isForced) {
+            console.log("현재 수업 시간이므로 알림이 예약 대기열에 저장되었습니다. 쉬는 시간에 자동 표시됩니다.");
             setPendingAnnouncements(prev => {
               if (!prev.some(a => a.id === data.time.toString())) {
-                return [...prev, { id: data.time.toString(), text: incomingText, time: data.time, duration: data.duration }];
+                const updated = [...prev, { id: data.time.toString(), text: incomingText, time: data.time, duration: data.duration }];
+                try { localStorage.setItem('pending_announcements_queue', JSON.stringify(updated)); } catch(e) {}
+                return updated;
               }
               return prev;
             });
@@ -548,13 +576,18 @@ export default function App() {
       unsubscribeLocal();
       unsubscribeGlobal();
     };
-  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule, classPopupTimeouts, schoolConfig.popupTimeout]);
+  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule, classPopupTimeouts, schoolConfig.popupTimeout, schoolConfig.forcePopupDuringClass]);
 
   useEffect(() => {
-    if (pendingAnnouncements.length > 0 && viewMode === 'classroom' && !isClassTime() && !isPopupOpen) {
-      console.log("쉬는 시간이 되어 예약된 알림을 표시합니다.");
+    const canPopupNow = !isClassTime() || schoolConfig.forcePopupDuringClass;
+    if (pendingAnnouncements.length > 0 && viewMode === 'classroom' && canPopupNow && !isPopupOpen) {
+      console.log("알림 표시 조건 충족 (쉬는 시간 또는 수업 중 강제 팝업 허용). 대기열의 알림을 표시합니다.");
       const nextAnnouncement = pendingAnnouncements[0];
-      setPendingAnnouncements(prev => prev.slice(1));
+      setPendingAnnouncements(prev => {
+        const remaining = prev.slice(1);
+        try { localStorage.setItem('pending_announcements_queue', JSON.stringify(remaining)); } catch(e) {}
+        return remaining;
+      });
       
       if (nextAnnouncement.duration) {
         setCurrentAnnouncementDuration(Number(nextAnnouncement.duration));
@@ -576,7 +609,7 @@ export default function App() {
         (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
       }
     }
-  }, [currentTime, pendingAnnouncements, viewMode, isPopupOpen, classPopupTimeouts, schoolConfig.currentGrade, schoolConfig.currentClass, schoolConfig.popupTimeout]);
+  }, [currentTime, pendingAnnouncements, viewMode, isPopupOpen, classPopupTimeouts, schoolConfig.currentGrade, schoolConfig.currentClass, schoolConfig.popupTimeout, schoolConfig.forcePopupDuringClass]);
 
   const handleExitApp = () => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
@@ -1192,10 +1225,11 @@ ${htmlText.substring(0, 30000)}
     }
   };
 
-  const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number) => {
+  const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number, forcePopupOverride?: boolean) => {
     const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
     const effectiveTimeout = customDuration 
       || (classPopupTimeouts[classKey] !== undefined ? classPopupTimeouts[classKey] : (schoolConfig.popupTimeout || 60));
+    const shouldForce = forcePopupOverride !== undefined ? forcePopupOverride : isForcePopupSend;
 
     if (!db) {
       alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
@@ -1211,7 +1245,8 @@ ${htmlText.substring(0, 30000)}
     set(ref(db, targetPath), {
       text: msg,
       time: Date.now(),
-      duration: effectiveTimeout
+      duration: effectiveTimeout,
+      forcePopup: shouldForce
     }).then(() => {
       setSendSuccessToast(true);
       setTimeout(() => setSendSuccessToast(false), 3000);
@@ -1247,6 +1282,21 @@ ${htmlText.substring(0, 30000)}
     sendFirebaseMessage('', isGlobalSend);
   };
 
+  const handleToggleForcePopupDuringClass = (val: boolean) => {
+    setAdminForcePopupDuringClass(val);
+    setSchoolConfig(prev => {
+      const updated = { ...prev, forcePopupDuringClass: val };
+      try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+      return updated;
+    });
+
+    if (db) {
+      import("firebase/database").then(({ ref: dbRef, update }) => {
+        update(dbRef(db, 'globalData/schoolConfig'), { forcePopupDuringClass: val }).catch(console.error);
+      });
+    }
+  };
+
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
   const handleSaveAdminSettings = () => {
     const newConfig = { 
@@ -1262,6 +1312,7 @@ ${htmlText.substring(0, 30000)}
       ttsVoiceURI: adminTtsVoiceURI,
       ttsRate: adminTtsRate,
       popupTimeout: adminPopupTimeout,
+      forcePopupDuringClass: adminForcePopupDuringClass,
       classroomTheme: adminClassroomTheme,
       appinServerUrl: adminAppinServerUrl
     };
@@ -1339,7 +1390,7 @@ ${htmlText.substring(0, 30000)}
         <div className="max-w-4xl w-full text-center space-y-12 my-auto pt-16 relative z-10" style={{ WebkitAppRegion: 'no-drag' } as any}>
           <div className="space-y-4">
             <div className="inline-block px-5 py-2 rounded-full bg-emerald-900/80 text-emerald-300 text-xs font-bold border border-emerald-600/60 shadow-md">
-              {schoolConfig.schoolName}
+              {schoolConfig.schoolName} <span className="text-[11px] font-mono text-emerald-400/90 ml-1.5 font-bold">({APP_VERSION})</span>
             </div>
             <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white drop-shadow-lg">
               {appEnvMode === 'office' ? '교무실 스마트 제어 시스템' : '학급 알림판 & 스마트 제어 시스템'}
@@ -1489,7 +1540,9 @@ ${htmlText.substring(0, 30000)}
             <button onClick={handleGoHome} style={{ WebkitAppRegion: "no-drag" } as any} className="p-2 rounded-xl bg-white/10 text-emerald-300 hover:bg-white/20 cursor-pointer flex items-center gap-1 text-xs font-bold" title="홈 화면으로 이동 및 고정 해제">
               <ArrowLeft size={16} /> 홈으로 (고정 해제)
             </button>
-            <h1 className="text-lg font-bold text-amber-400">📱 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 스마트 리모컨</h1>
+            <h1 className="text-lg font-bold text-amber-400 flex items-center gap-2">
+              📱 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 스마트 리모컨 <span className="text-xs font-mono bg-black/50 text-amber-400/80 px-2 py-0.5 rounded border border-white/10 font-normal">{APP_VERSION}</span>
+            </h1>
           </div>
           <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
         </header>
@@ -1639,9 +1692,13 @@ ${htmlText.substring(0, 30000)}
           </section>
 
           <form onSubmit={handleSendSmartCall} className="pt-4">
-            <div className="flex justify-end mb-3">
-              <label className="flex items-center gap-2 cursor-pointer text-rose-400">
-                <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-rose-500" />
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <label className="flex items-center gap-2 cursor-pointer text-amber-400 bg-amber-950/40 px-3 py-1.5 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
+                <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
+                <span className="text-xs font-bold flex items-center gap-1">⚡ 수업 중 즉시 강제 팝업 (대기열 무시)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-rose-400 bg-rose-950/40 px-3 py-1.5 rounded-xl border border-rose-500/30 hover:bg-rose-900/40 transition-colors">
+                <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-rose-500 cursor-pointer" />
                 <span className="text-xs font-bold">전체 교실로 전송</span>
               </label>
             </div>
@@ -1661,12 +1718,19 @@ ${htmlText.substring(0, 30000)}
           </div>
 
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
-            <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 (CUSTOM CALL)
-              <label className="ml-auto flex items-center gap-2 cursor-pointer text-emerald-400">
-                <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-emerald-500" />
-                <span className="text-xs font-bold">전체 교실로 전송</span>
-              </label>
-            </label>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 (CUSTOM CALL)</label>
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer text-amber-400 bg-amber-950/40 px-3 py-1 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
+                  <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
+                  <span className="text-xs font-bold flex items-center gap-1">⚡ 수업 중 즉시 강제 팝업</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-emerald-400 bg-emerald-950/40 px-3 py-1 rounded-xl border border-emerald-500/30 hover:bg-emerald-900/40 transition-colors">
+                  <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-emerald-500 cursor-pointer" />
+                  <span className="text-xs font-bold">전체 교실로 전송</span>
+                </label>
+              </div>
+            </div>
             <textarea 
               value={customAnnouncement}
               onChange={e => setCustomAnnouncement(e.target.value)}
@@ -1690,54 +1754,6 @@ ${htmlText.substring(0, 30000)}
               </button>
             </div>
           </section>
-
-      {viewMode === "classroom" && pendingAnnouncements.length > 0 && (
-        <div 
-          className="absolute bottom-6 left-6 w-80 bg-[#162d22]/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-40 animate-fade-in"
-          style={{ WebkitAppRegion: "no-drag" } as any}
-        >
-          <div className="bg-emerald-900/80 px-4 py-3 border-b border-emerald-500/30 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-emerald-100 flex items-center gap-2 drop-shadow">
-              <Clock size={16} className="text-amber-300" /> 예약된 알림 대기열
-            </h3>
-            <span className="text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse shadow">{pendingAnnouncements.length}</span>
-          </div>
-          <div className="max-h-56 overflow-y-auto p-3 space-y-2 custom-scrollbar">
-            {pendingAnnouncements.map((ann) => (
-              <div key={ann.id} className="bg-black/30 rounded-xl p-3 border border-emerald-900/60 flex flex-col gap-2 relative">
-                <p className="text-xs text-emerald-100 line-clamp-2 font-medium leading-relaxed">{ann.text}</p>
-                <div className="flex justify-between items-center mt-1">
-                  <span className="text-[10px] text-emerald-400/80 font-mono">
-                    {new Date(ann.time).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} 예약됨
-                  </span>
-                  <button 
-                    onClick={() => setPendingAnnouncements(prev => prev.filter(a => a.id !== ann.id))}
-                    className="text-[10px] bg-rose-900/50 hover:bg-rose-800 text-rose-200 px-2.5 py-1 rounded-md border border-rose-800/60 transition-colors font-bold shadow-inner cursor-pointer"
-                  >
-                    삭제
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="p-3 bg-black/40 border-t border-emerald-900/60">
-            <button 
-              onClick={() => {
-                const next = pendingAnnouncements[0];
-                setPendingAnnouncements(prev => prev.slice(1));
-                setAnnouncement(next.text);
-                setIsPopupOpen(true);
-                setIsExited(false);
-                playNeonAlertSound();
-                speakAnnouncementText(next.text);
-              }}
-              className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors shadow-md border border-emerald-500 cursor-pointer"
-            >
-              지금 바로 띄우기 (즉시 실행)
-            </button>
-          </div>
-        </div>
-      )}
         
         
           <section className="bg-[#1a1a1a] border border-amber-900/40 rounded-3xl p-6 space-y-4 relative z-0">
@@ -1926,7 +1942,9 @@ ${htmlText.substring(0, 30000)}
             <button onClick={handleGoHome} style={{ WebkitAppRegion: "no-drag" } as any} className="p-2 rounded-xl bg-emerald-950 text-emerald-300 hover:bg-emerald-900 cursor-pointer flex items-center gap-1 text-xs font-bold">
               <ArrowLeft size={16} /> 홈으로
             </button>
-            <h1 className="text-lg font-bold text-indigo-300">⚙️ 관리자 환경설정 패널</h1>
+            <h1 className="text-lg font-bold text-indigo-300 flex items-center gap-2">
+              ⚙️ 관리자 환경설정 패널 <span className="text-xs font-mono bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-700/50 font-bold">{APP_VERSION}</span>
+            </h1>
           </div>
           <button onClick={handleSaveClick} style={{ WebkitAppRegion: "no-drag" } as any} 
             disabled={!isConfigValid}
@@ -2254,6 +2272,59 @@ ${htmlText.substring(0, 30000)}
                 </div>
               </div>
               <p className="text-[10px] text-amber-400/60">※ 전체 기본 유지 시간 외에, 선택한 학급별로 팝업 자동 닫힘 시간을 각각 다르게 설정할 수 있습니다.</p>
+            </div>
+
+            {/* 🔔 수업 시간 중 팝업 동작 설정 (대기열 vs 즉시 강제 팝업) */}
+            <div className="pt-4 border-t border-emerald-900/60 mt-4 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="text-xs text-indigo-300 font-bold flex items-center gap-1.5">
+                  <Bell size={14} className="text-amber-400" /> 수업 시간 중 알림 팝업 동작 제어 (대기열 관리)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleToggleForcePopupDuringClass(!adminForcePopupDuringClass)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 cursor-pointer active:scale-95 ${adminForcePopupDuringClass ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-emerald-700 hover:bg-emerald-600 text-white'}`}
+                >
+                  <RefreshCw size={13} />
+                  {adminForcePopupDuringClass ? '⚡ 강제 팝업 모드 켜짐 (대기열 모드로 전환)' : '🛡️ 수업 보호(대기열) 모드 켜짐 (강제 모드로 전환)'}
+                </button>
+              </div>
+
+              <div className={`p-4 rounded-2xl border transition-all ${adminForcePopupDuringClass ? 'bg-amber-950/30 border-amber-500/50' : 'bg-[#111a15] border-emerald-900/60'}`}>
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="adminForcePopupToggle"
+                    checked={adminForcePopupDuringClass}
+                    onChange={(e) => handleToggleForcePopupDuringClass(e.target.checked)}
+                    className="w-5 h-5 accent-amber-500 rounded cursor-pointer mt-0.5"
+                  />
+                  <div className="flex-1">
+                    <label htmlFor="adminForcePopupToggle" className="text-sm font-bold text-white cursor-pointer flex items-center gap-2">
+                      수업 중에도 즉시 강제 팝업 허용
+                      {adminForcePopupDuringClass ? (
+                        <span className="text-[10px] bg-amber-500 text-black px-2 py-0.5 rounded-full font-black">⚡ 강제 팝업 활성화됨</span>
+                      ) : (
+                        <span className="text-[10px] bg-emerald-800 text-emerald-200 px-2 py-0.5 rounded-full font-bold">🛡️ 수업 보호: 대기열 보관 (기본값)</span>
+                      )}
+                    </label>
+                    <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
+                      {adminForcePopupDuringClass ? (
+                        <span className="text-amber-300 font-medium">
+                          ⚠️ <strong>[수업 중 강제 팝업 활성화]</strong> 교실에서 1~7교시 수업이 진행 중이라도 교무실에서 공지나 호출을 전송하면 대기열에 들어가지 않고 <strong>즉시 소리와 함께 전자칠판 화면에 전체 팝업</strong>이 뜹니다.
+                        </span>
+                      ) : (
+                        <span className="text-emerald-300/90 font-medium">
+                          ✅ <strong>[수업 보호 대기열 모드]</strong> 1~7교시 수업 중에는 수업 집중을 위해 알림이 화면을 가리지 않고 <strong>좌측 하단 예약 대기열에 안전하게 보관</strong>되며, <strong>종이 치고 쉬는 시간이 되는 즉시 자동으로 팝업</strong>됩니다.
+                        </span>
+                      )}
+                    </p>
+                    <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center gap-3 text-[11px] text-slate-400">
+                      <span>💡 <strong>팁:</strong> 대기열 모드 상태에서도 교무실 리모컨에서 <strong>[⚡ 수업 중 즉시 강제 팝업]</strong> 체크박스를 켜고 보내면 특정 긴급 공지만 즉시 띄울 수 있습니다.</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
           <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
@@ -2614,6 +2685,16 @@ ${htmlText.substring(0, 30000)}
           </div>
 
           <div className="flex items-center gap-2">
+            {pendingAnnouncements.length > 0 && (
+              <button 
+                onClick={() => setIsExited(false)}
+                className="px-3.5 py-2 bg-rose-600/90 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-md animate-bounce flex items-center gap-1.5 cursor-pointer"
+                title="쉬는 시간 예약 알림 확인하기"
+              >
+                <Bell size={13} />
+                예약 대기열 ({pendingAnnouncements.length}건 대기중)
+              </button>
+            )}
             <button
               onClick={() => {
                 // Trigger test popup in desktop mode
@@ -2776,16 +2857,27 @@ ${htmlText.substring(0, 30000)}
           </button>
           )}
           <div className="flex flex-col">
-            <span className={`text-xs font-medium tracking-wider ${th.schoolName}`}>{schoolConfig.schoolName}</span>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-medium tracking-wider ${th.schoolName}`}>{schoolConfig.schoolName}</span>
+              <span className="text-[10px] font-mono text-emerald-400/80 bg-black/40 px-1.5 py-0.2 rounded border border-white/10 font-bold">{APP_VERSION}</span>
+            </div>
             <div className="flex items-center gap-3">
               <h1 className={`text-2xl font-black tracking-tight drop-shadow-md ${th.title}`}>
                 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 알림판
               </h1>
+              <span className="text-[11px] font-bold text-emerald-300 bg-black/30 px-2.5 py-0.5 rounded-md border border-white/10">
+                {getCurrentPeriodText()}
+              </span>
+              {schoolConfig.forcePopupDuringClass && (
+                <span className="text-[10px] font-bold text-amber-300 bg-amber-950/60 border border-amber-500/40 px-2 py-0.5 rounded-md" title="관리자 설정: 수업 중에도 즉시 강제 팝업이 활성화되어 있습니다">
+                  ⚡ 수업 중 팝업 허용됨
+                </span>
+              )}
               <button
                 onClick={() => {
                   setViewMode('select');
                 }}
-                className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                className="px-2 py-1 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-bold transition-colors shadow-sm cursor-pointer"
                 title="학년/반 변경하기"
                 style={{ WebkitAppRegion: 'no-drag' } as any}
               >
@@ -3065,15 +3157,30 @@ ${htmlText.substring(0, 30000)}
 
       {viewMode === 'classroom' && pendingAnnouncements.length > 0 && (
         <div 
-          className="absolute bottom-6 left-6 w-80 bg-[#162d22]/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-40 animate-fade-in"
+          className="absolute bottom-6 left-6 w-84 bg-[#162d22]/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col z-40 animate-fade-in"
           style={{ WebkitAppRegion: 'no-drag' } as any}
         >
-          <div className="bg-emerald-900/80 px-4 py-3 border-b border-emerald-500/30 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-emerald-100 flex items-center gap-2 drop-shadow">
-              <Clock size={16} className="text-amber-300" /> 예약된 알림 대기열
+          <div className="bg-emerald-900/80 px-4 py-2.5 border-b border-emerald-500/30 flex items-center justify-between">
+            <h3 className="text-xs font-bold text-emerald-100 flex items-center gap-1.5 drop-shadow">
+              <Clock size={15} className="text-amber-300" /> 예약된 알림 대기열
             </h3>
-            <span className="text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse shadow">{pendingAnnouncements.length}</span>
+            <span className="text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse shadow">{pendingAnnouncements.length}건</span>
           </div>
+
+          <div className="px-3 pt-2">
+            {isClassTime() && !schoolConfig.forcePopupDuringClass ? (
+              <div className="text-[10px] text-amber-200 bg-amber-950/70 border border-amber-500/40 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                <span>현재 수업 진행 중 (쉬는 시간에 자동 팝업)</span>
+              </div>
+            ) : (
+              <div className="text-[10px] text-emerald-200 bg-emerald-950/70 border border-emerald-500/40 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <span>{schoolConfig.forcePopupDuringClass ? "⚡ 즉시 강제 팝업 모드 활성" : "🔔 쉬는 시간 자동 팝업 대기"}</span>
+              </div>
+            )}
+          </div>
+
           <div className="max-h-56 overflow-y-auto p-3 space-y-2 custom-scrollbar">
             {pendingAnnouncements.map((ann) => (
               <div key={ann.id} className="bg-black/30 rounded-xl p-3 border border-emerald-900/60 flex flex-col gap-2 relative">
@@ -3083,7 +3190,13 @@ ${htmlText.substring(0, 30000)}
                     {new Date(ann.time).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 예약됨
                   </span>
                   <button 
-                    onClick={() => setPendingAnnouncements(prev => prev.filter(a => a.id !== ann.id))}
+                    onClick={() => {
+                      setPendingAnnouncements(prev => {
+                        const updated = prev.filter(a => a.id !== ann.id);
+                        try { localStorage.setItem('pending_announcements_queue', JSON.stringify(updated)); } catch(e) {}
+                        return updated;
+                      });
+                    }}
                     className="text-[10px] bg-rose-900/50 hover:bg-rose-800 text-rose-200 px-2.5 py-1 rounded-md border border-rose-800/60 transition-colors font-bold shadow-inner cursor-pointer"
                   >
                     삭제
@@ -3092,20 +3205,51 @@ ${htmlText.substring(0, 30000)}
               </div>
             ))}
           </div>
-          <div className="p-3 bg-black/40 border-t border-emerald-900/60">
+          <div className="p-3 bg-black/40 border-t border-emerald-900/60 flex gap-2">
+            <button 
+              onClick={() => {
+                if (window.confirm("예약된 알림 대기열을 모두 삭제하시겠습니까?")) {
+                  setPendingAnnouncements([]);
+                  try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
+                }
+              }}
+              className="px-2.5 py-2 bg-rose-950/80 hover:bg-rose-900 text-rose-300 text-[11px] font-bold rounded-lg transition-colors border border-rose-800/60 cursor-pointer whitespace-nowrap"
+              title="대기열 전체 비우기"
+            >
+              전체 비우기
+            </button>
             <button 
               onClick={() => {
                 const next = pendingAnnouncements[0];
-                setPendingAnnouncements(prev => prev.slice(1));
+                setPendingAnnouncements(prev => {
+                  const remaining = prev.slice(1);
+                  try { localStorage.setItem('pending_announcements_queue', JSON.stringify(remaining)); } catch(e) {}
+                  return remaining;
+                });
+                
+                if (next.duration) {
+                  setCurrentAnnouncementDuration(Number(next.duration));
+                } else {
+                  setCurrentAnnouncementDuration(null);
+                }
+
+                const targetClassKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                const currentTimeout = next.duration 
+                  || (classPopupTimeouts[targetClassKey] !== undefined ? classPopupTimeouts[targetClassKey] : (schoolConfig.popupTimeout || 60));
+
                 setAnnouncement(next.text);
                 setIsPopupOpen(true);
                 setIsExited(false);
                 playNeonAlertSound();
                 speakAnnouncementText(next.text);
+                
+                if ((window as any).electron && (window as any).electron.ipcRenderer) {
+                  (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
+                }
               }}
-              className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors shadow-md border border-emerald-500 cursor-pointer"
+              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors shadow-md border border-emerald-500 cursor-pointer flex items-center justify-center gap-1.5"
             >
-              지금 바로 띄우기 (즉시 실행)
+              <Bell size={12} /> 지금 바로 띄우기
             </button>
           </div>
         </div>

@@ -1,13 +1,13 @@
 {
   "name": "school-call",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "class.cjs",
   "type": "module",
   "build": {
     "appId": "com.schoolcall.app",
     "productName": "SchoolCallApp",
-    "artifactName": "SchoolCallApp_Setup_ver.1.${ext}",
+    "artifactName": "SchoolCallApp_Setup_ver.1.1.${ext}",
     "directories": {
       "output": "dist_installer"
     },
@@ -35,8 +35,10 @@
   },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build",
-    "start": "electron class.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
+    "start:electron-class": "electron class.cjs",
+    "start:electron-office": "electron main.cjs",
     "build:win": "vite build && electron-packager . SchoolCallApp --platform=win32 --arch=x64 --out=dist_electron --overwrite",
     "build:installer": "npm run build:class",
     "preview": "vite preview",
@@ -77,7 +79,7 @@
     "electron": "^43.4.1",
     "electron-builder": "^26.15.3",
     "electron-packager": "^17.1.2",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.25.12",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
