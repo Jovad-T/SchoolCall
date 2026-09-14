@@ -110,11 +110,26 @@ app.on('activate', () => {
   }
 });
 
+// React에서 창 숨기기 명령 수신 (바탕화면 나가기 또는 팝업 시간 종료)
+ipcMain.on('hide-window', () => {
+  if (hideTimeout) {
+    clearTimeout(hideTimeout);
+    hideTimeout = null;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setAlwaysOnTop(false);
+    mainWindow.setFullScreen(false);
+    mainWindow.minimize();
+    mainWindow.hide();
+  }
+});
+
 // 호출 및 전달사항 이벤트 수신 시 윈도우 강제 최상단 전체화면 팝업 처리
-ipcMain.on('trigger-my-call', () => {
+ipcMain.on('trigger-my-call', (event, data) => {
   if (mainWindow) {
     if (hideTimeout) {
       clearTimeout(hideTimeout);
+      hideTimeout = null;
     }
 
     if (mainWindow.isMinimized()) {
@@ -132,13 +147,16 @@ ipcMain.on('trigger-my-call', () => {
       }
     }, 2000);
 
-    // 1분 뒤 자동 숨김 처리
+    // React의 카운트다운 타이머가 'hide-window'를 보내어 닫습니다.
+    // 안전망 백업 타이머 (지정 시간 + 10초, 기본 300초)
+    const timeoutSec = (data && data.timeout) ? Number(data.timeout) : null;
+    const fallbackSec = timeoutSec ? (timeoutSec + 10) : 300;
     hideTimeout = setTimeout(() => {
       if (mainWindow) {
         mainWindow.setFullScreen(false);
         mainWindow.hide();
       }
-    }, 60000);
+    }, fallbackSec * 1000);
   }
 });
 

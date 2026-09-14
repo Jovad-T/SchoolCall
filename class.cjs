@@ -78,10 +78,13 @@ function createWindow() {
   });
 }
 
-function showPopup() {
+function showPopup(timeoutSec) {
   if (!mainWindow) return;
   
-  if (hideTimeout) clearTimeout(hideTimeout);
+  if (hideTimeout) {
+    clearTimeout(hideTimeout);
+    hideTimeout = null;
+  }
   
   if (mainWindow.isMinimized()) mainWindow.restore();
   
@@ -94,12 +97,15 @@ function showPopup() {
     if (mainWindow) mainWindow.setAlwaysOnTop(false);
   }, 2000);
   
+  // React의 카운트다운 타이머가 'hide-window'를 전송하여 화면을 닫습니다.
+  // 예외 상황(렌더링 중단 등)을 대비한 안전망 타이머 (지정 시간 + 10초, 기본 300초)
+  const fallbackSec = timeoutSec ? (Number(timeoutSec) + 10) : 300;
   hideTimeout = setTimeout(() => {
     if (mainWindow) {
       mainWindow.setFullScreen(false);
       mainWindow.hide();
     }
-  }, 60000);
+  }, fallbackSec * 1000);
 }
 
 
@@ -118,8 +124,12 @@ app.whenReady().then(() => {
   const contextMenu = Menu.buildFromTemplate([
     { label: '화면 열기/숨기기', click: () => { 
         if (mainWindow) {
-            if (mainWindow.isVisible()) mainWindow.hide();
-            else mainWindow.show();
+            if (mainWindow.isVisible()) {
+              mainWindow.setFullScreen(false);
+              mainWindow.hide();
+            } else {
+              mainWindow.show();
+            }
         }
     }},
     { label: '종료', click: () => app.quit() }
@@ -129,14 +139,19 @@ app.whenReady().then(() => {
 
   tray.on('click', () => {
     if (mainWindow) {
-      if (mainWindow.isVisible()) mainWindow.hide();
-      else mainWindow.show();
+      if (mainWindow.isVisible()) {
+        mainWindow.setFullScreen(false);
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+      }
     }
   });
 
   // 1분 후 백그라운드(트레이)로 자동 숨김
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setFullScreen(false);
       mainWindow.hide();
     }
   }, 60000);
@@ -154,22 +169,28 @@ app.on('activate', () => {
   }
 });
 
-ipcMain.on('trigger-my-call', () => {
+// React에서 창 숨기기 명령 수신 (바탕화면 나가기 또는 팝업 시간 종료)
+ipcMain.on('hide-window', () => {
+  if (hideTimeout) {
+    clearTimeout(hideTimeout);
+    hideTimeout = null;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setAlwaysOnTop(false);
+    mainWindow.setFullScreen(false);
+    mainWindow.minimize();
+    mainWindow.hide();
+  }
+});
+
+ipcMain.on('trigger-my-call', (event, data) => {
   if (scheduledShowTimeout) {
     clearTimeout(scheduledShowTimeout);
     scheduledShowTimeout = null;
   }
 
-  const delay = getDelayUntilClassEnds();
-  
-  if (delay > 0) {
-    console.log(`Currently in class. Delaying popup for ${delay}ms`);
-    scheduledShowTimeout = setTimeout(() => {
-      showPopup();
-    }, delay);
-  } else {
-    showPopup();
-  }
+  const timeoutSec = (data && data.timeout) ? Number(data.timeout) : null;
+  showPopup(timeoutSec);
 });
 
 // Reuse existing IPC handlers if needed, though class view might only receive notifications.

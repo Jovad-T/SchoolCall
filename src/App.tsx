@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon , RefreshCw } from 'lucide-react';
+import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon, RefreshCw, Save } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
@@ -183,7 +183,9 @@ export default function App() {
 
   const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number}[]>([]);
+  const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number, duration?: number}[]>([]);
+  const [currentAnnouncementDuration, setCurrentAnnouncementDuration] = useState<number | null>(null);
+  const [popupCountdown, setPopupCountdown] = useState<number | null>(null);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
   const [memoSuccessToast, setMemoSuccessToast] = useState(false);
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
@@ -195,6 +197,10 @@ export default function App() {
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
   const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
+  const [remoteDayOfWeek, setRemoteDayOfWeek] = useState<string>(() => {
+    const d = new Date().getDay();
+    return (d >= 1 && d <= 5) ? String(d) : '1';
+  });
 
   const [adminDate, setAdminDate] = useState(() => {
     const now = new Date();
@@ -244,8 +250,13 @@ export default function App() {
   if (!todayMealsObj && (meals as any).lunch) todayMealsObj = meals as any;
   if (!todayMealsObj) todayMealsObj = { lunch: ['오늘의 급식 정보가 없습니다.'], dinner: ['오늘의 급식 정보가 없습니다.'] };
 
-  const currentDayOfWeekStr = String(currentTime.getDay());
+  const currentDayNum = currentTime.getDay();
+  // 주말(0: 일요일, 6: 토요일)일 경우 테스트 및 기본 표시를 위해 월요일(1) 기준 표시
+  const currentDayOfWeekStr = (currentDayNum >= 1 && currentDayNum <= 5) ? String(currentDayNum) : '1';
   let todayTimetableObj = classTimetables[currentKey]?.[currentDayOfWeekStr];
+  if (!todayTimetableObj || Object.values(todayTimetableObj).every(v => v === '-')) {
+    todayTimetableObj = classTimetables[currentKey]?.['1'] || todayTimetableObj;
+  }
   if (!todayTimetableObj) todayTimetableObj = { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
 
   const currentStudents = classRosters[currentKey] || [];
@@ -290,8 +301,14 @@ export default function App() {
         if (data.classRosters) setClassRosters(data.classRosters);
         if (data.dailySchedule) setDailySchedule(data.dailySchedule);
         if (data.classTimetables) setClassTimetables(data.classTimetables);
-        if (data.classPopupTimeouts) setClassPopupTimeouts(data.classPopupTimeouts);
-        if (data.timetableDetails) setTimetableDetails(data.timetableDetails);
+        if (data.classPopupTimeouts) {
+          setClassPopupTimeouts(data.classPopupTimeouts);
+          try { localStorage.setItem('class_popup_timeouts', JSON.stringify(data.classPopupTimeouts)); } catch(e) {}
+        }
+        if (data.timetableDetails) {
+          setTimetableDetails(data.timetableDetails);
+          try { localStorage.setItem('timetable_details', JSON.stringify(data.timetableDetails)); } catch(e) {}
+        }
         if (data.meals) setMeals(data.meals);
       }
     });
@@ -488,17 +505,27 @@ export default function App() {
              setPendingAnnouncements([]);
              return;
           }
+
+          if (data.duration) {
+            setCurrentAnnouncementDuration(Number(data.duration));
+          } else {
+            setCurrentAnnouncementDuration(null);
+          }
           
           if (isClassTime()) {
             console.log("현재 수업 시간이므로 알림이 예약되었습니다. 쉬는 시간에 표시됩니다.");
             setPendingAnnouncements(prev => {
               if (!prev.some(a => a.id === data.time.toString())) {
-                return [...prev, { id: data.time.toString(), text: incomingText, time: data.time }];
+                return [...prev, { id: data.time.toString(), text: incomingText, time: data.time, duration: data.duration }];
               }
               return prev;
             });
             return;
           }
+
+          const targetClassKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+          const currentTimeout = data.duration 
+            || (classPopupTimeouts[targetClassKey] !== undefined ? classPopupTimeouts[targetClassKey] : (schoolConfig.popupTimeout || 60));
           
           setAnnouncement(incomingText);
           setIsPopupOpen(true);
@@ -507,7 +534,7 @@ export default function App() {
           speakAnnouncementText(incomingText);
           
           if ((window as any).electron && (window as any).electron.ipcRenderer) {
-            (window as any).electron.ipcRenderer.send('trigger-my-call');
+            (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
           }
         }
       }
@@ -521,7 +548,7 @@ export default function App() {
       unsubscribeLocal();
       unsubscribeGlobal();
     };
-  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule]);
+  }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule, classPopupTimeouts, schoolConfig.popupTimeout]);
 
   useEffect(() => {
     if (pendingAnnouncements.length > 0 && viewMode === 'classroom' && !isClassTime() && !isPopupOpen) {
@@ -529,6 +556,16 @@ export default function App() {
       const nextAnnouncement = pendingAnnouncements[0];
       setPendingAnnouncements(prev => prev.slice(1));
       
+      if (nextAnnouncement.duration) {
+        setCurrentAnnouncementDuration(Number(nextAnnouncement.duration));
+      } else {
+        setCurrentAnnouncementDuration(null);
+      }
+
+      const targetClassKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+      const currentTimeout = nextAnnouncement.duration 
+        || (classPopupTimeouts[targetClassKey] !== undefined ? classPopupTimeouts[targetClassKey] : (schoolConfig.popupTimeout || 60));
+
       setAnnouncement(nextAnnouncement.text);
       setIsPopupOpen(true);
       setIsExited(false);
@@ -536,15 +573,15 @@ export default function App() {
       speakAnnouncementText(nextAnnouncement.text);
       
       if ((window as any).electron && (window as any).electron.ipcRenderer) {
-        (window as any).electron.ipcRenderer.send('trigger-my-call');
+        (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
       }
     }
-  }, [currentTime, pendingAnnouncements, viewMode, isPopupOpen]);
+  }, [currentTime, pendingAnnouncements, viewMode, isPopupOpen, classPopupTimeouts, schoolConfig.currentGrade, schoolConfig.currentClass, schoolConfig.popupTimeout]);
 
   const handleExitApp = () => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
       (window as any).electron.ipcRenderer.send('hide-window');
-      setIsExited(true);
+      setIsExited(false); // 일렉트론 환경에서는 검은 대기 화면 대신 OS 창이 즉시 바탕화면으로 숨겨집니다.
     } else {
       try { window.close(); } catch(e) {}
       setIsExited(true);  
@@ -559,16 +596,32 @@ export default function App() {
   useEffect(() => {
     if (isPopupOpen && viewMode === 'classroom') {
       const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-      const effectiveTimeout = classPopupTimeouts[classKey] !== undefined
-        ? classPopupTimeouts[classKey]
-        : (schoolConfig.popupTimeout || 60);
+      const effectiveTimeout = currentAnnouncementDuration 
+        || (classPopupTimeouts[classKey] !== undefined ? classPopupTimeouts[classKey] : (schoolConfig.popupTimeout || 60));
+      
+      setPopupCountdown(effectiveTimeout);
+
+      if ((window as any).electron && (window as any).electron.ipcRenderer) {
+        (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: effectiveTimeout });
+      }
+
       const timeoutMs = effectiveTimeout * 1000;
       const timer = setTimeout(() => {
         handleClosePopupAndHide();
       }, timeoutMs);
-      return () => clearTimeout(timer);
+
+      const interval = setInterval(() => {
+        setPopupCountdown(prev => (prev !== null && prev > 0 ? prev - 1 : 0));
+      }, 1000);
+
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
+    } else {
+      setPopupCountdown(null);
     }
-  }, [isPopupOpen, viewMode, schoolConfig.popupTimeout, schoolConfig.currentGrade, schoolConfig.currentClass, classPopupTimeouts]);
+  }, [isPopupOpen, viewMode, schoolConfig.popupTimeout, schoolConfig.currentGrade, schoolConfig.currentClass, classPopupTimeouts, currentAnnouncementDuration]);
 
   const dateString = `${currentTime.getMonth() + 1}월 ${currentTime.getDate()}일 ${['일', '월', '화', '수', '목', '금', '토'][currentTime.getDay()]}요일`;
   const timeString = currentTime.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -1139,11 +1192,16 @@ ${htmlText.substring(0, 30000)}
     }
   };
 
-  const sendFirebaseMessage = (msg: string, isGlobal = false) => {
+  const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number) => {
+    const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    const effectiveTimeout = customDuration 
+      || (classPopupTimeouts[classKey] !== undefined ? classPopupTimeouts[classKey] : (schoolConfig.popupTimeout || 60));
+
     if (!db) {
       alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
       localStorage.setItem('class_announcement', msg);
       setAnnouncement(msg);
+      setCurrentAnnouncementDuration(effectiveTimeout);
       setSendSuccessToast(true);
       setTimeout(() => setSendSuccessToast(false), 3000);
       return;
@@ -1152,7 +1210,8 @@ ${htmlText.substring(0, 30000)}
     const targetPath = isGlobal ? 'announcements/global' : `announcements/${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
     set(ref(db, targetPath), {
       text: msg,
-      time: Date.now()
+      time: Date.now(),
+      duration: effectiveTimeout
     }).then(() => {
       setSendSuccessToast(true);
       setTimeout(() => setSendSuccessToast(false), 3000);
@@ -1461,6 +1520,46 @@ ${htmlText.substring(0, 30000)}
             </div>
           </section>
 
+          <section className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Clock size={16} className="text-amber-400" />
+              <span className="text-xs font-bold text-slate-300">
+                {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 화면 표시 유지 시간:
+              </span>
+              <span className="text-xs font-mono font-black text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2 py-0.5 rounded">
+                {classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`] !== undefined 
+                  ? `${classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`]}초` 
+                  : `${schoolConfig.popupTimeout || 60}초 (기본)`}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[15, 30, 60, 90, 120].map(sec => {
+                const curVal = classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`] !== undefined
+                  ? classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`]
+                  : (schoolConfig.popupTimeout || 60);
+                const isSelected = curVal === sec;
+                return (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => {
+                      const key = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                      const newTimeouts = { ...classPopupTimeouts, [key]: sec };
+                      setClassPopupTimeouts(newTimeouts);
+                      try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newTimeouts)); } catch(e) {}
+                      if (db) {
+                        set(ref(db, 'globalData/classPopupTimeouts'), newTimeouts).catch(console.error);
+                      }
+                    }}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow-md font-black' : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'}`}
+                  >
+                    {sec}초
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
           <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-400 tracking-wider">SELECT STUDENT ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 학생 명렬 - 총 {currentStudents.length}명)</label>
@@ -1642,39 +1741,66 @@ ${htmlText.substring(0, 30000)}
         
         
           <section className="bg-[#1a1a1a] border border-amber-900/40 rounded-3xl p-6 space-y-4 relative z-0">
-            <div className="flex items-center gap-2 mb-4 text-amber-400">
-              <Calendar size={18} />
-              <h2 className="font-bold text-sm">오늘의 시간표 알림장/이동수업 메모 작성</h2>
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+              <div className="flex items-center gap-2 text-amber-400">
+                <Calendar size={18} />
+                <h2 className="font-bold text-sm">시간표 알림장 / 이동수업 장소 메모 입력</h2>
+              </div>
+              <div className="flex items-center gap-1.5 bg-[#111] p-1 rounded-xl border border-white/10">
+                {[
+                  { day: '1', label: '월' },
+                  { day: '2', label: '화' },
+                  { day: '3', label: '수' },
+                  { day: '4', label: '목' },
+                  { day: '5', label: '금' },
+                ].map(({ day, label }) => {
+                  const isSelected = remoteDayOfWeek === day;
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() => setRemoteDayOfWeek(day)}
+                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow font-black' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      {label}요일
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             <p className="text-xs text-slate-400 mb-4 break-keep">
-              아래에 입력한 메모는 교실 앞 전자칠판의 시간표 카드에 즉시 반영되어 표시됩니다.
+              선택한 요일의 각 교시별 장소와 알림 메모를 입력하면 전자칠판 시간표 카드에 실시간으로 표시됩니다.
             </p>
             
             <div className="space-y-3">
               {[1, 2, 3, 4, 5, 6, 7].map(period => {
                 const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-                const todaySubject = classTimetables[todayKey]?.[currentDayOfWeekStr]?.[period];
+                const subjectVal = classTimetables[todayKey]?.[remoteDayOfWeek]?.[period]
+                  || classTimetables[todayKey]?.['1']?.[period];
+                const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
                 
-                if (!todaySubject || todaySubject === '-') return null;
-                
-                const detailKey = `${todayKey}-${currentDayOfWeekStr}-${period}`;
-                const detail = timetableDetails[detailKey] || { location: '', memo: '' };
+                const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
+                const detail = timetableDetails[detailKey] || timetableDetails[`${todayKey}-${period}`] || { location: '', memo: '' };
                 
                 return (
                   <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
-                    <div className="flex items-center gap-2 w-full md:w-32 shrink-0">
+                    <div className="flex items-center gap-2 w-full md:w-36 shrink-0">
                       <span className="text-amber-500 font-black text-sm">{period}교시</span>
-                      <span className="text-white font-bold">{todaySubject}</span>
+                      <span className={`text-xs font-bold truncate ${displaySubject === '과목 미지정' ? 'text-slate-500' : 'text-white'}`}>{displaySubject}</span>
                     </div>
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 relative z-0">
                       <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-3 border border-white/10 focus-within:border-amber-500/50">
                         <MapPin size={12} className="text-slate-500 shrink-0"/>
                         <input
                           type="text"
-                          placeholder="장소 (예: 과학실)"
+                          placeholder="장소 (예: 과학실, 체육관)"
                           value={detail.location}
                           onChange={(e) => {
-                            const newDetails = { ...timetableDetails, [detailKey]: { ...detail, location: e.target.value } };
+                            const newDetails = { 
+                              ...timetableDetails, 
+                              [detailKey]: { ...detail, location: e.target.value },
+                              [`${todayKey}-${period}`]: { ...detail, location: e.target.value }
+                            };
                             setTimetableDetails(newDetails);
                           }}
                           className="w-full bg-transparent text-xs text-white py-2 outline-none"
@@ -1684,10 +1810,14 @@ ${htmlText.substring(0, 30000)}
                         <FileText size={12} className="text-slate-500 shrink-0"/>
                         <input
                           type="text"
-                          placeholder="메모 (예: 체육복 준비)"
+                          placeholder="공지/메모 (예: 준비물 지참, 숙제 제출)"
                           value={detail.memo}
                           onChange={(e) => {
-                            const newDetails = { ...timetableDetails, [detailKey]: { ...detail, memo: e.target.value } };
+                            const newDetails = { 
+                              ...timetableDetails, 
+                              [detailKey]: { ...detail, memo: e.target.value },
+                              [`${todayKey}-${period}`]: { ...detail, memo: e.target.value }
+                            };
                             setTimetableDetails(newDetails);
                           }}
                           className="w-full bg-transparent text-xs text-white py-2 outline-none"
@@ -1701,12 +1831,12 @@ ${htmlText.substring(0, 30000)}
             <div className="mt-6 flex justify-end gap-3">
               <button 
                 onClick={() => {
-                  // Removed window.confirm due to iframe sandbox restrictions
                   const newDetails = { ...timetableDetails };
                   const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
                   [1, 2, 3, 4, 5, 6, 7].forEach(period => {
-                    const detailKey = `${todayKey}-${currentDayOfWeekStr}-${period}`;
+                    const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                     delete newDetails[detailKey];
+                    delete newDetails[`${todayKey}-${period}`];
                   });
                   setTimetableDetails(newDetails);
                 }}
@@ -1966,54 +2096,160 @@ ${htmlText.substring(0, 30000)}
             <div className="pt-4 border-t border-emerald-900/60 mt-4 space-y-3">
               <label className="text-xs text-amber-300 font-bold mb-2 flex items-center gap-1.5"><Clock size={14}/> 알림 팝업 자동 닫힘 시간 설정</label>
               
-              <div className="bg-[#111a15] p-3 rounded-xl border border-amber-900/50 space-y-3">
-                <div className="flex items-center gap-4">
-                  <label className="text-xs text-amber-200 font-bold whitespace-nowrap">전체 기본 유지 시간</label>
-                  <input
-                    type="range"
-                    min="10"
-                    max="300"
-                    step="10"
-                    value={adminPopupTimeout}
-                    onChange={(e) => setAdminPopupTimeout(parseInt(e.target.value))}
-                    className="flex-1 accent-amber-500 h-1.5 bg-amber-900/40 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <span className="text-xs font-mono text-amber-300 w-12 text-right">{adminPopupTimeout}초</span>
+              <div className="bg-[#111a15] p-3 rounded-xl border border-amber-900/50 space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-4">
+                    <label className="text-xs text-amber-200 font-bold whitespace-nowrap">전체 기본 유지 시간</label>
+                    <input
+                      type="range"
+                      min="10"
+                      max="300"
+                      step="5"
+                      value={adminPopupTimeout}
+                      onChange={(e) => setAdminPopupTimeout(parseInt(e.target.value))}
+                      className="flex-1 accent-amber-500 h-1.5 bg-amber-900/40 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-xs font-mono text-amber-300 w-12 text-right">{adminPopupTimeout}초</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap pl-28">
+                    {[15, 30, 60, 90, 120, 180].map(sec => (
+                      <button
+                        key={sec}
+                        type="button"
+                        onClick={() => setAdminPopupTimeout(sec)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold ${adminPopupTimeout === sec ? 'bg-amber-500 text-black font-black' : 'bg-white/5 text-slate-400 hover:text-white'}`}
+                      >
+                        {sec}초
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="pt-2 border-t border-amber-900/30 flex items-center gap-4">
-                  <label className="text-xs text-emerald-300 font-bold whitespace-nowrap">
-                    {editTargetGrade}학년 {editTargetClass}반 개별 유지 시간
-                  </label>
-                  <input
-                    type="range"
-                    min="10"
-                    max="300"
-                    step="10"
-                    value={tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined ? tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] : adminPopupTimeout}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value);
-                      const key = editTargetGrade + '-' + editTargetClass;
-                      setTempClassPopupTimeouts(prev => ({ ...prev, [key]: val }));
-                    }}
-                    className="flex-1 accent-emerald-500 h-1.5 bg-emerald-900/40 rounded-lg appearance-none cursor-pointer"
-                  />
-                  <span className="text-xs font-mono text-emerald-300 w-12 text-right">
-                    {(tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined ? tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] : adminPopupTimeout)}초
-                  </span>
-                  {tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined && (
+                <div className="pt-3 border-t border-amber-900/40 space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-emerald-300 font-bold">대상 학급 선택:</span>
+                      <select
+                        value={editTargetGrade}
+                        onChange={e => setEditTargetGrade(Number(e.target.value))}
+                        className="bg-[#16221c] text-emerald-300 border border-emerald-700/60 rounded-lg px-2 py-1 text-xs font-bold outline-none"
+                      >
+                        {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                      </select>
+                      <select
+                        value={editTargetClass}
+                        onChange={e => setEditTargetClass(Number(e.target.value))}
+                        className="bg-[#16221c] text-emerald-300 border border-emerald-700/60 rounded-lg px-2 py-1 text-xs font-bold outline-none"
+                      >
+                        {Array.from({ length: adminGradeCounts[editTargetGrade as 1|2|3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                      </select>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => {
-                        const key = editTargetGrade + '-' + editTargetClass;
-                        const newMap = { ...tempClassPopupTimeouts };
-                        delete newMap[key];
-                        setTempClassPopupTimeouts(newMap);
+                        setClassPopupTimeouts(tempClassPopupTimeouts);
+                        try { localStorage.setItem('class_popup_timeouts', JSON.stringify(tempClassPopupTimeouts)); } catch(e) {}
+                        if (db) {
+                          set(ref(db, 'globalData/classPopupTimeouts'), tempClassPopupTimeouts).catch(console.error);
+                        }
+                        setSaveSuccessToast(true);
+                        setTimeout(() => setSaveSuccessToast(false), 3000);
                       }}
-                      className="text-[10px] bg-rose-900/60 hover:bg-rose-800 text-rose-200 px-2 py-1 rounded border border-rose-700 whitespace-nowrap"
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow cursor-pointer active:scale-95 transition-all"
                     >
-                      기본값 복원
+                      <Save size={13} /> 개별 시간 즉시 동기화
                     </button>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <label className="text-xs text-emerald-300 font-bold whitespace-nowrap">
+                      {editTargetGrade}학년 {editTargetClass}반 유지 시간
+                    </label>
+                    <input
+                      type="range"
+                      min="10"
+                      max="300"
+                      step="5"
+                      value={tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined ? tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] : adminPopupTimeout}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value);
+                        const key = editTargetGrade + '-' + editTargetClass;
+                        setTempClassPopupTimeouts(prev => ({ ...prev, [key]: val }));
+                      }}
+                      className="flex-1 accent-emerald-500 h-1.5 bg-emerald-900/40 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-xs font-mono text-emerald-300 w-12 text-right">
+                      {(tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined ? tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] : adminPopupTimeout)}초
+                    </span>
+                    {tempClassPopupTimeouts[editTargetGrade + '-' + editTargetClass] !== undefined && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const key = editTargetGrade + '-' + editTargetClass;
+                          const newMap = { ...tempClassPopupTimeouts };
+                          delete newMap[key];
+                          setTempClassPopupTimeouts(newMap);
+                          setClassPopupTimeouts(newMap);
+                          try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newMap)); } catch(e) {}
+                          if (db) { set(ref(db, 'globalData/classPopupTimeouts'), newMap).catch(console.error); }
+                        }}
+                        className="text-[10px] bg-rose-900/60 hover:bg-rose-800 text-rose-200 px-2 py-1 rounded border border-rose-700 whitespace-nowrap cursor-pointer"
+                      >
+                        기본값 복원
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap pl-32">
+                    {[15, 30, 60, 90, 120, 180].map(sec => {
+                      const key = editTargetGrade + '-' + editTargetClass;
+                      const curVal = tempClassPopupTimeouts[key] !== undefined ? tempClassPopupTimeouts[key] : adminPopupTimeout;
+                      return (
+                        <button
+                          key={sec}
+                          type="button"
+                          onClick={() => {
+                            const newMap = { ...tempClassPopupTimeouts, [key]: sec };
+                            setTempClassPopupTimeouts(newMap);
+                          }}
+                          className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer ${curVal === sec ? 'bg-emerald-500 text-black font-black' : 'bg-white/5 text-slate-400 hover:text-white'}`}
+                        >
+                          {sec}초
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {Object.keys(tempClassPopupTimeouts).length > 0 && (
+                    <div className="pt-2 border-t border-emerald-900/30">
+                      <div className="text-[11px] text-slate-400 font-bold mb-1.5">현재 개별 시간 설정된 학급 목록:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {Object.entries(tempClassPopupTimeouts).map(([key, sec]) => {
+                          const [g, c] = key.split('-');
+                          return (
+                            <div key={key} className="bg-emerald-950/70 border border-emerald-700/60 text-emerald-200 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-2">
+                              <span>{g}학년 {c}반: <strong className="text-amber-400">{sec}초</strong></span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const newMap = { ...tempClassPopupTimeouts };
+                                  delete newMap[key];
+                                  setTempClassPopupTimeouts(newMap);
+                                  setClassPopupTimeouts(newMap);
+                                  try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newMap)); } catch(e) {}
+                                  if (db) { set(ref(db, 'globalData/classPopupTimeouts'), newMap).catch(console.error); }
+                                }}
+                                className="text-rose-400 hover:text-rose-200 text-[10px] font-black cursor-pointer"
+                                title="삭제 (기본값으로 복원)"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -2362,16 +2598,73 @@ ${htmlText.substring(0, 30000)}
   }
   if (isExited) {
     return (
-      <div className="h-screen w-full bg-[#111a15] text-emerald-400 flex flex-col items-center justify-center space-y-4 select-none">
-        <div className="text-5xl mb-2">💤</div>
-        <h2 className="text-2xl font-black text-white tracking-tight">알림판 화면이 숨겨졌습니다.</h2>
-        <p className="text-xs text-emerald-500/80">바탕화면에서 작업 중입니다. 새로운 알림이 오면 자동으로 깨어납니다.</p>
-        <button 
-          onClick={() => setIsExited(false)}
-          className="mt-8 px-6 py-3 bg-emerald-900/50 hover:bg-emerald-800 text-emerald-300 rounded-xl text-sm font-bold border border-emerald-700/50 transition-colors"
-        >
-          알림판 깨우기
-        </button>
+      <div className="h-screen w-full bg-gradient-to-br from-[#0c1824] via-[#102a45] to-[#0a192f] text-slate-200 flex flex-col justify-between p-8 select-none relative overflow-hidden">
+        {/* Desktop simulation background with subtle grid and icons */}
+        <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:24px_24px] opacity-10 pointer-events-none"></div>
+
+        {/* Top bar */}
+        <div className="flex items-center justify-between z-10">
+          <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10">
+            <span className="h-3 w-3 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="text-xs font-bold text-slate-300">
+              {schoolConfig.schoolName} {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반
+            </span>
+            <span className="text-xs text-slate-400">|</span>
+            <span className="text-xs font-mono text-emerald-400 font-bold">{timeString}</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                // Trigger test popup in desktop mode
+                setAnnouncement("🔔 [테스트] 교무실에서 전달사항이 도착했습니다.\n바탕화면 모드에서 자동으로 팝업이 호출되었습니다!");
+                setIsPopupOpen(true);
+                setIsExited(false);
+                playNeonAlertSound();
+                speakAnnouncementText("안내 말씀 드립니다. 바탕화면 모드에서 자동으로 팝업이 호출되었습니다.");
+              }}
+              className="px-4 py-2 bg-amber-600/80 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-all shadow cursor-pointer flex items-center gap-1.5"
+            >
+              <Bell size={14} />
+              테스트 알림 호출
+            </button>
+            <button 
+              onClick={() => setIsExited(false)}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] cursor-pointer flex items-center gap-2"
+            >
+              <Maximize size={15} />
+              알림판 전체화면 복원
+            </button>
+          </div>
+        </div>
+
+        {/* Center message */}
+        <div className="flex flex-col items-center justify-center text-center space-y-4 z-10 my-auto">
+          <div className="w-20 h-20 rounded-3xl bg-white/5 border border-white/10 backdrop-blur-md flex items-center justify-center text-4xl shadow-2xl">
+            🖥️
+          </div>
+          <h2 className="text-2xl font-black text-white tracking-tight">교실 바탕화면 / 판서 모드 실행 중</h2>
+          <p className="text-sm text-slate-400 max-w-md leading-relaxed break-keep">
+            현재 알림판이 바탕화면 모드로 전환되었습니다. 선생님들의 수업 및 판서 작업을 방해하지 않으며, <strong className="text-emerald-400">새로운 공지나 호출이 오면 소리와 함께 화면이 즉시 자동으로 팝업</strong>됩니다.
+          </p>
+          <div className="text-xs text-slate-500 font-mono bg-black/30 px-4 py-2 rounded-xl border border-white/5 mt-2">
+            ※ .exe 교실 앱 실행 시에는 이 화면 대신 윈도우 실제 바탕화면으로 즉시 최소화/숨김 처리됩니다.
+          </div>
+        </div>
+
+        {/* Bottom bar simulation */}
+        <div className="flex items-center justify-between text-xs text-slate-400 border-t border-white/10 pt-4 z-10">
+          <div className="flex items-center gap-2 font-mono">
+            <span className="text-slate-500">상태:</span>
+            <span className="text-emerald-400 font-bold">백그라운드 알림 대기중</span>
+          </div>
+          <button 
+            onClick={() => setIsExited(false)}
+            className="text-slate-400 hover:text-white underline cursor-pointer text-xs"
+          >
+            전자칠판 알림판 화면으로 돌아가기 →
+          </button>
+        </div>
       </div>
     );
   }
@@ -2583,9 +2876,13 @@ ${htmlText.substring(0, 30000)}
                 'bg-[#fdf4ff] text-slate-800 rotate-[0.7deg]',
                 'bg-[#fff7ed] text-slate-800 rotate-[-0.3deg]'
               ];
-              const detailKey = `${currentKey}-${currentDayOfWeekStr}-${idx + 1}`;
-              const detail = timetableDetails[detailKey];
-              const hasDetail = detail && (detail.location || detail.memo);
+              const effectiveDay = (currentDayOfWeekStr >= '1' && currentDayOfWeekStr <= '5') ? currentDayOfWeekStr : '1';
+              const detailKey = `${currentKey}-${effectiveDay}-${idx + 1}`;
+              const detail = timetableDetails[detailKey] 
+                || timetableDetails[`${currentKey}-${currentDayOfWeekStr}-${idx + 1}`]
+                || timetableDetails[`${currentKey}-1-${idx + 1}`]
+                || timetableDetails[`${currentKey}-${idx + 1}`];
+              const hasDetail = detail && Boolean(detail.location || detail.memo);
               return (
                 <div 
                   key={idx} 
@@ -2604,32 +2901,40 @@ ${htmlText.substring(0, 30000)}
                   
                   <div className="flex justify-between items-start font-sans px-1 relative z-0">
                     <span className="text-sm font-bold opacity-70 mt-1">{item.period}</span>
-                    <div className="flex items-center gap-1">
-                      {hasDetail && <FileText size={14} className="text-amber-600 opacity-80" />}
-                      {isCurrent && <span className="flex h-3 w-3 mt-1 mr-1"><span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-rose-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span></span>}
+                    <div className="flex items-center gap-1.5">
+                      {hasDetail && <FileText size={15} className="text-amber-700 opacity-90" />}
+                      {isCurrent && (
+                        <span className="flex items-center gap-1 bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
+                          <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping"></span>
+                          수업중
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex-1 flex flex-col items-center justify-center py-2 px-1 relative z-0">
-                    <div className="text-5xl mb-4 opacity-90 drop-shadow-sm">{getSubjectIcon(item.subject)}</div>
+                    <div className="text-5xl mb-3 opacity-90 drop-shadow-sm">{getSubjectIcon(item.subject)}</div>
                     <div className="text-2xl font-black tracking-tight break-keep leading-snug text-center">{item.subject}</div>
-                    {detail?.location && <div className="mt-2 text-sm font-sans font-bold text-slate-700 bg-white/40 px-2 py-0.5 rounded-md flex items-center gap-1"><MapPin size={12}/>{detail.location}</div>}
+                    {detail?.location && (
+                      <div className="mt-2 text-xs font-sans font-black text-emerald-950 bg-emerald-100/90 border border-emerald-400/60 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                        <MapPin size={13} className="text-emerald-700"/>
+                        <span>{detail.location}</span>
+                      </div>
+                    )}
                     {detail?.memo && (
                       <div className="mt-2 w-full animate-fade-in relative z-20">
-                        <div className="absolute -top-1.5 -right-1 flex h-3 w-3">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-                        </div>
-                        <div className="text-[11px] font-sans font-bold text-rose-900 bg-rose-100 border border-rose-300 px-2 py-1.5 rounded-lg line-clamp-2 leading-tight w-full break-keep shadow-sm">
-                          <div className="flex items-center gap-1 mb-0.5 text-rose-600">
-                            <Bell size={12} className="animate-pulse" />
-                            <span className="text-[9px] font-black tracking-widest">알림</span>
+                        <div className="text-xs font-sans font-bold text-rose-950 bg-rose-50 border border-rose-300 p-2 rounded-xl leading-snug w-full break-keep shadow-sm">
+                          <div className="flex items-center gap-1 mb-1 text-rose-600 font-black text-[10px]">
+                            <Bell size={12} className="animate-pulse shrink-0" />
+                            <span>공지사항</span>
                           </div>
-                          {detail.memo}
+                          <div className="text-slate-800 text-[11px] leading-tight font-medium">
+                            {detail.memo}
+                          </div>
                         </div>
                       </div>
                     )}
                   </div>
-                  <div className="text-[11px] text-center font-sans font-bold opacity-40 bg-black/5 rounded-full py-1.5 mt-auto w-full relative z-0">{item.time}</div>
+                  <div className="text-[11px] text-center font-sans font-bold opacity-50 bg-black/5 rounded-full py-1.5 mt-auto w-full relative z-0">{item.time}</div>
                 </div>
               );
             })}
@@ -2895,6 +3200,12 @@ ${htmlText.substring(0, 30000)}
             )}
 
             <div className="flex flex-col items-center gap-4 w-full mt-8">
+              {popupCountdown !== null && (
+                <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#1a0005] border border-[#ff0055]/50 text-rose-300 text-sm font-bold font-mono shadow-[0_0_15px_rgba(255,0,85,0.3)]">
+                  <Clock size={16} className="text-[#ff0055] animate-pulse" />
+                  <span>자동 닫힘까지 <strong className="text-white text-base font-black">{popupCountdown}</strong>초 남음</span>
+                </div>
+              )}
               <button 
                 onClick={handleClosePopupAndHide}
                 className="px-12 py-5 bg-[#ff0055] hover:bg-[#ff3377] text-white font-black rounded-2xl shadow-[0_0_20px_#ff0055] transition-all text-xl flex items-center gap-3 cursor-pointer active:scale-95"
