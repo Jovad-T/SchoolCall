@@ -236,7 +236,18 @@ export default function App() {
   const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number, duration?: number}[]>(() => {
     try {
       const saved = localStorage.getItem('pending_announcements_queue');
-      return saved ? JSON.parse(saved) : [];
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+        const validAnnouncements = parsed.filter((ann: any) => ann.time > oneDayAgo);
+        
+        // 만약 오래된 알림이 지워졌다면 로컬스토리지도 업데이트
+        if (validAnnouncements.length !== parsed.length) {
+          localStorage.setItem('pending_announcements_queue', JSON.stringify(validAnnouncements));
+        }
+        return validAnnouncements;
+      }
+      return [];
     } catch(e) {
       return [];
     }
@@ -1802,7 +1813,96 @@ ${htmlText.substring(0, 30000)}
             </div>
           </section>
         
-        
+          <section className="bg-[#1a1a1a] border border-blue-900/40 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center gap-2 text-blue-400 mb-2">
+              <Clock size={18} />
+              <h2 className="font-bold text-sm">교시별 일과시간 설정 (전체 공통 적용)</h2>
+            </div>
+            <p className="text-xs text-slate-400 mb-4 break-keep">
+              단축수업 등 오늘 하루 특별한 일과가 있다면 여기서 시간을 변경할 수 있습니다. 변경 시 즉시 모든 전자칠판에 반영됩니다.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {[1, 2, 3, 4, 5, 6, 7].map((p) => {
+                const sch = dailySchedule?.[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
+                return (
+                  <div key={p} className="bg-[#111] p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-blue-400 w-16">{p}교시</span>
+                    
+                    <div className="flex items-center gap-1">
+                      <select 
+                        value={sch.startH}
+                        onChange={(e) => {
+                          const newSchedule = {...dailySchedule, [p]: {...sch, startH: e.target.value}};
+                          setDailySchedule(newSchedule);
+                        }}
+                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
+                      >
+                        {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
+                      </select>
+                      <span>:</span>
+                      <select 
+                        value={sch.startM}
+                        onChange={(e) => {
+                          const newSchedule = {...dailySchedule, [p]: {...sch, startM: e.target.value}};
+                          setDailySchedule(newSchedule);
+                        }}
+                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
+                      >
+                        {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
+                      </select>
+                    </div>
+                    <span className="text-xs text-blue-600">-</span>
+                    <div className="flex items-center gap-1">
+                      <select 
+                        value={sch.endH}
+                        onChange={(e) => {
+                          const newSchedule = {...dailySchedule, [p]: {...sch, endH: e.target.value}};
+                          setDailySchedule(newSchedule);
+                        }}
+                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
+                      >
+                        {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
+                      </select>
+                      <span>:</span>
+                      <select 
+                        value={sch.endM}
+                        onChange={(e) => {
+                          const newSchedule = {...dailySchedule, [p]: {...sch, endM: e.target.value}};
+                          setDailySchedule(newSchedule);
+                        }}
+                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
+                      >
+                        {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button 
+                onClick={() => {
+                  try { localStorage.setItem('daily_schedule', JSON.stringify(dailySchedule)); } catch(e) {}
+                  if (db) {
+                    import("firebase/database").then(({ ref: dbRef, set }) => {
+                      set(dbRef(db, 'globalData/dailySchedule'), dailySchedule).then(() => {
+                        setMemoSuccessToast(true);
+                        setTimeout(() => setMemoSuccessToast(false), 3000);
+                      }).catch(console.error);
+                    });
+                  } else {
+                    setMemoSuccessToast(true);
+                    setTimeout(() => setMemoSuccessToast(false), 3000);
+                  }
+                }}
+                className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+              >
+                <Send size={18} />
+                일과시간 전체 반영 (저장)
+              </button>
+            </div>
+          </section>
+
           <section className="bg-[#1a1a1a] border border-amber-900/40 rounded-3xl p-6 space-y-4 relative z-0">
             <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
               <div className="flex items-center gap-2 text-amber-400">
