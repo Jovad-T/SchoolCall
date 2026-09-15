@@ -1,13 +1,12 @@
 {
   "name": "school-call",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "class.cjs",
   "type": "module",
   "build": {
     "appId": "com.schoolcall.app",
     "productName": "SchoolCallApp",
-    "artifactName": "SchoolCallApp_Setup_ver.1.1.${ext}",
     "directories": {
       "output": "dist_installer"
     },
@@ -44,8 +43,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "build:office": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"main.cjs\" -c.productName=\"학생 호출 도우미\" -c.nsis.shortcutName=\"학생 호출 도우미\" -c.directories.output=\"dist_office\"",
-    "build:class": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"class.cjs\" -c.productName=\"SchoolCallApp\" -c.nsis.shortcutName=\"SchoolCallApp\" -c.directories.output=\"dist_class\""
+    "build:office": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"main.cjs\" -c.productName=\"학생 호출 도우미\" -c.nsis.shortcutName=\"학생 호출 도우미\" -c.nsis.artifactName=\"SchoolCallApp_Office_Setup_v${version}.${ext}\" -c.directories.output=\"dist_office\"",
+    "build:class": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"class.cjs\" -c.productName=\"SchoolCallApp\" -c.nsis.shortcutName=\"SchoolCallApp\" -c.nsis.artifactName=\"SchoolCallApp_Class_Setup_v${version}.${ext}\" -c.directories.output=\"dist_class\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

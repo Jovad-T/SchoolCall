@@ -25,7 +25,7 @@ try {
   console.error("Firebase 연결 실패:", e);
 }
 
-export const APP_VERSION = 'v1.1.0';
+export const APP_VERSION = 'v1.2.0';
 
 const getPopupTheme = (color: string) => {
   return {
@@ -74,10 +74,21 @@ export default function App() {
         }
 
         if (isNewer) {
+          // viewMode(또는 appEnvMode)에 따라 각자 다른 URL을 적용
+          // 만약 version.json에 모드별 URL이 없다면 기본 downloadUrl 사용
+          let finalUrl = data.downloadUrl;
+          if (appEnvMode === 'class' && data.downloadUrlClass) {
+            finalUrl = data.downloadUrlClass;
+          } else if (appEnvMode === 'office' && data.downloadUrlOffice) {
+            finalUrl = data.downloadUrlOffice;
+          } else if (appEnvMode === 'remote' && data.downloadUrlOffice) {
+            finalUrl = data.downloadUrlOffice;
+          }
+
           setUpdateAvailable({
             isAvailable: true,
             latest: data.latestVersion,
-            url: data.downloadUrl
+            url: finalUrl
           });
         }
       } catch (e) {
