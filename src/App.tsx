@@ -27,6 +27,16 @@ try {
 
 export const APP_VERSION = 'v1.1.0';
 
+const getPopupTheme = (color: string) => {
+  return {
+    rose: { hex: '#e11d48', bgDark: '#fff1f2', bgBadge: '#ffe4e6', textBadge: '#e11d48', textMain: '#881337', shadow: 'rgba(225,29,72,0.3)', icon: '#e11d48' },
+    blue: { hex: '#2563eb', bgDark: '#eff6ff', bgBadge: '#dbeafe', textBadge: '#2563eb', textMain: '#1e3a8a', shadow: 'rgba(37,99,235,0.3)', icon: '#2563eb' },
+    emerald: { hex: '#059669', bgDark: '#ecfdf5', bgBadge: '#d1fae5', textBadge: '#059669', textMain: '#064e3b', shadow: 'rgba(5,150,105,0.3)', icon: '#059669' },
+    amber: { hex: '#d97706', bgDark: '#fffbeb', bgBadge: '#fef3c7', textBadge: '#d97706', textMain: '#78350f', shadow: 'rgba(217,119,6,0.3)', icon: '#d97706' },
+    purple: { hex: '#7e22ce', bgDark: '#faf5ff', bgBadge: '#f3e8ff', textBadge: '#7e22ce', textMain: '#4c1d95', shadow: 'rgba(126,34,206,0.3)', icon: '#7e22ce' }
+  }[color as 'rose'|'blue'|'emerald'|'amber'|'purple'] || { hex: '#e11d48', bgDark: '#fff1f2', bgBadge: '#ffe4e6', textBadge: '#e11d48', textMain: '#881337', shadow: 'rgba(225,29,72,0.3)', icon: '#e11d48' };
+};
+
 export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
   const urlParamsForView = new URLSearchParams(window.location.search);
@@ -259,6 +269,7 @@ export default function App() {
     }
   });
   const [currentAnnouncementDuration, setCurrentAnnouncementDuration] = useState<number | null>(null);
+  const [currentAnnouncementColor, setCurrentAnnouncementColor] = useState<string>('rose');
   const [popupCountdown, setPopupCountdown] = useState<number | null>(null);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
   const [memoSuccessToast, setMemoSuccessToast] = useState(false);
@@ -272,6 +283,7 @@ export default function App() {
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
   const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
   const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(false);
+  const [selectedPopupColor, setSelectedPopupColor] = useState<'rose' | 'blue' | 'emerald' | 'amber' | 'purple'>('rose');
   const [remoteDayOfWeek, setRemoteDayOfWeek] = useState<string>(() => {
     const d = new Date().getDay();
     return (d >= 1 && d <= 5) ? String(d) : '1';
@@ -430,6 +442,64 @@ export default function App() {
     }
     return false;
   };
+
+  const wakeLockRef = useRef<any>(null);
+  const wakeLockRequestPending = useRef(false);
+
+  useEffect(() => {
+    if (viewMode !== 'classroom') return;
+
+    const requestWakeLock = async () => {
+      if (wakeLockRequestPending.current) return;
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRequestPending.current = true;
+          wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+          console.log("🌞 화면 켜짐 유지(Wake Lock) 활성화: 쉬는 시간입니다.");
+        }
+      } catch (err) {
+      } finally {
+        wakeLockRequestPending.current = false;
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current && !wakeLockRef.current.released) {
+        try {
+          await wakeLockRef.current.release();
+          wakeLockRef.current = null;
+          console.log("🌙 화면 절전 허용(Wake Lock 해제): 수업 시간입니다.");
+        } catch (err) {}
+      }
+    };
+
+    if (!isClassTime()) {
+      if (!wakeLockRef.current || wakeLockRef.current.released) {
+        requestWakeLock();
+      }
+    } else {
+      releaseWakeLock();
+    }
+  }, [currentTime, viewMode]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isClassTime() && viewMode === 'classroom') {
+        if (!wakeLockRequestPending.current && 'wakeLock' in navigator) {
+           wakeLockRequestPending.current = true;
+           (navigator as any).wakeLock.request('screen')
+             .then((lock: any) => {
+               wakeLockRef.current = lock;
+               console.log("🌞 화면 켜짐 유지 재활성화 (탭 복귀)");
+             })
+             .catch(() => {})
+             .finally(() => { wakeLockRequestPending.current = false; });
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [viewMode]);
 
   const getCurrentPeriodText = () => {
     const day = currentTime.getDay();
@@ -612,13 +682,19 @@ export default function App() {
             setCurrentAnnouncementDuration(null);
           }
           
+          if (data.color) {
+            setCurrentAnnouncementColor(data.color);
+          } else {
+            setCurrentAnnouncementColor('rose');
+          }
+          
           const isForced = Boolean(data.forcePopup || schoolConfig.forcePopupDuringClass);
 
           if (isClassTime() && !isForced) {
             console.log("현재 수업 시간이므로 알림이 예약 대기열에 저장되었습니다. 쉬는 시간에 자동 표시됩니다.");
             setPendingAnnouncements(prev => {
               if (!prev.some(a => a.id === data.time.toString())) {
-                const updated = [...prev, { id: data.time.toString(), text: incomingText, time: data.time, duration: data.duration }];
+                const updated = [...prev, { id: data.time.toString(), text: incomingText, time: data.time, duration: data.duration, color: data.color || 'rose' }];
                 try { localStorage.setItem('pending_announcements_queue', JSON.stringify(updated)); } catch(e) {}
                 return updated;
               }
@@ -669,6 +745,12 @@ export default function App() {
         setCurrentAnnouncementDuration(Number(nextAnnouncement.duration));
       } else {
         setCurrentAnnouncementDuration(null);
+      }
+      
+      if ((nextAnnouncement as any).color) {
+        setCurrentAnnouncementColor((nextAnnouncement as any).color);
+      } else {
+        setCurrentAnnouncementColor('rose');
       }
 
       const targetClassKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
@@ -1302,17 +1384,19 @@ ${htmlText.substring(0, 30000)}
     }
   };
 
-  const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number, forcePopupOverride?: boolean) => {
+  const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number, forcePopupOverride?: boolean, colorOverride?: string) => {
     const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
     const effectiveTimeout = customDuration 
       || (classPopupTimeouts[classKey] !== undefined ? classPopupTimeouts[classKey] : (schoolConfig.popupTimeout || 60));
     const shouldForce = forcePopupOverride !== undefined ? forcePopupOverride : isForcePopupSend;
+    const finalColor = colorOverride !== undefined ? colorOverride : selectedPopupColor;
 
     if (!db) {
       alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
       localStorage.setItem('class_announcement', msg);
       setAnnouncement(msg);
       setCurrentAnnouncementDuration(effectiveTimeout);
+      setCurrentAnnouncementColor(finalColor);
       setSendSuccessToast(true);
       setTimeout(() => setSendSuccessToast(false), 3000);
       return;
@@ -1323,7 +1407,8 @@ ${htmlText.substring(0, 30000)}
       text: msg,
       time: Date.now(),
       duration: effectiveTimeout,
-      forcePopup: shouldForce
+      forcePopup: shouldForce,
+      color: finalColor
     }).then(() => {
       setSendSuccessToast(true);
       setTimeout(() => setSendSuccessToast(false), 3000);
@@ -1463,6 +1548,51 @@ ${htmlText.substring(0, 30000)}
 
   const hoursList = Array.from({ length: 13 }, (_, i) => String(i + 8).padStart(2, '0'));
   const minutesList = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+
+  const renderColorPickerWithPreview = () => {
+    const popupStyles = getPopupTheme(selectedPopupColor);
+
+    return (
+      <div className="flex flex-col gap-2 mb-4 w-full">
+        <label className="text-xs font-bold text-slate-400 tracking-wider">팝업 테마 색상 및 칠판 미리보기</label>
+        <div className="flex gap-2">
+          {[
+            { id: 'rose', label: '긴급 (레드)', hex: 'bg-rose-500' },
+            { id: 'blue', label: '공지 (블루)', hex: 'bg-blue-500' },
+            { id: 'emerald', label: '안내 (그린)', hex: 'bg-emerald-500' },
+            { id: 'amber', label: '주의 (노랑)', hex: 'bg-amber-500' },
+            { id: 'purple', label: '일반 (보라)', hex: 'bg-purple-500' }
+          ].map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setSelectedPopupColor(c.id as any)}
+              className={`flex-1 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all border-2 ${selectedPopupColor === c.id ? `border-white ${c.hex} text-white` : 'border-transparent bg-[#111] text-slate-400 hover:bg-[#222]'}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+        
+        <div 
+          className="mt-2 w-full rounded-2xl border-4 p-5 flex flex-col items-center justify-center text-center transition-colors duration-300 relative overflow-hidden"
+          style={{ backgroundColor: popupStyles.bgDark, borderColor: popupStyles.hex, boxShadow: `0 10px 30px ${popupStyles.shadow}, inset 0 2px 10px #ffffff, inset 0 -4px 15px ${popupStyles.shadow}` }}
+        >
+          <div className="flex items-center gap-2 mb-3" style={{ color: popupStyles.icon }}>
+            <ShieldAlert size={20} />
+            <h4 className="text-base font-black tracking-widest">메시지</h4>
+            <ShieldAlert size={20} />
+          </div>
+          <div className="inline-block px-4 py-1.5 border-2 rounded-full text-[11px] font-black mb-4 shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
+            대상: 학급 전체 / 선택 학생
+          </div>
+          <div className="text-sm font-black break-keep w-full line-clamp-2" style={{ color: popupStyles.textMain, textShadow: `0 2px 10px ${popupStyles.shadow}` }}>
+            {selectedCallMessage === '직접 입력' ? (customAnnouncement || '전자칠판 화면 중앙에 이렇게 팝업됩니다.') : (selectedCallMessage || customAnnouncement || '전자칠판 화면 중앙에 이렇게 팝업됩니다.')}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (viewMode === 'select') {
     return (
@@ -1794,10 +1924,21 @@ ${htmlText.substring(0, 30000)}
                 <span className="text-xs font-bold">전체 교실로 전송</span>
               </label>
             </div>
+            
+            {renderColorPickerWithPreview()}
+
             <button 
               type="submit"
               disabled={!selectedCallMessage || !locationName}
-              className="w-full py-5 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-2xl shadow-[0_0_20px_rgba(225,29,72,0.4)] transition-all text-lg flex items-center justify-center gap-3 active:scale-95 cursor-pointer"
+              className={`w-full py-5 text-white font-black rounded-2xl transition-all text-lg flex items-center justify-center gap-3 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                {
+                  rose: 'bg-rose-600 hover:bg-rose-500 shadow-[0_0_20px_rgba(225,29,72,0.4)]',
+                  blue: 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.4)]',
+                  emerald: 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_20px_rgba(5,150,105,0.4)]',
+                  amber: 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_20px_rgba(217,119,6,0.4)]',
+                  purple: 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_20px_rgba(147,51,234,0.4)]'
+                }[selectedPopupColor]
+              }`}
             >
               <Send size={24} /> 스마트 리모컨 호출 전송
             </button>
@@ -1829,7 +1970,10 @@ ${htmlText.substring(0, 30000)}
               placeholder="직접 전달할 메시지를 자유롭게 입력하세요..."
               className="w-full h-32 bg-[#111] border border-white/20 rounded-xl p-4 text-sm font-bold text-white outline-none focus:border-emerald-400 resize-none leading-relaxed"
             />
-            <div className="flex gap-3">
+            
+            {renderColorPickerWithPreview()}
+
+            <div className="flex gap-3 pt-2">
               <button 
                 type="button"
                 onClick={handleResetClassAnnouncement}
@@ -1840,7 +1984,15 @@ ${htmlText.substring(0, 30000)}
               <button 
                 type="button"
                 onClick={handleSendClassAnnouncement}
-                className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl shadow-[0_0_15px_rgba(5,150,105,0.4)] transition-all text-sm flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
+                className={`flex-1 py-4 text-white font-black rounded-xl transition-all text-sm flex items-center justify-center gap-2 active:scale-95 cursor-pointer ${
+                  {
+                    rose: 'bg-rose-600 hover:bg-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.4)]',
+                    blue: 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.4)]',
+                    emerald: 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_15px_rgba(5,150,105,0.4)]',
+                    amber: 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_15px_rgba(217,119,6,0.4)]',
+                    purple: 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_15px_rgba(147,51,234,0.4)]'
+                  }[selectedPopupColor]
+                }`}
               >
                 <Send size={18} /> 메시지 직접 전송
               </button>
@@ -3073,6 +3225,7 @@ ${htmlText.substring(0, 30000)}
       };
     }
   })();
+
   return (
     <div 
       className={`h-screen w-full font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
@@ -3500,20 +3653,24 @@ ${htmlText.substring(0, 30000)}
             className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-6 cursor-pointer"
             title="클릭하거나 터치하면 팝업이 닫힙니다."
           >
+            {(() => {
+              const pColor = currentAnnouncementColor || 'rose';
+              const popupStyles = getPopupTheme(pColor);
+
+              return (
             <motion.div 
               initial={{ opacity: 0, scale: 0.8, y: -60 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: 60 }}
               transition={{ type: "spring", damping: 15, stiffness: 200 }}
-              className="relative w-full max-w-4xl bg-[#050505] border-4 border-[#ff0055] rounded-3xl p-12 shadow-[0_0_80px_#ff0055,inset_0_0_40px_#ff0055] flex flex-col items-center text-center overflow-hidden" 
+              className="relative w-full max-w-4xl border-[6px] rounded-[2rem] p-12 flex flex-col items-center text-center overflow-hidden" 
+              style={{ backgroundColor: popupStyles.bgDark, borderColor: popupStyles.hex, boxShadow: `0 20px 80px ${popupStyles.shadow}, inset 0 4px 20px #ffffff, inset 0 -8px 30px ${popupStyles.shadow}` }}
               onClick={(e: any) => e.stopPropagation()}
             >
             
-            <div className="absolute inset-0 border-8 border-transparent animate-neon-pulse pointer-events-none rounded-2xl"></div>
-            
-            <div className="flex items-center gap-4 text-[#ff0055] animate-bounce-slow mb-6">
+            <div className="flex items-center gap-4 animate-bounce-slow mb-6" style={{ color: popupStyles.icon }}>
               <ShieldAlert size={48} strokeWidth={2.5} />
-              <h2 className="text-4xl font-black tracking-widest drop-shadow-[0_0_15px_#ff0055]">메시지</h2>
+              <h2 className="text-4xl font-black tracking-widest">메시지</h2>
               <ShieldAlert size={48} strokeWidth={2.5} />
             </div>
 
@@ -3523,16 +3680,14 @@ ${htmlText.substring(0, 30000)}
                   const targets = parsedCall.target.split(',').map((s: string) => s.trim());
                   if (parsedCall.target === '학급 전체') {
                     return (
-                      <div className="inline-block px-8 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-full text-3xl font-black text-white shadow-[0_0_30px_#ff0055]">
-                        <span className="text-rose-300">대상: </span> 
-                        <span className="text-amber-400">학급 전체</span>
+                      <div className="inline-block px-10 py-4 border-[3px] rounded-full text-3xl font-black shadow-md" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
+                        대상: 학급 전체
                       </div>
                     );
                   } else if (targets.length === 1) {
                     return (
-                      <div className="inline-block px-8 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-full text-3xl font-black text-white shadow-[0_0_30px_#ff0055]">
-                        <span className="text-rose-300">대상: </span> 
-                        <span className="text-white">{targets[0]}</span>
+                      <div className="inline-block px-10 py-4 border-[3px] rounded-full text-3xl font-black shadow-md" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
+                        대상: {targets[0]}
                       </div>
                     );
                   } else {
@@ -3540,8 +3695,8 @@ ${htmlText.substring(0, 30000)}
                       <div className="flex flex-col items-center gap-3 w-full">
                         <div className="flex flex-wrap justify-center gap-3">
                           {targets.map((t: string) => (
-                            <div key={t} className="px-5 py-3 bg-[#1a0005] border-2 border-[#ff0055]/50 rounded-2xl text-2xl font-black text-white shadow-[0_0_20px_#ff0055] flex items-center gap-2">
-                              <User size={24} className="text-rose-400" />
+                            <div key={t} className="px-6 py-4 border-[3px] rounded-2xl text-2xl font-black flex items-center gap-2 shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
+                              <User size={24} style={{ color: popupStyles.icon }} />
                               {t}
                             </div>
                           ))}
@@ -3551,28 +3706,28 @@ ${htmlText.substring(0, 30000)}
                   }
                 })()}
                 
-                <div className="bg-[#111] border border-white/10 rounded-3xl p-8 shadow-inner my-6 w-full text-center">
-                  <div className="text-4xl md:text-5xl font-black text-white leading-[1.4] break-keep whitespace-pre-wrap break-words mx-auto">
+                <div className="border-[3px] rounded-3xl p-8 shadow-sm my-6 w-full text-center" style={{ backgroundColor: '#ffffff90', borderColor: `${popupStyles.hex}20` }}>
+                  <div className="text-4xl md:text-5xl font-black leading-[1.4] break-keep whitespace-pre-wrap break-words mx-auto" style={{ color: popupStyles.textMain }}>
                     {parsedCall.message}
                   </div>
                 </div>
                 
-                <div className="flex items-center justify-center gap-12 text-2xl font-bold pt-6 border-t border-white/10">
-                  <div className="flex items-center gap-3 bg-[#111] px-6 py-4 rounded-2xl border border-white/10 shadow-lg">
-                    <MapPin className="text-[#ff0055]" size={28} />
-                    <span className="text-slate-300">장소: <span className="text-white ml-2">{parsedCall.location}</span></span>
+                <div className="flex items-center justify-center gap-12 text-2xl font-bold pt-8" style={{ borderTop: `2px dashed ${popupStyles.hex}40` }}>
+                  <div className="flex items-center gap-3 px-6 py-4 rounded-2xl border-[2px] shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}30` }}>
+                    <MapPin size={28} style={{ color: popupStyles.icon }} />
+                    <span style={{ color: popupStyles.textBadge }}>장소: <span className="font-black ml-2" style={{ color: popupStyles.textMain }}>{parsedCall.location}</span></span>
                   </div>
                   {parsedCall.teacher && parsedCall.teacher.trim() !== '' && (
-                    <div className="flex items-center gap-3 bg-[#111] px-6 py-4 rounded-2xl border border-white/10 shadow-lg">
-                      <User className="text-[#ff0055]" size={28} />
-                      <span className="text-slate-300">호출 교사: <span className="text-white ml-2">{parsedCall.teacher} 선생님</span></span>
+                    <div className="flex items-center gap-3 px-6 py-4 rounded-2xl border-[2px] shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}30` }}>
+                      <User size={28} style={{ color: popupStyles.icon }} />
+                      <span style={{ color: popupStyles.textBadge }}>호출 교사: <span className="font-black ml-2" style={{ color: popupStyles.textMain }}>{parsedCall.teacher} 선생님</span></span>
                     </div>
                   )}
                 </div>
               </div>
             ) : (
-              <div className="w-full bg-[#111] border border-white/10 rounded-3xl p-10 shadow-inner z-10 relative my-8 max-w-4xl mx-auto">
-                <div className="text-4xl md:text-5xl font-black text-white leading-[1.4] break-keep whitespace-pre-wrap text-center break-words mx-auto">
+              <div className="w-full border-[3px] rounded-3xl p-10 shadow-sm z-10 relative my-8 max-w-4xl mx-auto" style={{ backgroundColor: '#ffffff90', borderColor: `${popupStyles.hex}20` }}>
+                <div className="text-4xl md:text-5xl font-black leading-[1.4] break-keep whitespace-pre-wrap text-center break-words mx-auto" style={{ color: popupStyles.textMain }}>
                   {announcement}
                 </div>
               </div>
@@ -3580,21 +3735,24 @@ ${htmlText.substring(0, 30000)}
 
             <div className="flex flex-col items-center gap-4 w-full mt-8">
               {popupCountdown !== null && (
-                <div className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#1a0005] border border-[#ff0055]/50 text-rose-300 text-sm font-bold font-mono shadow-[0_0_15px_rgba(255,0,85,0.3)]">
-                  <Clock size={16} className="text-[#ff0055] animate-pulse" />
-                  <span>자동 닫힘까지 <strong className="text-white text-base font-black">{popupCountdown}</strong>초 남음</span>
+                <div className="flex items-center gap-2 px-5 py-2.5 rounded-full border-[2px] text-sm font-bold font-mono shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
+                  <Clock size={16} className="animate-pulse" style={{ color: popupStyles.icon }} />
+                  <span>자동 닫힘까지 <strong className="text-base font-black" style={{ color: popupStyles.textMain }}>{popupCountdown}</strong>초 남음</span>
                 </div>
               )}
               <button 
                 onClick={handleClosePopupAndHide}
-                className="px-12 py-5 bg-[#ff0055] hover:bg-[#ff3377] text-white font-black rounded-2xl shadow-[0_0_20px_#ff0055] transition-all text-xl flex items-center gap-3 cursor-pointer active:scale-95"
+                className="px-12 py-5 text-white font-black rounded-2xl transition-all text-xl flex items-center gap-3 cursor-pointer active:scale-95 hover:brightness-110 shadow-lg"
+                style={{ backgroundColor: popupStyles.hex }}
               >
                 <X size={28} strokeWidth={3} />
                 확인 (닫기)
               </button>
             </div>
             
-          </motion.div>
+            </motion.div>
+              );
+            })()}
           </motion.div>
         )}
       </AnimatePresence>
