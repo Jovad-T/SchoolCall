@@ -25,7 +25,7 @@ try {
   console.error("Firebase 연결 실패:", e);
 }
 
-export const APP_VERSION = 'v1.2.0';
+export const APP_VERSION = 'v1.3.0';
 
 const getPopupTheme = (color: string) => {
   return {
