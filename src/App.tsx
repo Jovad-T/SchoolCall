@@ -170,7 +170,8 @@ export default function App() {
     const parsed = saved ? JSON.parse(saved) : {};
     return { 
       schoolName: parsed.schoolName || '사직여자고등학교', 
-      gradeCounts: parsed.gradeCounts || { 1: 8, 2: 8, 3: 8 },
+      schoolLevel: parsed.schoolLevel || 'high',
+      gradeCounts: parsed.gradeCounts || { 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 8 },
       currentGrade: Number(urlG) || parsed.currentGrade || 0, 
       currentClass: Number(urlC) || parsed.currentClass || 0,
       classroomTheme: parsed.classroomTheme || 'default',
@@ -293,6 +294,7 @@ export default function App() {
   const [locationName, setLocationName] = useState<string>('교무실');
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
   const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
+  const [globalTargetGrades, setGlobalTargetGrades] = useState<number[]>([]);
   const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(false);
   const [selectedPopupColor, setSelectedPopupColor] = useState<'rose' | 'blue' | 'emerald' | 'amber' | 'purple'>('rose');
   const [remoteDayOfWeek, setRemoteDayOfWeek] = useState<string>(() => {
@@ -308,6 +310,7 @@ export default function App() {
   const adminDayOfWeek = String(new Date(adminDate).getDay());
 
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
+  const [adminSchoolLevel, setAdminSchoolLevel] = useState<'elementary' | 'middle' | 'high'>(schoolConfig.schoolLevel || 'high');
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
   const [adminSelectedGrade, setAdminSelectedGrade] = useState(schoolConfig.currentGrade);
   const [adminSelectedClass, setAdminSelectedClass] = useState(schoolConfig.currentClass);
@@ -667,6 +670,14 @@ export default function App() {
       if (data) {
         const incomingText = data.text ? data.text.trim() : '';
         
+        // 학년별 전송 필터링 로직 추가
+        if (data.targetGrades && Array.isArray(data.targetGrades)) {
+          if (!data.targetGrades.includes(schoolConfig.currentGrade)) {
+            setNotInitial();
+            return;
+          }
+        }
+        
         if (getIsInitial()) {
           // 최초 로드 시 24시간이 지난 메시지면 빈 문자열로 무시
           const isExpired = Date.now() - (data.time || 0) > 24 * 60 * 60 * 1000;
@@ -889,6 +900,7 @@ export default function App() {
       setTempClassTimetables(classTimetables);
       setTempMeals(meals);
       setAdminSchoolName(schoolConfig.schoolName);
+      setAdminSchoolLevel(schoolConfig.schoolLevel || 'high');
       setAdminGradeCounts(schoolConfig.gradeCounts);
       setAdminSelectedGrade(schoolConfig.currentGrade);
       setAdminSelectedClass(schoolConfig.currentClass);
@@ -1419,7 +1431,8 @@ ${htmlText.substring(0, 30000)}
       time: Date.now(),
       duration: effectiveTimeout,
       forcePopup: shouldForce,
-      color: finalColor
+      color: finalColor,
+      targetGrades: isGlobal && globalTargetGrades.length > 0 ? globalTargetGrades : null
     }).then(() => {
       setSendSuccessToast(true);
       setTimeout(() => setSendSuccessToast(false), 3000);
@@ -1427,6 +1440,43 @@ ${htmlText.substring(0, 30000)}
       console.error(e);
       alert("❌ 전송 실패: " + e.message);
     });
+  };
+
+  const renderGlobalGradeSelector = () => {
+    if (!isGlobalSend) return null;
+    const maxGrade = schoolConfig.schoolLevel === 'elementary' ? 6 : 3;
+    const gradeArray = Array.from({ length: maxGrade }, (_, i) => i + 1);
+
+    return (
+      <div className="w-full flex items-center justify-end gap-1 mb-3">
+        <span className="text-[11px] font-bold text-slate-400 mr-2">대상 학년:</span>
+        <label className={`flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-md border text-[11px] font-bold transition-colors ${globalTargetGrades.length === 0 ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : 'bg-[#1a1a1a] text-slate-400 border-white/10 hover:bg-[#2a2a2a]'}`}>
+          <input type="checkbox" className="hidden" checked={globalTargetGrades.length === 0} onChange={() => setGlobalTargetGrades([])} />
+          전체
+        </label>
+        {gradeArray.map(grade => {
+          const isSelected = globalTargetGrades.includes(grade);
+          return (
+            <label key={grade} className={`flex items-center gap-1 cursor-pointer px-2 py-1 rounded-md border text-[11px] font-bold transition-colors ${isSelected ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : 'bg-[#1a1a1a] text-slate-400 border-white/10 hover:bg-[#2a2a2a]'}`}>
+              <input type="checkbox" className="hidden" checked={isSelected} onChange={() => {
+                if (isSelected) {
+                  const next = globalTargetGrades.filter(g => g !== grade);
+                  setGlobalTargetGrades(next);
+                } else {
+                  const next = [...globalTargetGrades, grade].sort();
+                  if (next.length === maxGrade) {
+                    setGlobalTargetGrades([]);
+                  } else {
+                    setGlobalTargetGrades(next);
+                  }
+                }
+              }} />
+              {grade}학년
+            </label>
+          )
+        })}
+      </div>
+    );
   };
 
   const handleSendSmartCall = (e: React.FormEvent) => {
@@ -1437,7 +1487,9 @@ ${htmlText.substring(0, 30000)}
       return;
     }
 
-    const targetLabel = isGlobalSend ? '전체 교실' : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
+    const targetLabel = isGlobalSend 
+      ? (globalTargetGrades.length > 0 ? `${globalTargetGrades.join(', ')}학년 전체` : '전체 교실')
+      : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
     if (!window.confirm(`[확인] ${targetLabel}에 호출 메시지를 전송하시겠습니까?`)) {
       return;
     }
@@ -1454,7 +1506,9 @@ ${htmlText.substring(0, 30000)}
       return;
     }
 
-    const targetLabel = isGlobalSend ? '전체 교실' : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
+    const targetLabel = isGlobalSend 
+      ? (globalTargetGrades.length > 0 ? `${globalTargetGrades.join(', ')}학년 전체` : '전체 교실')
+      : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
     if (!window.confirm(`[확인] ${targetLabel}에 이 메시지를 전송하시겠습니까?`)) {
       return;
     }
@@ -1486,6 +1540,7 @@ ${htmlText.substring(0, 30000)}
   const handleSaveAdminSettings = () => {
     const newConfig = { 
       schoolName: adminSchoolName.trim() || '학교명', 
+      schoolLevel: adminSchoolLevel,
       gradeCounts: adminGradeCounts,
       currentGrade: adminSelectedGrade,
       currentClass: adminSelectedClass,
@@ -1654,7 +1709,7 @@ ${htmlText.substring(0, 30000)}
                       className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
                     >
                       <option value={0} disabled>학년</option>
-                      {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                      {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
                     </select>
                     <select 
                       value={schoolConfig.currentClass}
@@ -1666,7 +1721,7 @@ ${htmlText.substring(0, 30000)}
                       className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
                     >
                       <option value={0} disabled>반</option>
-                      {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as 1|2|3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                      {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
                     </select>
                   </div>
                   <button 
@@ -1790,7 +1845,7 @@ ${htmlText.substring(0, 30000)}
                 onChange={(e) => setSchoolConfig({ ...schoolConfig, currentGrade: Number(e.target.value) })}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
               >
-                {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
               </select>
             </div>
 
@@ -1801,7 +1856,7 @@ ${htmlText.substring(0, 30000)}
                 onChange={(e) => setSchoolConfig({ ...schoolConfig, currentClass: Number(e.target.value) })}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
               >
-                {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as 1 | 2 | 3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
               </select>
             </div>
           </section>
@@ -1936,6 +1991,8 @@ ${htmlText.substring(0, 30000)}
               </label>
             </div>
             
+            {renderGlobalGradeSelector()}
+
             {renderColorPickerWithPreview()}
 
             <button 
@@ -1975,6 +2032,9 @@ ${htmlText.substring(0, 30000)}
                 </label>
               </div>
             </div>
+
+            {renderGlobalGradeSelector()}
+
             <textarea 
               value={customAnnouncement}
               onChange={e => setCustomAnnouncement(e.target.value)}
@@ -2317,7 +2377,6 @@ ${htmlText.substring(0, 30000)}
             <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🏫 기본 학교 정보 & 외부 API 설정</h2>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                              <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-400">교실 화면 테마 (색감)</label>
                 <select 
                   value={adminClassroomTheme}
@@ -2330,14 +2389,26 @@ ${htmlText.substring(0, 30000)}
                   <option value="auto">자동 스케줄러 (오후 6시~오전 6시 다크모드)</option>
                 </select>
               </div>
-                <label className="text-xs font-bold text-slate-400">학교명 (UI 표시용)</label>
-                <input 
-                  type="text" 
-                  value={adminSchoolName}
-                  onChange={e => setAdminSchoolName(e.target.value)}
-                  className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isSchoolNameValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
-                  placeholder="예: 사직여자고등학교"
-                />
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-400">학교명 및 학교급</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    value={adminSchoolName}
+                    onChange={e => setAdminSchoolName(e.target.value)}
+                    className={`flex-1 px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isSchoolNameValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
+                    placeholder="예: 사직여자고등학교"
+                  />
+                  <select
+                    value={adminSchoolLevel}
+                    onChange={e => setAdminSchoolLevel(e.target.value as any)}
+                    className="w-32 px-4 py-3 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-sm focus:border-emerald-500 outline-none"
+                  >
+                    <option value="elementary">초등학교</option>
+                    <option value="middle">중학교</option>
+                    <option value="high">고등학교</option>
+                  </select>
+                </div>
                 {!isSchoolNameValid && <p className="text-[10px] text-rose-400 mt-1">학교명을 입력해주세요.</p>}
               </div>
               <div className="space-y-2">
@@ -2497,14 +2568,14 @@ ${htmlText.substring(0, 30000)}
                         onChange={e => setEditTargetGrade(Number(e.target.value))}
                         className="bg-[#16221c] text-emerald-300 border border-emerald-700/60 rounded-lg px-2 py-1 text-xs font-bold outline-none"
                       >
-                        {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                        {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
                       </select>
                       <select
                         value={editTargetClass}
                         onChange={e => setEditTargetClass(Number(e.target.value))}
                         className="bg-[#16221c] text-emerald-300 border border-emerald-700/60 rounded-lg px-2 py-1 text-xs font-bold outline-none"
                       >
-                        {Array.from({ length: adminGradeCounts[editTargetGrade as 1|2|3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                        {Array.from({ length: adminGradeCounts[editTargetGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
                       </select>
                     </div>
 
@@ -2696,14 +2767,14 @@ ${htmlText.substring(0, 30000)}
                 onChange={e => setEditTargetGrade(Number(e.target.value))}
                 className="flex-1 bg-transparent text-white px-2 py-1 outline-none font-bold text-sm"
               >
-                {[1, 2, 3].map(g => <option key={g} value={g}>{g}학년</option>)}
+                {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
               </select>
               <select 
                 value={editTargetClass}
                 onChange={e => setEditTargetClass(Number(e.target.value))}
                 className="flex-1 bg-transparent text-white px-2 py-1 outline-none font-bold text-sm"
               >
-                {Array.from({ length: adminGradeCounts[editTargetGrade as 1|2|3] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                {Array.from({ length: adminGradeCounts[editTargetGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
               </select>
             </div>
             
