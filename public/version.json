@@ -1,7 +1,7 @@
 {
-  "latestVersion": "v1.3.0",
-  "downloadUrlClass": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.0/SchoolCallApp_Class_Setup_v1.3.0.exe",
-  "downloadUrlOffice": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.0/SchoolCallApp_Office_Setup_v1.3.0.exe",
+  "latestVersion": "v1.3.3",
+  "downloadUrlClass": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.3/SchoolCallApp_Class_Setup_v1.3.3.exe",
+  "downloadUrlOffice": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.3/SchoolCallApp_Office_Setup_v1.3.3.exe",
   "downloadUrl": "https://github.com/Jovad-T/SchoolCall/releases/latest",
-  "releaseNotes": "스마트 화면 제어(Wake Lock), 팝업 디자인 개편, 그리고 학교급(초/중/고) 선택 및 대상 학년 전송 기능 추가"
+  "releaseNotes": "시간표 진행 바 양 끝에 시작/종료 시각 및 현재 시각 포인터 추가, 수업 중(붉은색)/쉬는 시간(녹색)/일과 외(회색) 동적 컬러 전환 적용"
 }

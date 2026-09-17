@@ -136,7 +136,7 @@ ipcMain.on('hide-window', () => {
   }
 });
 
-// 호출 및 전달사항 이벤트 수신 시 윈도우 강제 최상단 전체화면 팝업 처리
+// 호출 및 전달사항 이벤트 수신 시 윈도우 강제 최상단 팝업 처리
 ipcMain.on('trigger-my-call', (event, data) => {
   if (mainWindow) {
     if (hideTimeout) {
@@ -149,7 +149,28 @@ ipcMain.on('trigger-my-call', (event, data) => {
     }
     mainWindow.show();
     mainWindow.setAlwaysOnTop(true, 'screen-saver');
-    mainWindow.setFullScreen(true);
+    
+    const isClassTime = (data && data.isClassTime) ? Boolean(data.isClassTime) : false;
+    
+    if (isClassTime) {
+      // 수업 시간에는 화면 우측 하단에 조그만 팝업 창으로 띄우기
+      mainWindow.setFullScreen(false);
+      const { screen } = require('electron');
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width, height } = primaryDisplay.workAreaSize;
+      const popupWidth = 640;
+      const popupHeight = 400;
+      mainWindow.setBounds({
+        x: width - popupWidth - 20,
+        y: height - popupHeight - 20,
+        width: popupWidth,
+        height: popupHeight
+      });
+    } else {
+      // 쉬는 시간에는 전체 화면
+      mainWindow.setFullScreen(true);
+    }
+    
     mainWindow.focus();
 
     // 2초 뒤 최상단 강제 고정 해제 (사용성 고려: 다른 작업으로 전환 가능하도록)

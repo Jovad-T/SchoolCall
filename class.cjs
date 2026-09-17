@@ -90,7 +90,7 @@ function createWindow() {
   });
 }
 
-function showPopup(timeoutSec) {
+function showPopup(timeoutSec, isClassTime) {
   if (!mainWindow) return;
   
   if (hideTimeout) {
@@ -102,7 +102,26 @@ function showPopup(timeoutSec) {
   
   mainWindow.show();
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
-  mainWindow.setFullScreen(true);
+
+  if (isClassTime) {
+    // 수업 시간에는 화면 우측 하단에 조그만 팝업 창으로 띄우기
+    mainWindow.setFullScreen(false);
+    const { screen } = require('electron');
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width, height } = primaryDisplay.workAreaSize;
+    const popupWidth = 640;
+    const popupHeight = 400;
+    mainWindow.setBounds({
+      x: width - popupWidth - 20,
+      y: height - popupHeight - 20,
+      width: popupWidth,
+      height: popupHeight
+    });
+  } else {
+    // 쉬는 시간에는 전체 화면
+    mainWindow.setFullScreen(true);
+  }
+
   mainWindow.focus();
   
   setTimeout(() => {
@@ -202,7 +221,8 @@ ipcMain.on('trigger-my-call', (event, data) => {
   }
 
   const timeoutSec = (data && data.timeout) ? Number(data.timeout) : null;
-  showPopup(timeoutSec);
+  const isClassTime = (data && data.isClassTime) ? Boolean(data.isClassTime) : false;
+  showPopup(timeoutSec, isClassTime);
 });
 
 // Reuse existing IPC handlers if needed, though class view might only receive notifications.

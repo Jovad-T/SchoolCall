@@ -25,7 +25,7 @@ try {
   console.error("Firebase 연결 실패:", e);
 }
 
-export const APP_VERSION = 'v1.3.0';
+export const APP_VERSION = 'v1.3.3';
 
 const getPopupTheme = (color: string) => {
   return {
@@ -562,6 +562,159 @@ export default function App() {
     }
 
     return "일과 시간 외";
+  };
+
+  const getScheduleProgress = () => {
+    const day = currentTime.getDay();
+    if (day === 0 || day === 6) return { type: 'weekend', text: '주말 (휴일)', startTime: '00:00', endTime: '24:00', percent: 100, remaining: '' };
+
+    const currentH = currentTime.getHours();
+    const currentM = currentTime.getMinutes();
+    const currentS = currentTime.getSeconds();
+    const currentTotalSec = currentH * 3600 + currentM * 60 + currentS;
+
+    for (let p = 1; p <= 7; p++) {
+      const sch = getScheduleForPeriod(p);
+      if (sch && sch.startH && sch.startM && sch.endH && sch.endM) {
+        const startSec = Number(sch.startH) * 3600 + Number(sch.startM) * 60;
+        const endSec = Number(sch.endH) * 3600 + Number(sch.endM) * 60;
+        const startTimeStr = `${sch.startH}:${sch.startM}`;
+        const endTimeStr = `${sch.endH}:${sch.endM}`;
+
+        if (p === 1 && currentTotalSec < startSec) {
+          const diff = startSec - currentTotalSec;
+          const mins = Math.floor(diff / 60);
+          const secs = diff % 60;
+          return {
+            type: 'before',
+            text: '1교시 시작 전',
+            startTime: '08:00',
+            endTime: startTimeStr,
+            percent: 0,
+            remaining: `${mins}분 ${secs}초 후 시작`
+          };
+        }
+
+        if (currentTotalSec >= startSec && currentTotalSec <= endSec) {
+          const totalDuration = endSec - startSec;
+          const elapsed = currentTotalSec - startSec;
+          const percent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
+          const diff = endSec - currentTotalSec;
+          const mins = Math.floor(diff / 60);
+          const secs = diff % 60;
+          return {
+            type: 'class',
+            text: `${p}교시 수업 중`,
+            startTime: startTimeStr,
+            endTime: endTimeStr,
+            percent,
+            remaining: `${mins}분 ${secs}초 남음`
+          };
+        }
+
+        const nextSch = getScheduleForPeriod(p + 1);
+        if (nextSch && nextSch.startH && nextSch.startM) {
+          const nextStartSec = Number(nextSch.startH) * 3600 + Number(nextSch.startM) * 60;
+          if (currentTotalSec > endSec && currentTotalSec < nextStartSec) {
+            const totalDuration = nextStartSec - endSec;
+            const elapsed = currentTotalSec - endSec;
+            const percent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
+            const diff = nextStartSec - currentTotalSec;
+            const mins = Math.floor(diff / 60);
+            const secs = diff % 60;
+            return {
+              type: 'break',
+              text: `${p}교시 쉬는 시간`,
+              startTime: endTimeStr,
+              endTime: `${nextSch.startH}:${nextSch.startM}`,
+              percent,
+              remaining: `${mins}분 ${secs}초 후 ${p+1}교시`
+            };
+          }
+        }
+      }
+    }
+
+    const lastSch = getScheduleForPeriod(7);
+    if (lastSch && lastSch.endH && lastSch.endM) {
+      const endSec = Number(lastSch.endH) * 3600 + Number(lastSch.endM) * 60;
+      if (currentTotalSec > endSec) {
+        return {
+          type: 'after',
+          text: '방과 후 / 하교',
+          startTime: `${lastSch.endH}:${lastSch.endM}`,
+          endTime: '17:00',
+          percent: 100,
+          remaining: '정규 일과 종료'
+        };
+      }
+    }
+
+    return { type: 'none', text: '일과 시간 외', startTime: '00:00', endTime: '24:00', percent: 0, remaining: '' };
+  };
+
+  const renderScheduleProgressBar = () => {
+    const prog = getScheduleProgress();
+    const isClass = prog.type === 'class';
+    const isBreak = prog.type === 'break';
+    const isBefore = prog.type === 'before';
+    const isAfter = prog.type === 'after';
+
+    let badgeBg = 'bg-slate-800/90 text-slate-300 border-slate-700';
+    let barColor = 'bg-slate-500';
+    let icon = '⚪';
+
+    if (isClass) {
+      badgeBg = 'bg-rose-950/90 text-rose-300 border-rose-800/70 shadow-rose-950/50';
+      barColor = 'bg-rose-500';
+      icon = '🔴';
+    } else if (isBreak) {
+      badgeBg = 'bg-emerald-950/90 text-emerald-300 border-emerald-800/70 shadow-emerald-950/50';
+      barColor = 'bg-emerald-500';
+      icon = '🟢';
+    } else {
+      badgeBg = 'bg-slate-800/90 text-slate-400 border-slate-700';
+      barColor = 'bg-slate-600';
+      icon = '⚪';
+    }
+
+    return (
+      <div className="w-full px-8 py-3 bg-black/50 border-b border-white/10 flex flex-col gap-2 shrink-0 shadow-inner" style={{ WebkitAppRegion: 'no-drag' } as any}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className={`px-3 py-1 rounded-lg text-xs font-black border flex items-center gap-1.5 shadow-sm ${badgeBg}`}>
+              <span>{icon}</span>
+              <span>{prog.text}</span>
+            </span>
+          </div>
+          <div className="text-xs font-mono font-black text-emerald-300 flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded-md border border-white/10">
+            <span>⏳</span>
+            <span>{prog.remaining}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 w-full">
+          <span className="text-[11px] font-mono font-bold text-slate-400 min-w-[45px] text-right">{prog.startTime}</span>
+          
+          <div className="flex-1 relative h-4 bg-white/10 rounded-full overflow-visible p-0.5 border border-white/15 shadow-inner">
+            <div 
+              className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
+              style={{ width: `${Math.max(4, Math.min(100, prog.percent))}%` }}
+            ></div>
+            {/* Current time pointer */}
+            <div 
+              className="absolute top-0 bottom-0 w-3 bg-white rounded-full shadow-md border-2 border-slate-900 transition-all duration-1000 transform -translate-x-1/2 flex items-center justify-center"
+              style={{ left: `${Math.max(2, Math.min(98, prog.percent))}%` }}
+              title={`현재 위치 (${prog.percent.toFixed(1)}%)`}
+            >
+              <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
+            </div>
+          </div>
+
+          <span className="text-[11px] font-mono font-bold text-slate-400 min-w-[45px]">{prog.endTime}</span>
+        </div>
+      </div>
+    );
   };
 
   const playNeonAlertSound = () => {
@@ -1834,6 +1987,7 @@ ${htmlText.substring(0, 30000)}
           </div>
           <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
         </header>
+        {renderScheduleProgressBar()}
 
         <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-8 pb-12" style={{ WebkitAppRegion: "no-drag" } as any}>
           
@@ -3396,6 +3550,7 @@ ${htmlText.substring(0, 30000)}
           </div>
         </div>
       </header>
+      {renderScheduleProgressBar()}
 
       <main className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
         
