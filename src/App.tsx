@@ -25,7 +25,11 @@ try {
   console.error("Firebase 연결 실패:", e);
 }
 
-export const APP_VERSION = 'v1.3.3';
+export const APP_VERSION = 'v1.3.4';
+
+export const getTodayDateKey = (d: Date = new Date()) => {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const getPopupTheme = (color: string) => {
   return {
@@ -220,9 +224,31 @@ export default function App() {
   });
   const [tempClassPopupTimeouts, setTempClassPopupTimeouts] = useState<Record<string, number>>(classPopupTimeouts);
 
-  const [timetableDetails, setTimetableDetails] = useState<Record<string, { location: string, memo: string }>>(() => {
-    const saved = localStorage.getItem('timetable_details');
-    return saved ? JSON.parse(saved) : {};
+  const [timetableDetails, setTimetableDetails] = useState<Record<string, { location: string, memo: string, date?: string }>>(() => {
+    try {
+      const saved = localStorage.getItem('timetable_details');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const today = getTodayDateKey();
+        const valid: Record<string, { location: string, memo: string, date?: string }> = {};
+        let modified = false;
+
+        Object.entries(parsed).forEach(([key, val]: [string, any]) => {
+          // 오늘 날짜로 기록된 메모만 유지, 날짜가 다르거나 날짜가 없는 과거 잔여 데이터는 자동 초기화
+          if (val && typeof val === 'object' && val.date === today && (val.location || val.memo)) {
+            valid[key] = val;
+          } else {
+            modified = true;
+          }
+        });
+
+        if (modified) {
+          localStorage.setItem('timetable_details', JSON.stringify(valid));
+        }
+        return valid;
+      }
+    } catch(e) {}
+    return {};
   });
 
   const [subjectModal, setSubjectModal] = useState<{ isOpen: boolean; period: number; subject: string; location: string; memo: string }>({ isOpen: false, period: 0, subject: '', location: '', memo: '' });
@@ -266,8 +292,12 @@ export default function App() {
       const saved = localStorage.getItem('pending_announcements_queue');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-        const validAnnouncements = parsed.filter((ann: any) => ann.time > oneDayAgo);
+        const todayStr = getTodayDateKey();
+        const validAnnouncements = parsed.filter((ann: any) => {
+          if (!ann || !ann.time) return false;
+          const annDateStr = getTodayDateKey(new Date(ann.time));
+          return annDateStr === todayStr && (Date.now() - ann.time < 12 * 60 * 60 * 1000);
+        });
         
         // 만약 오래된 알림이 지워졌다면 로컬스토리지도 업데이트
         if (validAnnouncements.length !== parsed.length) {
@@ -372,6 +402,40 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const lastActiveDateRef = useRef<string>(getTodayDateKey());
+
+  // 💡 [매일 자동 초기화] 자정(00시)이 지나거나 새 날짜가 되었을 때 메모장 및 과거 데이터 자동 청소
+  useEffect(() => {
+    const today = getTodayDateKey(currentTime);
+    if (lastActiveDateRef.current !== today) {
+      console.log(`[매일 자동 초기화] 날짜가 ${lastActiveDateRef.current}에서 ${today}로 변경되어 메모장 및 이전 호출 내역을 초기화합니다.`);
+      lastActiveDateRef.current = today;
+
+      // 1. 메모장(시간표 알림장) 매일 자동 초기화
+      setTimetableDetails(prev => {
+        const valid: Record<string, { location: string; memo: string; date?: string }> = {};
+        Object.entries(prev).forEach(([k, v]: [string, any]) => {
+          if (v && v.date === today && (v.location || v.memo)) {
+            valid[k] = v;
+          }
+        });
+        try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
+        if (db) {
+          import("firebase/database").then(({ ref: dbRef, set }) => {
+            set(dbRef(db, 'globalData/timetableDetails'), valid).catch(console.error);
+          });
+        }
+        return valid;
+      });
+
+      // 2. 어제 보낸 호출/전달사항 및 알림 대기열 초기화
+      setAnnouncement('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
+      setIsPopupOpen(false);
+      setPendingAnnouncements([]);
+      try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
+    }
+  }, [currentTime, db]);
+
 
   useEffect(() => {
     if ((window as any).electron && (window as any).electron.ipcRenderer) {
@@ -412,8 +476,27 @@ export default function App() {
           try { localStorage.setItem('class_popup_timeouts', JSON.stringify(data.classPopupTimeouts)); } catch(e) {}
         }
         if (data.timetableDetails) {
-          setTimetableDetails(data.timetableDetails);
-          try { localStorage.setItem('timetable_details', JSON.stringify(data.timetableDetails)); } catch(e) {}
+          const today = getTodayDateKey();
+          const valid: Record<string, { location: string; memo: string; date?: string }> = {};
+          let hadExpired = false;
+
+          Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
+            if (v && typeof v === 'object' && v.date === today && (v.location || v.memo)) {
+              valid[k] = v;
+            } else {
+              hadExpired = true;
+            }
+          });
+
+          setTimetableDetails(valid);
+          try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
+
+          // Firebase에 어제나 이전 날짜의 오래된 메모 데이터가 남아있다면 Firebase에서도 자동 초기화
+          if (hadExpired && db) {
+            import("firebase/database").then(({ ref: dbRef, set }) => {
+              set(dbRef(db, 'globalData/timetableDetails'), valid).catch(console.error);
+            });
+          }
         }
         if (data.meals) setMeals(data.meals);
         if (data.customCallPresets) {
@@ -832,8 +915,9 @@ export default function App() {
         }
         
         if (getIsInitial()) {
-          // 최초 로드 시 24시간이 지난 메시지면 빈 문자열로 무시
-          const isExpired = Date.now() - (data.time || 0) > 24 * 60 * 60 * 1000;
+          // 최초 로드 시 12시간이 지났거나 날짜가 다른 어제 메시지면 빈 문자열로 무시
+          const msgDateStr = data.time ? getTodayDateKey(new Date(data.time)) : '';
+          const isExpired = !data.time || (Date.now() - data.time > 12 * 60 * 60 * 1000) || (msgDateStr !== getTodayDateKey());
           
           // 여러 초기 동기화 중 가장 최신 메시지만 표시되도록 시간 비교
           if (data.time >= (lastSyncTimeRef.current || 0)) {
@@ -2354,7 +2438,11 @@ ${htmlText.substring(0, 30000)}
                 const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
                 
                 const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
-                const detail = timetableDetails[detailKey] || timetableDetails[`${todayKey}-${period}`] || { location: '', memo: '' };
+                const rawDetail = timetableDetails[detailKey];
+                const today = getTodayDateKey();
+                const detail = (rawDetail && rawDetail.date === today)
+                  ? rawDetail
+                  : { location: '', memo: '', date: today };
                 
                 return (
                   <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
@@ -2372,9 +2460,9 @@ ${htmlText.substring(0, 30000)}
                           onChange={(e) => {
                             const newDetails = { 
                               ...timetableDetails, 
-                              [detailKey]: { ...detail, location: e.target.value },
-                              [`${todayKey}-${period}`]: { ...detail, location: e.target.value }
+                              [detailKey]: { location: e.target.value, memo: detail.memo, date: today }
                             };
+                            delete newDetails[`${todayKey}-${period}`];
                             setTimetableDetails(newDetails);
                           }}
                           className="w-full bg-transparent text-xs text-white py-2 outline-none"
@@ -2389,9 +2477,9 @@ ${htmlText.substring(0, 30000)}
                           onChange={(e) => {
                             const newDetails = { 
                               ...timetableDetails, 
-                              [detailKey]: { ...detail, memo: e.target.value },
-                              [`${todayKey}-${period}`]: { ...detail, memo: e.target.value }
+                              [detailKey]: { location: detail.location, memo: e.target.value, date: today }
                             };
+                            delete newDetails[`${todayKey}-${period}`];
                             setTimetableDetails(newDetails);
                           }}
                           className="w-full bg-transparent text-xs text-white py-2 outline-none"
@@ -2413,6 +2501,12 @@ ${htmlText.substring(0, 30000)}
                     delete newDetails[`${todayKey}-${period}`];
                   });
                   setTimetableDetails(newDetails);
+                  try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
+                  if (db) {
+                    import("firebase/database").then(({ ref: dbRef, set }) => {
+                      set(dbRef(db, 'globalData/timetableDetails'), newDetails).catch(console.error);
+                    });
+                  }
                 }}
                 className="bg-[#2a2a2a] hover:bg-[#333] text-slate-300 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors cursor-pointer"
               >
@@ -3594,12 +3688,14 @@ ${htmlText.substring(0, 30000)}
                 'bg-[#fff7ed] text-slate-800 rotate-[-0.3deg]'
               ];
               const effectiveDay = (currentDayOfWeekStr >= '1' && currentDayOfWeekStr <= '5') ? currentDayOfWeekStr : '1';
+              const today = getTodayDateKey();
               const detailKey = `${currentKey}-${effectiveDay}-${idx + 1}`;
-              const detail = timetableDetails[detailKey] 
-                || timetableDetails[`${currentKey}-${currentDayOfWeekStr}-${idx + 1}`]
-                || timetableDetails[`${currentKey}-1-${idx + 1}`]
-                || timetableDetails[`${currentKey}-${idx + 1}`];
-              const hasDetail = detail && Boolean(detail.location || detail.memo);
+              const rawDetail = timetableDetails[detailKey] || timetableDetails[`${currentKey}-${currentDayOfWeekStr}-${idx + 1}`];
+              // 💡 [매일 초기화] 오늘 날짜의 메모만 표시, 이전 날짜나 날짜가 없는 구 데이터는 자동 제외(초기화)
+              const detail = (rawDetail && rawDetail.date === today)
+                ? rawDetail
+                : { location: '', memo: '', date: today };
+              const hasDetail = Boolean(detail.location || detail.memo);
               return (
                 <div 
                   key={idx} 
@@ -3748,6 +3844,13 @@ ${htmlText.substring(0, 30000)}
               
               <div className="mt-6 flex justify-end gap-2">
                 <button 
+                  type="button"
+                  onClick={() => setSubjectModal({ ...subjectModal, location: '', memo: '' })}
+                  className="px-4 py-3 bg-[#222] hover:bg-[#333] text-rose-300 hover:text-rose-200 rounded-xl text-sm font-bold transition-colors mr-auto border border-rose-900/30"
+                >
+                  지우기
+                </button>
+                <button 
                   onClick={() => setSubjectModal({ ...subjectModal, isOpen: false })}
                   className="px-6 py-3 bg-[#333] hover:bg-[#444] text-white rounded-xl text-sm font-bold transition-colors"
                 >
@@ -3755,8 +3858,14 @@ ${htmlText.substring(0, 30000)}
                 </button>
                 <button 
                   onClick={() => {
-                    const detailKey = `${currentKey}-${currentDayOfWeekStr}-${subjectModal.period}`;
-                    const newDetails = { ...timetableDetails, [detailKey]: { location: subjectModal.location, memo: subjectModal.memo } };
+                    const effectiveDay = (currentDayOfWeekStr >= '1' && currentDayOfWeekStr <= '5') ? currentDayOfWeekStr : '1';
+                    const detailKey = `${currentKey}-${effectiveDay}-${subjectModal.period}`;
+                    const today = getTodayDateKey();
+                    const newDetails = { 
+                      ...timetableDetails, 
+                      [detailKey]: { location: subjectModal.location, memo: subjectModal.memo, date: today } 
+                    };
+                    delete newDetails[`${currentKey}-${subjectModal.period}`];
                     setTimetableDetails(newDetails);
                     
                     try {
