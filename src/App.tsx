@@ -649,7 +649,18 @@ export default function App() {
 
   const getScheduleProgress = () => {
     const day = currentTime.getDay();
-    if (day === 0 || day === 6) return { type: 'weekend', text: '주말 (휴일)', startTime: '00:00', endTime: '24:00', percent: 100, remaining: '' };
+    if (day === 0 || day === 6) {
+      return { 
+        type: 'weekend' as const, 
+        period: 0,
+        text: '주말 (휴일)', 
+        startTime: '00:00', 
+        endTime: '24:00', 
+        percent: 100, 
+        remaining: '주말 휴일',
+        nextText: '즐거운 주말 보내세요!'
+      };
+    }
 
     const currentH = currentTime.getHours();
     const currentM = currentTime.getMinutes();
@@ -669,29 +680,35 @@ export default function App() {
           const mins = Math.floor(diff / 60);
           const secs = diff % 60;
           return {
-            type: 'before',
+            type: 'before' as const,
+            period: 1,
             text: '1교시 시작 전',
             startTime: '08:00',
             endTime: startTimeStr,
             percent: 0,
-            remaining: `${mins}분 ${secs}초 후 시작`
+            remaining: `${mins}분 ${String(secs).padStart(2, '0')}초 남음`,
+            nextText: `1교시 시작까지 ${mins}분 ${String(secs).padStart(2, '0')}초 (${startTimeStr} 시작)`
           };
         }
 
         if (currentTotalSec >= startSec && currentTotalSec <= endSec) {
-          const totalDuration = endSec - startSec;
+          const totalDuration = Math.max(1, endSec - startSec);
           const elapsed = currentTotalSec - startSec;
           const percent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
           const diff = endSec - currentTotalSec;
           const mins = Math.floor(diff / 60);
           const secs = diff % 60;
+          const nextSch = getScheduleForPeriod(p + 1);
+          const nextInfo = nextSch ? `다음: ${p + 1}교시 (${nextSch.startH}:${nextSch.startM})` : '다음: 정규 일과 종료';
           return {
-            type: 'class',
+            type: 'class' as const,
+            period: p,
             text: `${p}교시 수업 중`,
             startTime: startTimeStr,
             endTime: endTimeStr,
             percent,
-            remaining: `${mins}분 ${secs}초 남음`
+            remaining: `${mins}분 ${String(secs).padStart(2, '0')}초 남음`,
+            nextText: nextInfo
           };
         }
 
@@ -699,19 +716,22 @@ export default function App() {
         if (nextSch && nextSch.startH && nextSch.startM) {
           const nextStartSec = Number(nextSch.startH) * 3600 + Number(nextSch.startM) * 60;
           if (currentTotalSec > endSec && currentTotalSec < nextStartSec) {
-            const totalDuration = nextStartSec - endSec;
+            const totalDuration = Math.max(1, nextStartSec - endSec);
             const elapsed = currentTotalSec - endSec;
             const percent = Math.min(100, Math.max(0, (elapsed / totalDuration) * 100));
             const diff = nextStartSec - currentTotalSec;
             const mins = Math.floor(diff / 60);
             const secs = diff % 60;
             return {
-              type: 'break',
+              type: 'break' as const,
+              period: p,
+              nextPeriod: p + 1,
               text: `${p}교시 쉬는 시간`,
               startTime: endTimeStr,
               endTime: `${nextSch.startH}:${nextSch.startM}`,
               percent,
-              remaining: `${mins}분 ${secs}초 후 ${p+1}교시`
+              remaining: `${mins}분 ${String(secs).padStart(2, '0')}초 남음`,
+              nextText: `다음 ${p + 1}교시 시작까지 ${mins}분 ${String(secs).padStart(2, '0')}초 (${nextSch.startH}:${nextSch.startM})`
             };
           }
         }
@@ -723,17 +743,28 @@ export default function App() {
       const endSec = Number(lastSch.endH) * 3600 + Number(lastSch.endM) * 60;
       if (currentTotalSec > endSec) {
         return {
-          type: 'after',
+          type: 'after' as const,
+          period: 7,
           text: '방과 후 / 하교',
           startTime: `${lastSch.endH}:${lastSch.endM}`,
           endTime: '17:00',
           percent: 100,
-          remaining: '정규 일과 종료'
+          remaining: '정규 일과 종료',
+          nextText: '오늘 정규 수업이 모두 끝났습니다'
         };
       }
     }
 
-    return { type: 'none', text: '일과 시간 외', startTime: '00:00', endTime: '24:00', percent: 0, remaining: '' };
+    return { 
+      type: 'none' as const, 
+      period: 0,
+      text: '일과 시간 외', 
+      startTime: '00:00', 
+      endTime: '24:00', 
+      percent: 0, 
+      remaining: '',
+      nextText: '일과 시간 외'
+    };
   };
 
   const renderScheduleProgressBar = () => {
@@ -741,19 +772,22 @@ export default function App() {
     const isClass = prog.type === 'class';
     const isBreak = prog.type === 'break';
     const isBefore = prog.type === 'before';
-    const isAfter = prog.type === 'after';
 
-    let badgeBg = 'bg-slate-800/90 text-slate-300 border-slate-700';
-    let barColor = 'bg-slate-500';
+    let badgeBg = 'bg-slate-800/90 text-slate-300 border-slate-700 shadow-sm';
+    let barColor = 'bg-slate-600';
     let icon = '⚪';
+    let statusText = prog.text;
+    let glowShadow = '';
 
     if (isClass) {
-      badgeBg = 'bg-rose-950/90 text-rose-300 border-rose-800/70 shadow-rose-950/50';
-      barColor = 'bg-rose-500';
+      badgeBg = 'bg-rose-950/90 text-rose-300 border-rose-500/60 shadow-[0_0_12px_rgba(244,63,94,0.3)]';
+      barColor = 'bg-gradient-to-r from-rose-600 via-rose-500 to-rose-400';
+      glowShadow = 'shadow-[0_0_12px_rgba(244,63,94,0.5)]';
       icon = '🔴';
     } else if (isBreak) {
-      badgeBg = 'bg-emerald-950/90 text-emerald-300 border-emerald-800/70 shadow-emerald-950/50';
-      barColor = 'bg-emerald-500';
+      badgeBg = 'bg-emerald-950/90 text-emerald-300 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.3)]';
+      barColor = 'bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-400';
+      glowShadow = 'shadow-[0_0_12px_rgba(16,185,129,0.5)]';
       icon = '🟢';
     } else {
       badgeBg = 'bg-slate-800/90 text-slate-400 border-slate-700';
@@ -762,39 +796,69 @@ export default function App() {
     }
 
     return (
-      <div className="w-full px-8 py-3 bg-black/50 border-b border-white/10 flex flex-col gap-2 shrink-0 shadow-inner" style={{ WebkitAppRegion: 'no-drag' } as any}>
-        <div className="flex items-center justify-between">
+      <div className="w-full px-8 py-3 bg-[#0d1511]/90 border-b border-white/10 flex flex-col gap-2 shrink-0 shadow-lg backdrop-blur-sm" style={{ WebkitAppRegion: 'no-drag' } as any}>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          {/* 좌측: 현재 상태 배지 및 다음 교시 안내 */}
           <div className="flex items-center gap-3">
-            <span className={`px-3 py-1 rounded-lg text-xs font-black border flex items-center gap-1.5 shadow-sm ${badgeBg}`}>
-              <span>{icon}</span>
-              <span>{prog.text}</span>
+            <span className={`px-3 py-1.5 rounded-xl text-xs font-black border flex items-center gap-2 ${badgeBg}`}>
+              <span className={isClass || isBreak ? "animate-pulse" : ""}>{icon}</span>
+              <span>{statusText}</span>
             </span>
+            {prog.nextText && (
+              <span className="text-xs font-bold text-slate-300 bg-white/5 border border-white/10 px-3 py-1 rounded-lg flex items-center gap-1.5">
+                <span className="text-amber-400">➡️</span>
+                <span>{prog.nextText}</span>
+              </span>
+            )}
           </div>
-          <div className="text-xs font-mono font-black text-emerald-300 flex items-center gap-1.5 bg-black/40 px-3 py-1 rounded-md border border-white/10">
-            <span>⏳</span>
-            <span>{prog.remaining}</span>
+
+          {/* 우측: 실시간 카운트다운 타이머 & 0~100% 진행률 표시 */}
+          <div className="flex items-center gap-2">
+            {prog.remaining && (
+              <div className={`text-xs font-mono font-black flex items-center gap-1.5 px-3 py-1.5 rounded-xl border tabular-nums ${
+                isClass 
+                  ? 'bg-rose-950/70 border-rose-500/40 text-rose-300' 
+                  : isBreak 
+                  ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-300' 
+                  : 'bg-black/50 border-white/10 text-slate-300'
+              }`}>
+                <span className="animate-spin" style={{ animationDuration: '4s' }}>⏳</span>
+                <span>남은 시간: {prog.remaining}</span>
+              </div>
+            )}
+            <div className="text-xs font-mono font-black bg-white/10 text-white px-2.5 py-1.5 rounded-xl border border-white/10 flex items-center gap-1">
+              <span className="text-slate-400">진행률</span>
+              <span className="text-amber-300 tabular-nums">{prog.percent.toFixed(1)}%</span>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full">
-          <span className="text-[11px] font-mono font-bold text-slate-400 min-w-[45px] text-right">{prog.startTime}</span>
+        {/* 진행 바 (시작 시각 - 바 & 포인터 - 종료 시각) */}
+        <div className="flex items-center gap-3 w-full mt-0.5">
+          <span className="text-[11px] font-mono font-bold text-slate-400 min-w-[50px] text-right shrink-0">{prog.startTime}</span>
           
-          <div className="flex-1 relative h-4 bg-white/10 rounded-full overflow-visible p-0.5 border border-white/15 shadow-inner">
+          <div className="flex-1 relative h-4 bg-black/60 rounded-full overflow-visible p-0.5 border border-white/15 shadow-inner">
+            {/* 0% ~ 100% 동적 색상 진행 바 */}
             <div 
-              className={`h-full rounded-full transition-all duration-1000 ${barColor}`}
-              style={{ width: `${Math.max(4, Math.min(100, prog.percent))}%` }}
+              className={`h-full rounded-full transition-all duration-300 ${barColor} ${glowShadow}`}
+              style={{ width: `${Math.max(2, Math.min(100, prog.percent))}%` }}
             ></div>
-            {/* Current time pointer */}
+
+            {/* 현재 시각 실시간 포인터 마커 */}
             <div 
-              className="absolute top-0 bottom-0 w-3 bg-white rounded-full shadow-md border-2 border-slate-900 transition-all duration-1000 transform -translate-x-1/2 flex items-center justify-center"
+              className="absolute -top-1 bottom--1 w-4 h-6 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] border-2 border-slate-900 transition-all duration-300 transform -translate-x-1/2 flex items-center justify-center cursor-pointer group z-10"
               style={{ left: `${Math.max(2, Math.min(98, prog.percent))}%` }}
-              title={`현재 위치 (${prog.percent.toFixed(1)}%)`}
+              title={`현재 시각 진행률: ${prog.percent.toFixed(1)}%`}
             >
-              <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
+              <div className="w-1.5 h-1.5 bg-slate-900 rounded-full"></div>
+              {/* 포인터 위 퍼센트 배지 */}
+              <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-black/90 text-[10px] font-mono font-black text-amber-300 px-1.5 py-0.5 rounded border border-white/20 whitespace-nowrap shadow opacity-90 group-hover:opacity-100 pointer-events-none">
+                {prog.percent.toFixed(0)}%
+              </div>
             </div>
           </div>
 
-          <span className="text-[11px] font-mono font-bold text-slate-400 min-w-[45px]">{prog.endTime}</span>
+          <span className="text-[11px] font-mono font-bold text-slate-400 min-w-[50px] shrink-0">{prog.endTime}</span>
         </div>
       </div>
     );
@@ -2069,7 +2133,24 @@ ${htmlText.substring(0, 30000)}
               📱 {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 스마트 리모컨 <span className="text-xs font-mono bg-black/50 text-amber-400/80 px-2 py-0.5 rounded border border-white/10 font-normal">{APP_VERSION}</span>{renderUpdateBadge()}
             </h1>
           </div>
-          <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
+          <div className="flex items-center gap-3">
+            {/* ⏱️ 리모컨 실시간 카운트다운 타이머 */}
+            {(() => {
+              const prog = getScheduleProgress();
+              if (prog.type === 'none' || prog.type === 'weekend' || prog.type === 'after') return null;
+              const isClass = prog.type === 'class';
+              return (
+                <div className={`text-xs font-mono font-bold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
+                  isClass ? 'bg-rose-950/60 border-rose-500/40 text-rose-300' : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                }`}>
+                  <span>⏱️</span>
+                  <span>{prog.remaining}</span>
+                  <span className="text-[10px] bg-white/10 px-1 rounded">{prog.percent.toFixed(0)}%</span>
+                </div>
+              );
+            })()}
+            <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
+          </div>
         </header>
         {renderScheduleProgressBar()}
 
@@ -3605,7 +3686,40 @@ ${htmlText.substring(0, 30000)}
           </div>
         </div>
         
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-5">
+          {/* ⏱️ 헤더 실시간 카운트다운 타이머 (수업 종료 / 쉬는 시간 실시간 초 단위 카운트다운) */}
+          {(() => {
+            const prog = getScheduleProgress();
+            if (prog.type === 'none' || prog.type === 'weekend' || prog.type === 'after') return null;
+            const isClass = prog.type === 'class';
+            const badgeTheme = isClass 
+              ? 'bg-rose-950/80 border-rose-500/60 text-rose-200 shadow-[0_0_15px_rgba(244,63,94,0.35)]'
+              : 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.35)]';
+            const statusLabel = isClass ? `${prog.period}교시 종료까지` : `다음 교시 시작까지`;
+            return (
+              <div 
+                className={`hidden md:flex items-center gap-3 px-3.5 py-1.5 rounded-2xl border backdrop-blur-md ${badgeTheme}`} 
+                style={{ WebkitAppRegion: 'no-drag' } as any}
+                title={`현재 상태: ${prog.text} | 남은 시간: ${prog.remaining}`}
+              >
+                <div className="flex flex-col text-right">
+                  <span className="text-[10px] font-bold opacity-80 flex items-center gap-1 justify-end">
+                    <span className="h-2 w-2 rounded-full animate-ping inline-block" style={{ backgroundColor: isClass ? '#f43f5e' : '#10b981' }}></span>
+                    {statusLabel}
+                  </span>
+                  <span className="text-xs font-mono font-black text-amber-300 truncate max-w-[150px]">{prog.nextText.split('(')[0]}</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-black/60 px-3 py-1.5 rounded-xl border border-white/10 font-mono text-base font-black tracking-wider text-white tabular-nums shadow-inner">
+                  <span className="text-sm">⏱️</span>
+                  <span className={isClass ? "text-rose-400 font-black" : "text-emerald-400 font-black"}>{prog.remaining}</span>
+                </div>
+                <div className="text-[10px] font-mono font-bold bg-white/10 px-2 py-1 rounded-lg text-white/90">
+                  {prog.percent.toFixed(0)}%
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="text-right relative">
             {pendingAnnouncements.length > 0 && (
               <div className="absolute -top-6 right-0 bg-rose-600/90 backdrop-blur border border-rose-400 text-white px-2.5 py-0.5 rounded-full text-[10px] font-bold shadow-lg animate-bounce flex items-center gap-1">
