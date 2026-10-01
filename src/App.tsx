@@ -598,6 +598,47 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [viewMode]);
 
+  const prevIsClassTimeRef = useRef<boolean | null>(null);
+
+  // 💡 [수업시간 ↔ 쉬는 시간 자동 창 제어 시스템]
+  // 수업이 종료되면 자동으로 전체화면으로 깨어나 다음 교시 정보/메모를 보여주고, 수업이 시작되면 자동으로 백그라운드로 숨깁니다.
+  useEffect(() => {
+    if (viewMode !== 'classroom') return;
+
+    const currentClassState = isClassTime();
+
+    if (prevIsClassTimeRef.current === null) {
+      prevIsClassTimeRef.current = currentClassState;
+      return;
+    }
+
+    const day = currentTime.getDay();
+    const isWeekday = day >= 1 && day <= 5;
+
+    if (isWeekday) {
+      // 1. 수업 종료 -> 쉬는 시간 시작 (true -> false)
+      if (prevIsClassTimeRef.current === true && currentClassState === false) {
+        console.log("🔔 [수업 종료 감지] 쉬는 시간이 시작되었습니다! 전자칠판 화면을 자동으로 최상위 전체화면으로 복귀합니다.");
+        if ((window as any).electron && (window as any).electron.ipcRenderer) {
+          (window as any).electron.ipcRenderer.send('trigger-my-call', { 
+            timeout: 600, // 10분 동안 유지 (안전망)
+            isClassTime: false 
+          });
+        }
+      }
+      
+      // 2. 쉬는 시간 종료 -> 수업 시작 (false -> true)
+      if (prevIsClassTimeRef.current === false && currentClassState === true) {
+        console.log("🌙 [수업 시작 감지] 수업이 시작되었습니다! 수업과 판서 방해 방지를 위해 자동으로 바탕화면(백그라운드)으로 숨깁니다.");
+        if ((window as any).electron && (window as any).electron.ipcRenderer) {
+          (window as any).electron.ipcRenderer.send('hide-window');
+        }
+      }
+    }
+
+    prevIsClassTimeRef.current = currentClassState;
+  }, [currentTime, viewMode]);
+
   const getCurrentPeriodText = () => {
     const day = currentTime.getDay();
     if (day === 0 || day === 6) return "주말 (일과 없음)";
@@ -1037,7 +1078,7 @@ export default function App() {
           speakAnnouncementText(incomingText);
           
           if ((window as any).electron && (window as any).electron.ipcRenderer) {
-            (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
+            (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout, isClassTime: isClassTime() });
           }
         }
       }
@@ -1087,7 +1128,7 @@ export default function App() {
       speakAnnouncementText(nextAnnouncement.text);
       
       if ((window as any).electron && (window as any).electron.ipcRenderer) {
-        (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
+        (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout, isClassTime: isClassTime() });
       }
     }
   }, [currentTime, pendingAnnouncements, viewMode, isPopupOpen, classPopupTimeouts, schoolConfig.currentGrade, schoolConfig.currentClass, schoolConfig.popupTimeout, schoolConfig.forcePopupDuringClass]);
@@ -1116,7 +1157,7 @@ export default function App() {
       setPopupCountdown(effectiveTimeout);
 
       if ((window as any).electron && (window as any).electron.ipcRenderer) {
-        (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: effectiveTimeout });
+        (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: effectiveTimeout, isClassTime: isClassTime() });
       }
 
       const timeoutMs = effectiveTimeout * 1000;
@@ -4092,7 +4133,7 @@ ${htmlText.substring(0, 30000)}
                 speakAnnouncementText(next.text);
                 
                 if ((window as any).electron && (window as any).electron.ipcRenderer) {
-                  (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout });
+                  (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout, isClassTime: isClassTime() });
                 }
               }}
               className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors shadow-md border border-emerald-500 cursor-pointer flex items-center justify-center gap-1.5"
