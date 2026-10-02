@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { callUnifiedAi } from './lib/gemini';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon, RefreshCw, Save } from 'lucide-react';
 
@@ -182,6 +183,9 @@ export default function App() {
       appinServerUrl: parsed.appinServerUrl || '',
       neisApiKey: parsed.neisApiKey || '',
       geminiApiKey: parsed.geminiApiKey || '',
+      aiProvider: parsed.aiProvider || 'gemini',
+      groqApiKey: parsed.groqApiKey || '',
+      groqModel: parsed.groqModel || 'llama-3.3-70b-versatile',
       eduCode: parsed.eduCode || 'C10',
       schoolCode: parsed.schoolCode || '7150144',
       adminPin: parsed.adminPin || '0000',
@@ -346,6 +350,9 @@ export default function App() {
   const [adminSelectedClass, setAdminSelectedClass] = useState(schoolConfig.currentClass);
   const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
   const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
+  const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
+  const [adminGroqApiKey, setAdminGroqApiKey] = useState((schoolConfig as any).groqApiKey || '');
+  const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
   const [adminEduCode, setAdminEduCode] = useState(schoolConfig.eduCode);
   const [adminSchoolCode, setAdminSchoolCode] = useState(schoolConfig.schoolCode);
   const [adminTtsVoiceURI, setAdminTtsVoiceURI] = useState(schoolConfig.ttsVoiceURI || '');
@@ -1250,6 +1257,9 @@ export default function App() {
       setAdminClassroomTheme(schoolConfig.classroomTheme || 'default');
       setAdminAppinServerUrl(schoolConfig.appinServerUrl || '');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
+      setAdminAiProvider((schoolConfig as any).aiProvider || 'gemini');
+      setAdminGroqApiKey((schoolConfig as any).groqApiKey || '');
+      setAdminGroqModel((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
       setAdminPinInput(schoolConfig.adminPin);
@@ -1381,9 +1391,10 @@ export default function App() {
       alert("압핀 서버 주소(IP 등)를 입력해주세요.");
       return;
     }
-    const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
+    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
+    const apiKey = isGemini ? schoolConfig.geminiApiKey : (schoolConfig as any).groqApiKey;
     if (!apiKey) {
-      alert("❌ [API 키 필요] 관리자 모드에 Google Gemini API 키를 입력해주세요. (서버 HTML 분석용)");
+      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요. (서버 HTML 분석용)`);
       return;
     }
     setIsNeisLoading(true);
@@ -1412,7 +1423,7 @@ export default function App() {
         throw new Error("서버에서 유효한 데이터를 받지 못했습니다.");
       }
 
-      // Send HTML to Gemini
+      // Send HTML to AI
       const promptText = `
 너는 학교 시간표 분석 AI야. 다음은 학교 내부망 시간표 서버에서 가져온 HTML 소스코드야.
 여기서 ${editTargetGrade}학년 ${editTargetClass}반의 이번 주(월~금요일), 1교시부터 7교시까지의 수업 과목을 전부 추출해줘.
@@ -1439,22 +1450,8 @@ HTML 소스코드:
 ${htmlText.substring(0, 30000)}
       `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: { temperature: 0.1 }
-        })
-      });
-
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message || 'API 오류');
-
-      let responseText = json.candidates[0].content.parts[0].text;
-      responseText = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-
-      const parsedObj = JSON.parse(responseText);
+      const responseText = await callUnifiedAi(promptText, undefined, undefined, true);
+      const parsedObj = JSON.parse(responseText.replace(/```json/g, '').replace(/```/g, '').trim());
       const classKey = `${editTargetGrade}-${editTargetClass}`;
       setTempClassTimetables(prev => ({
         ...prev,
@@ -1577,9 +1574,10 @@ ${htmlText.substring(0, 30000)}
       return;
     }
 
-    const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
+    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
+    const apiKey = isGemini ? schoolConfig.geminiApiKey : (schoolConfig as any).groqApiKey;
     if (!apiKey) {
-      alert("❌ [API 키 필요] 관리자 모드에 Google Gemini API 키를 입력해주세요.");
+      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
       e.target.value = '';
       return;
     }
@@ -1623,19 +1621,7 @@ ${htmlText.substring(0, 30000)}
 }
 `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: file.type || 'image/jpeg', data: base64Data } }] }],
-          generationConfig: { temperature: 0.1 }
-        })
-      });
-
-      if (!response.ok) throw new Error('Gemini API 호출 실패');
-      
-      const result = await response.json();
-      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const rawText = await callUnifiedAi(promptText, base64Data, mimeType, true);
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('JSON 변환 실패');
 
@@ -1671,9 +1657,10 @@ ${htmlText.substring(0, 30000)}
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const apiKey = schoolConfig.geminiApiKey || schoolConfig.neisApiKey;
+    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
+    const apiKey = isGemini ? schoolConfig.geminiApiKey : (schoolConfig as any).groqApiKey;
     if (!apiKey) {
-      alert("❌ [API 키 필요] 관리자 모드에 Google Gemini API 키를 입력해주세요.");
+      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
       e.target.value = '';
       return;
     }
@@ -1707,19 +1694,7 @@ ${htmlText.substring(0, 30000)}
 }
 `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }, { inlineData: { mimeType: file.type || 'image/jpeg', data: base64Data } }] }],
-          generationConfig: { temperature: 0.1 }
-        })
-      });
-
-      if (!response.ok) throw new Error('Gemini API 호출 실패');
-
-      const result = await response.json();
-      const rawText = result.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const rawText = await callUnifiedAi(promptText, base64Data, file.type || 'image/jpeg', true);
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('JSON 변환 실패');
 
@@ -1888,6 +1863,9 @@ ${htmlText.substring(0, 30000)}
       currentClass: adminSelectedClass,
       neisApiKey: adminNeisApiKey.trim(),
       geminiApiKey: adminGeminiApiKey.trim(),
+      aiProvider: adminAiProvider,
+      groqApiKey: adminGroqApiKey.trim(),
+      groqModel: adminGroqModel,
       eduCode: adminEduCode.trim(),
       schoolCode: adminSchoolCode.trim(),
       adminPin: adminPinInput.trim() || '0000',
@@ -2813,23 +2791,89 @@ ${htmlText.substring(0, 30000)}
                 {!isNeisApiKeyValid && <p className="text-[10px] text-rose-400 mt-1">32자리 영문/숫자 형식이어야 합니다.</p>}
               </div>
               <div className="space-y-2 col-span-2">
-                <label className="text-xs font-bold text-slate-400">Google Gemini API KEY (학생 명렬, 시간표 등 자동파싱 AI용)</label>
-                <div className="flex gap-2">
-                  <div className="flex-1 flex flex-col gap-1">
+                <label className="text-xs font-bold text-slate-400">인공지능(AI) 서비스 제공업체 선택</label>
+                <div className="flex gap-6 mb-1">
+                  <label className="flex items-center gap-2 text-sm text-white cursor-pointer select-none">
                     <input 
-                      type="password" 
-                      value={adminGeminiApiKey}
-                      onChange={e => setAdminGeminiApiKey(e.target.value)}
-                      className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isGeminiApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
-                      placeholder="발급받은 Google Gemini API KEY 입력"
+                      type="radio" 
+                      name="aiProvider" 
+                      value="gemini" 
+                      checked={adminAiProvider === 'gemini'} 
+                      onChange={() => setAdminAiProvider('gemini')} 
+                      className="w-4 h-4 accent-emerald-500 cursor-pointer"
                     />
-                    {!isGeminiApiKeyValid && <p className="text-[10px] text-rose-400">키 길이가 너무 짧습니다.</p>}
-                  </div>
-                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-3 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50">
-                    <Key size={14} className="mr-1"/> 키 발급받기
-                  </a>
+                    Google Gemini (기본값)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-white cursor-pointer select-none">
+                    <input 
+                      type="radio" 
+                      name="aiProvider" 
+                      value="groq" 
+                      checked={adminAiProvider === 'groq'} 
+                      onChange={() => setAdminAiProvider('groq')} 
+                      className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                    />
+                    Groq Cloud (Llama 3 초고속 모델)
+                  </label>
                 </div>
               </div>
+
+              {adminAiProvider === 'gemini' ? (
+                <div className="space-y-2 col-span-2">
+                  <label className="text-xs font-bold text-slate-400">Google Gemini API KEY (학생 명렬, 시간표 등 자동파싱 AI용)</label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex flex-col gap-1">
+                      <input 
+                        type="password" 
+                        value={adminGeminiApiKey}
+                        onChange={e => setAdminGeminiApiKey(e.target.value)}
+                        className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isGeminiApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
+                        placeholder="발급받은 Google Gemini API KEY 입력"
+                      />
+                      {!isGeminiApiKeyValid && <p className="text-[10px] text-rose-400">키 길이가 너무 짧습니다.</p>}
+                    </div>
+                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-3 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50 h-[46px] shrink-0">
+                      <Key size={14} className="mr-1"/> 키 발급받기
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2 col-span-2">
+                  <label className="text-xs font-bold text-slate-400">Groq API KEY (Llama 3.3 및 3.2-Vision 초고속 엔진)</label>
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex flex-col gap-1">
+                      <input 
+                        type="password" 
+                        value={adminGroqApiKey}
+                        onChange={e => setAdminGroqApiKey(e.target.value)}
+                        className={`w-full px-4 py-3 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors border-emerald-900 focus:border-emerald-500`}
+                        placeholder="발급받은 Groq API KEY (gsk_...) 입력"
+                      />
+                    </div>
+                    <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="px-4 py-3 bg-orange-950/40 hover:bg-orange-900 text-orange-300 rounded-xl text-xs font-bold flex items-center justify-center border border-orange-700/50 h-[46px] shrink-0">
+                      <Key size={14} className="mr-1"/> 키 발급받기
+                    </a>
+                  </div>
+                  
+                  {/* 💡 Groq 모델 선택 드롭다운 */}
+                  <div className="mt-2 space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400">활용할 Groq AI 모델 선택</label>
+                    <select
+                      value={adminGroqModel}
+                      onChange={e => setAdminGroqModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
+                    >
+                      <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (70B 고해상도 텍스트 분석 - 추천)</option>
+                      <option value="llama-3.2-90b-vision-preview">llama-3.2-90b-vision-preview (90B 멀티모달 대형 모델 - 이미지 최적화)</option>
+                      <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview (11B 경량 고속 멀티모달 모델)</option>
+                      <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (8B 초스피드 경량 텍스트 분석)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500">
+                      * 텍스트 전용 모델을 선택하더라도, 시간표/식단표 이미지 분석 작업 시에는 비전(Vision) 모델인 90B 모델로 스마트 자동 우회 처리되어 오류가 방지됩니다.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
             
             <div className="pt-4 border-t border-emerald-900/60 mt-4">
