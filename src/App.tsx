@@ -192,7 +192,8 @@ export default function App() {
       ttsVoiceURI: parsed.ttsVoiceURI || '',
       ttsRate: parsed.ttsRate !== undefined ? parsed.ttsRate : 0.75,
       popupTimeout: parsed.popupTimeout !== undefined ? parsed.popupTimeout : 60,
-      forcePopupDuringClass: parsed.forcePopupDuringClass !== undefined ? Boolean(parsed.forcePopupDuringClass) : false
+      forcePopupDuringClass: parsed.forcePopupDuringClass !== undefined ? Boolean(parsed.forcePopupDuringClass) : false,
+      displayDayOverride: parsed.displayDayOverride || ''
     };
   });
 
@@ -365,6 +366,7 @@ export default function App() {
   const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
   const [adminGroqApiKey, setAdminGroqApiKey] = useState((schoolConfig as any).groqApiKey || '');
   const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
+  const [adminDisplayDayOverride, setAdminDisplayDayOverride] = useState<string>((schoolConfig as any).displayDayOverride || '');
   const [adminEduCode, setAdminEduCode] = useState(schoolConfig.eduCode);
   const [adminSchoolCode, setAdminSchoolCode] = useState(schoolConfig.schoolCode);
   const [adminTtsVoiceURI, setAdminTtsVoiceURI] = useState(schoolConfig.ttsVoiceURI || '');
@@ -402,7 +404,8 @@ export default function App() {
 
   const currentDayNum = currentTime.getDay();
   // 주말(0: 일요일, 6: 토요일)일 경우 테스트 및 기본 표시를 위해 월요일(1) 기준 표시
-  const currentDayOfWeekStr = (currentDayNum >= 1 && currentDayNum <= 5) ? String(currentDayNum) : '1';
+  const realDayOfWeekStr = (currentDayNum >= 1 && currentDayNum <= 5) ? String(currentDayNum) : '1';
+  const currentDayOfWeekStr = schoolConfig.displayDayOverride || realDayOfWeekStr;
   let todayTimetableObj = classTimetables[currentKey]?.[currentDayOfWeekStr];
   if (!todayTimetableObj || Object.values(todayTimetableObj).every(v => v === '-')) {
     todayTimetableObj = classTimetables[currentKey]?.['1'] || todayTimetableObj;
@@ -1272,6 +1275,7 @@ export default function App() {
       setAdminAiProvider((schoolConfig as any).aiProvider || 'gemini');
       setAdminGroqApiKey((schoolConfig as any).groqApiKey || '');
       setAdminGroqModel((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
+      setAdminDisplayDayOverride((schoolConfig as any).displayDayOverride || '');
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
       setAdminPinInput(schoolConfig.adminPin);
@@ -1878,6 +1882,7 @@ ${htmlText.substring(0, 30000)}
       aiProvider: adminAiProvider,
       groqApiKey: adminGroqApiKey.trim(),
       groqModel: adminGroqModel,
+      displayDayOverride: adminDisplayDayOverride,
       eduCode: adminEduCode.trim(),
       schoolCode: adminSchoolCode.trim(),
       adminPin: adminPinInput.trim() || '0000',
@@ -3323,6 +3328,39 @@ ${htmlText.substring(0, 30000)}
             </div>
 
             <div className="pt-6 border-t border-emerald-900/40 space-y-4">
+              {/* 💡 오늘 표시 요일 강제 변경 (특수 시간표 운영) */}
+              <div className="flex flex-col gap-2 p-4 bg-[#111a15] border border-amber-900/60 rounded-2xl">
+                <label className="text-xs text-amber-300 font-bold block flex items-center gap-1.5">
+                  <Calendar size={14} /> 특수 시간표 운영 (오늘 다른 요일 시간표로 전자칠판 표시)
+                </label>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setAdminDisplayDayOverride('')}
+                    className={`px-3 py-2 text-xs font-bold rounded-xl transition-all ${!adminDisplayDayOverride ? 'bg-emerald-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
+                  >
+                    실제 오늘 요일 따름 (기본)
+                  </button>
+                  {['1', '2', '3', '4', '5'].map((d) => {
+                    const label = ['월', '화', '수', '목', '금'][Number(d) - 1];
+                    const isSelected = adminDisplayDayOverride === d;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setAdminDisplayDayOverride(d)}
+                        className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${isSelected ? 'bg-amber-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
+                      >
+                        오늘 {label}요일 시간표로 고정
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-amber-200/70">
+                  ※ 예: 오늘이 화요일이지만 학교 행사 등으로 <strong>"금요일 시간표"</strong>로 수업을 진행해야 할 때 [오늘 금요일요일 시간표로 고정]을 선택하고 저장하시면, 오늘 전자칠판 화면에 금요일 시간표와 이동수업 메모가 곧바로 출력됩니다!
+                </p>
+              </div>
+
               <div className="flex flex-col gap-2">
                 <label className="text-xs text-amber-300 font-bold block">학급 고정 시간표 요일 선택</label>
                 <div className="flex gap-1.5 p-1 bg-[#0b1410] rounded-xl border border-emerald-900/60">
