@@ -6,6 +6,7 @@ export function getAiConfig() {
   return {
     aiProvider: parsed.aiProvider || 'gemini',
     geminiApiKey: parsed.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (typeof window !== "undefined" && (window as any).VITE_GEMINI_API_KEY) || "",
+    geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
     groqApiKey: parsed.groqApiKey || "",
     groqModel: parsed.groqModel || "llama-3.3-70b-versatile"
   };
@@ -24,11 +25,11 @@ export async function callGroq(
 
   const hasImage = base64Data && mimeType;
   
-  // 💡 이미지가 있는데 텍스트 전용 모델이 선택된 경우, 멀티모달 비전 모델(90b)로 스마트 자동 우회하여 오류 방지
+  // 💡 이미지가 있는데 텍스트 전용 모델이 선택된 경우, 멀티모달 비전 모델(11b-vision-preview)로 스마트 자동 우회하여 오류 방지
   let modelToUse = groqModel;
   if (hasImage) {
-    if (groqModel === "llama-3.3-70b-versatile" || groqModel === "llama-3.1-8b-instant") {
-      modelToUse = "llama-3.2-90b-vision-preview";
+    if (groqModel === "llama-3.3-70b-versatile" || groqModel === "llama-3.1-8b-instant" || groqModel === "llama-3.2-90b-vision-preview") {
+      modelToUse = "llama-3.2-11b-vision-preview";
     }
   }
 
@@ -81,7 +82,7 @@ export async function callUnifiedAi(
   mimeType?: string,
   jsonMode: boolean = true
 ): Promise<string> {
-  const { aiProvider, geminiApiKey } = getAiConfig();
+  const { aiProvider, geminiThinkingLevel } = getAiConfig();
 
   if (aiProvider === 'groq') {
     return callGroq(prompt, base64Data, mimeType, jsonMode);
@@ -104,9 +105,22 @@ export async function callUnifiedAi(
   if (jsonMode) {
     config.responseMimeType = "application/json";
   }
+  if (geminiThinkingLevel && geminiThinkingLevel !== 'DEFAULT') {
+    import("@google/genai").then(({ ThinkingLevel }) => {
+      // handled via ThinkingLevel enum or string
+    });
+    // @google/genai supports thinkingConfig with ThinkingLevel
+    if (geminiThinkingLevel === 'HIGH') {
+      config.thinkingConfig = { thinkingLevel: 2 }; // ThinkingLevel.HIGH
+    } else if (geminiThinkingLevel === 'LOW') {
+      config.thinkingConfig = { thinkingLevel: 1 }; // ThinkingLevel.LOW
+    } else if (geminiThinkingLevel === 'MINIMAL') {
+      config.thinkingConfig = { thinkingLevel: 0 }; // ThinkingLevel.MINIMAL
+    }
+  }
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
+    model: "gemini-3.8-flash",
     contents,
     config
   });

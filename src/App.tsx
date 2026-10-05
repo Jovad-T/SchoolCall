@@ -184,6 +184,7 @@ export default function App() {
       neisApiKey: parsed.neisApiKey || '',
       geminiApiKey: parsed.geminiApiKey || '',
       aiProvider: parsed.aiProvider || 'gemini',
+      geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
       groqApiKey: parsed.groqApiKey || '',
       groqModel: parsed.groqModel || 'llama-3.3-70b-versatile',
       eduCode: parsed.eduCode || 'C10',
@@ -234,22 +235,12 @@ export default function App() {
       const saved = localStorage.getItem('timetable_details');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const today = getTodayDateKey();
         const valid: Record<string, { location: string, memo: string, date?: string }> = {};
-        let modified = false;
-
         Object.entries(parsed).forEach(([key, val]: [string, any]) => {
-          // 오늘 날짜로 기록된 메모만 유지, 날짜가 다르거나 날짜가 없는 과거 잔여 데이터는 자동 초기화
-          if (val && typeof val === 'object' && val.date === today && (val.location || val.memo)) {
+          if (val && typeof val === 'object' && (val.location || val.memo)) {
             valid[key] = val;
-          } else {
-            modified = true;
           }
         });
-
-        if (modified) {
-          localStorage.setItem('timetable_details', JSON.stringify(valid));
-        }
         return valid;
       }
     } catch(e) {}
@@ -363,6 +354,7 @@ export default function App() {
   const [adminSelectedClass, setAdminSelectedClass] = useState(schoolConfig.currentClass);
   const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
   const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
+  const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
   const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
   const [adminGroqApiKey, setAdminGroqApiKey] = useState((schoolConfig as any).groqApiKey || '');
   const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
@@ -433,24 +425,7 @@ export default function App() {
       console.log(`[매일 자동 초기화] 날짜가 ${lastActiveDateRef.current}에서 ${today}로 변경되어 메모장 및 이전 호출 내역을 초기화합니다.`);
       lastActiveDateRef.current = today;
 
-      // 1. 메모장(시간표 알림장) 매일 자동 초기화
-      setTimetableDetails(prev => {
-        const valid: Record<string, { location: string; memo: string; date?: string }> = {};
-        Object.entries(prev).forEach(([k, v]: [string, any]) => {
-          if (v && v.date === today && (v.location || v.memo)) {
-            valid[k] = v;
-          }
-        });
-        try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
-        if (db) {
-          import("firebase/database").then(({ ref: dbRef, set }) => {
-            set(dbRef(db, 'globalData/timetableDetails'), valid).catch(console.error);
-          });
-        }
-        return valid;
-      });
-
-      // 2. 어제 보낸 호출/전달사항 및 알림 대기열 초기화
+      // 1. 어제 보낸 호출/전달사항 및 알림 대기열 초기화
       setAnnouncement('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
       setIsPopupOpen(false);
       setPendingAnnouncements([]);
@@ -498,27 +473,15 @@ export default function App() {
           try { localStorage.setItem('class_popup_timeouts', JSON.stringify(data.classPopupTimeouts)); } catch(e) {}
         }
         if (data.timetableDetails) {
-          const today = getTodayDateKey();
           const valid: Record<string, { location: string; memo: string; date?: string }> = {};
-          let hadExpired = false;
-
           Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
-            if (v && typeof v === 'object' && v.date === today && (v.location || v.memo)) {
+            if (v && typeof v === 'object' && (v.location || v.memo)) {
               valid[k] = v;
-            } else {
-              hadExpired = true;
             }
           });
 
           setTimetableDetails(valid);
           try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
-
-          // Firebase에 어제나 이전 날짜의 오래된 메모 데이터가 남아있다면 Firebase에서도 자동 초기화
-          if (hadExpired && db) {
-            import("firebase/database").then(({ ref: dbRef, set }) => {
-              set(dbRef(db, 'globalData/timetableDetails'), valid).catch(console.error);
-            });
-          }
         }
         if (data.meals) setMeals(data.meals);
         if (data.customCallPresets) {
@@ -1272,6 +1235,7 @@ export default function App() {
       setAdminClassroomTheme(schoolConfig.classroomTheme || 'default');
       setAdminAppinServerUrl(schoolConfig.appinServerUrl || '');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
+      setAdminGeminiThinkingLevel((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
       setAdminAiProvider((schoolConfig as any).aiProvider || 'gemini');
       setAdminGroqApiKey((schoolConfig as any).groqApiKey || '');
       setAdminGroqModel((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
@@ -1880,6 +1844,7 @@ ${htmlText.substring(0, 30000)}
       neisApiKey: adminNeisApiKey.trim(),
       geminiApiKey: adminGeminiApiKey.trim(),
       aiProvider: adminAiProvider,
+      geminiThinkingLevel: adminGeminiThinkingLevel,
       groqApiKey: adminGroqApiKey.trim(),
       groqModel: adminGroqModel,
       displayDayOverride: adminDisplayDayOverride,
@@ -2556,10 +2521,7 @@ ${htmlText.substring(0, 30000)}
                 
                 const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                 const rawDetail = timetableDetails[detailKey];
-                const today = getTodayDateKey();
-                const detail = (rawDetail && rawDetail.date === today)
-                  ? rawDetail
-                  : { location: '', memo: '', date: today };
+                const detail = rawDetail || { location: '', memo: '' };
                 
                 return (
                   <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
@@ -2577,7 +2539,7 @@ ${htmlText.substring(0, 30000)}
                           onChange={(e) => {
                             const newDetails = { 
                               ...timetableDetails, 
-                              [detailKey]: { location: e.target.value, memo: detail.memo, date: today }
+                              [detailKey]: { location: e.target.value, memo: detail.memo }
                             };
                             delete newDetails[`${todayKey}-${period}`];
                             setTimetableDetails(newDetails);
@@ -2594,7 +2556,7 @@ ${htmlText.substring(0, 30000)}
                           onChange={(e) => {
                             const newDetails = { 
                               ...timetableDetails, 
-                              [detailKey]: { location: detail.location, memo: e.target.value, date: today }
+                              [detailKey]: { location: detail.location, memo: e.target.value }
                             };
                             delete newDetails[`${todayKey}-${period}`];
                             setTimetableDetails(newDetails);
@@ -2853,10 +2815,28 @@ ${htmlText.substring(0, 30000)}
                       <Key size={14} className="mr-1"/> 키 발급받기
                     </a>
                   </div>
+
+                  {/* 💡 Gemini 사고 수준(Thinking Level) 설정 */}
+                  <div className="mt-3 space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400">Gemini 사고 수준 (Thinking Level) 설정</label>
+                    <select
+                      value={adminGeminiThinkingLevel}
+                      onChange={e => setAdminGeminiThinkingLevel(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
+                    >
+                      <option value="DEFAULT">DEFAULT (기본 자동 조정 - 추천)</option>
+                      <option value="HIGH">HIGH (최고 수준 추론 - 복잡한 분석/정밀 추출)</option>
+                      <option value="LOW">LOW (저지연 빠른 추론)</option>
+                      <option value="MINIMAL">MINIMAL (최소 사고 - 즉답)</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500">
+                      * Gemini 모델의 추론/사고 능력을 조절합니다. 복잡한 시간표/식단표 분석 시 HIGH 또는 DEFAULT를 권장합니다.
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2 col-span-2">
-                  <label className="text-xs font-bold text-slate-400">Groq API KEY (Llama 3.3 및 3.2-Vision 초고속 엔진)</label>
+                  <label className="text-xs font-bold text-slate-400">Groq API KEY (Llama 초고속 엔진)</label>
                   <div className="flex gap-2">
                     <div className="flex-1 flex flex-col gap-1">
                       <input 
@@ -2872,7 +2852,7 @@ ${htmlText.substring(0, 30000)}
                     </a>
                   </div>
                   
-                  {/* 💡 Groq 모델 선택 드롭다운 */}
+                  {/* 💡 Groq 모델 선택 드롭다운 (최신 11b-vision-preview 반영) */}
                   <div className="mt-2 space-y-1">
                     <label className="text-[11px] font-bold text-slate-400">활용할 Groq AI 모델 선택</label>
                     <select
@@ -2881,12 +2861,11 @@ ${htmlText.substring(0, 30000)}
                       className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
                     >
                       <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (70B 고해상도 텍스트 분석 - 추천)</option>
-                      <option value="llama-3.2-90b-vision-preview">llama-3.2-90b-vision-preview (90B 멀티모달 대형 모델 - 이미지 최적화)</option>
-                      <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview (11B 경량 고속 멀티모달 모델)</option>
+                      <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview (11B 멀티모달 비전 모델 - 이미지 OCR 최적화)</option>
                       <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (8B 초스피드 경량 텍스트 분석)</option>
                     </select>
                     <p className="text-[10px] text-slate-500">
-                      * 텍스트 전용 모델을 선택하더라도, 시간표/식단표 이미지 분석 작업 시에는 비전(Vision) 모델인 90B 모델로 스마트 자동 우회 처리되어 오류가 방지됩니다.
+                      * 텍스트 전용 모델을 선택하더라도, 시간표/식단표 이미지 분석 작업 시에는 비전 모델인 11B Vision 모델로 스마트 자동 우회 처리되어 오류가 방지됩니다.
                     </p>
                   </div>
                 </div>
