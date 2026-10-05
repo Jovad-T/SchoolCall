@@ -341,7 +341,19 @@ export default function App() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   });
   const adminDateKey = adminDate.replace(/-/g, '');
-  const adminDayOfWeek = String(new Date(adminDate).getDay());
+  const [adminTimetableDay, setAdminTimetableDay] = useState<string>(() => {
+    const d = new Date().getDay();
+    return (d >= 1 && d <= 5) ? String(d) : '1';
+  });
+
+  useEffect(() => {
+    const dayVal = String(new Date(adminDate).getDay());
+    if (dayVal === '0' || dayVal === '6') {
+      setAdminTimetableDay('1');
+    } else {
+      setAdminTimetableDay(dayVal);
+    }
+  }, [adminDate]);
 
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
   const [adminSchoolLevel, setAdminSchoolLevel] = useState<'elementary' | 'middle' | 'high'>(schoolConfig.schoolLevel || 'high');
@@ -401,7 +413,7 @@ export default function App() {
 
   const editKey = `${editTargetGrade}-${editTargetClass}`;
   const editTargetStudents = tempClassRosters[editKey] || [];
-  const currentAdminTimetable = tempClassTimetables[editKey]?.[adminDayOfWeek] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
+  const currentAdminTimetable = tempClassTimetables[editKey]?.[adminTimetableDay] || { 1: '-', 2: '-', 3: '-', 4: '-', 5: '-', 6: '-', 7: '-' };
   const currentAdminMeals = tempMeals[adminDateKey] || { lunch: [], dinner: [] };
 
   useEffect(() => {
@@ -1345,7 +1357,7 @@ export default function App() {
             ...prev,
             [key]: {
               ...(prev[key] || {}),
-              [adminDayOfWeek]: newTimetable
+              [adminTimetableDay]: newTimetable
             }
           }));
           alert(`📡 [NEIS 연동 완료] 선택하신 요일의 학기 고정 시간표를 덮어썼습니다!`);
@@ -3310,8 +3322,29 @@ ${htmlText.substring(0, 30000)}
               </div>
             </div>
 
-            <div className="pt-6 border-t border-emerald-900/40 space-y-3">
-              <label className="text-xs text-amber-300 font-bold block">{adminDate} ({['일', '월', '화', '수', '목', '금', '토'][new Date(adminDate).getDay()]}요일) 학급 시간표</label>
+            <div className="pt-6 border-t border-emerald-900/40 space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-amber-300 font-bold block">학급 고정 시간표 요일 선택</label>
+                <div className="flex gap-1.5 p-1 bg-[#0b1410] rounded-xl border border-emerald-900/60">
+                  {['1', '2', '3', '4', '5'].map((d) => {
+                    const label = ['월요일', '화요일', '수요일', '목요일', '금요일'][Number(d) - 1];
+                    const isSelected = adminTimetableDay === d;
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setAdminTimetableDay(d)}
+                        className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${isSelected ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-400 hover:text-white hover:bg-emerald-900/40'}`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  ※ 달력 날짜({adminDate})를 바꾸면 자동으로 해당 요일로 전환되며, 원하시는 요일 탭을 클릭하여 강제로 요일을 바꾼 상태로 다른 요일의 시간표도 즉시 셋팅하고 수정하실 수 있습니다.
+                </p>
+              </div>
               
               <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-4">
                 <div className="flex items-center gap-4">
@@ -3374,7 +3407,7 @@ ${htmlText.substring(0, 30000)}
                 <div className="grid grid-cols-7 gap-2 mt-2">
                   {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                     const currentMap = tempClassTimetables[`${editTargetGrade}-${editTargetClass}`] || {};
-                    const currentDayObj = currentMap[adminDayOfWeek] || {};
+                    const currentDayObj = currentMap[adminTimetableDay] || {};
                     return (
                       <div key={p} className="flex flex-col gap-1">
                         <span className="text-[10px] text-center text-emerald-500 font-bold">{p}교시</span>
@@ -3383,7 +3416,7 @@ ${htmlText.substring(0, 30000)}
                           value={currentDayObj[p] || ''}
                           onChange={(e) => {
                             const newMap = { ...currentMap };
-                            newMap[adminDayOfWeek] = { ...currentDayObj, [p]: e.target.value };
+                            newMap[adminTimetableDay] = { ...currentDayObj, [p]: e.target.value };
                             setTempClassTimetables({ ...tempClassTimetables, [`${editTargetGrade}-${editTargetClass}`]: newMap });
                           }}
                           className="w-full text-center px-1 py-2 bg-[#162d22] border border-emerald-800 rounded-lg text-xs text-white focus:border-amber-400 outline-none"
@@ -3392,6 +3425,62 @@ ${htmlText.substring(0, 30000)}
                       </div>
                     );
                   })}
+                </div>
+
+                {/* 💡 [현재 학급 적용 확인] 및 [전체 반 일괄 변경 복사] 버튼 그룹 */}
+                <div className="flex gap-2.5 mt-4 pt-4 border-t border-emerald-900/40">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dayLabel = ['월요일', '화요일', '수요일', '목요일', '금요일'][Number(adminTimetableDay) - 1];
+                      const currentMap = tempClassTimetables[`${editTargetGrade}-${editTargetClass}`] || {};
+                      const currentDayObj = currentMap[adminTimetableDay] || {};
+                      
+                      const subjects = [1,2,3,4,5,6,7].map(p => currentDayObj[p] || '-').join(', ');
+                      
+                      alert(`✅ [설정 확인]\n\n현재 학급(${editTargetGrade}학년 ${editTargetClass}반)의 ${dayLabel} 시간표가 임시 등록되었습니다.\n[과목 목록]: ${subjects}\n\n최종 저장을 원하시면 화면 하단에 있는 [설정 저장하기] 버튼을 꼭 눌러주세요.`);
+                    }}
+                    className="flex-1 px-4 py-3 bg-emerald-700 hover:bg-emerald-600 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 border border-emerald-500"
+                  >
+                    <CheckCircle2 size={14} /> 현재 학급 시간표 확인
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dayLabel = ['월요일', '화요일', '수요일', '목요일', '금요일'][Number(adminTimetableDay) - 1];
+                      const currentMap = tempClassTimetables[`${editTargetGrade}-${editTargetClass}`] || {};
+                      const currentDayObj = currentMap[adminTimetableDay] || {};
+                      
+                      const subjects = [1,2,3,4,5,6,7].map(p => currentDayObj[p] || '-').join(', ');
+                      
+                      const isConfirmed = window.confirm(
+                        `⚠️ [경고: 전체 학급 시간표 일괄 덮어쓰기]\n\n정말로 현재 학급(${editTargetGrade}-${editTargetClass}반)의 ${dayLabel} 시간표\n[ ${subjects} ]\n를 전교 모든 학년의 모든 반 시간표로 일괄 복사해 적용하시겠습니까?\n\n※ 이 작업은 임시 일괄 대입이며, 하단의 [설정 저장하기] 버튼을 눌러야 최종 저장됩니다.`
+                      );
+                      
+                      if (isConfirmed) {
+                        const newTimetables = { ...tempClassTimetables };
+                        const maxGrade = schoolConfig.schoolLevel === 'elementary' ? 6 : 3;
+                        
+                        for (let g = 1; g <= maxGrade; g++) {
+                          const classCount = schoolConfig.gradeCounts[g] || 8;
+                          for (let c = 1; c <= classCount; c++) {
+                            const targetKey = `${g}-${c}`;
+                            if (!newTimetables[targetKey]) {
+                              newTimetables[targetKey] = {};
+                            }
+                            newTimetables[targetKey][adminTimetableDay] = { ...currentDayObj };
+                          }
+                        }
+                        
+                        setTempClassTimetables(newTimetables);
+                        alert(`📡 전교 모든 학급의 ${dayLabel} 시간표가 현재 과목으로 임시 덮어씌워졌습니다!\n\n최종 반영을 위해 하단의 [설정 저장하기] 버튼을 클릭해 주세요.`);
+                      }
+                    }}
+                    className="flex-1 px-4 py-3 bg-indigo-700 hover:bg-indigo-600 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 border border-indigo-500"
+                  >
+                    <Layers size={14} /> 전체 학급 시간표에 동일 적용
+                  </button>
                 </div>
               </div>
             </div>
