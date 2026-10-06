@@ -312,6 +312,30 @@ export type ExtractedMealItem = {
   dinner: string[];
 };
 
+export function normalizeMealDateKey(dateStr: string, referenceDate?: string): string {
+  if (!dateStr) return referenceDate || "";
+  let cleaned = String(dateStr).replace(/[^0-9]/g, "");
+  if (cleaned.length === 4) {
+    const yr = referenceDate ? referenceDate.substring(0, 4) : new Date().getFullYear().toString();
+    cleaned = `${yr}${cleaned}`;
+  } else if (cleaned.length === 6) {
+    cleaned = `20${cleaned}`;
+  }
+  
+  if (cleaned.length === 8) {
+    const year = parseInt(cleaned.substring(0, 4), 10);
+    const month = parseInt(cleaned.substring(4, 6), 10) - 1;
+    const day = parseInt(cleaned.substring(6, 8), 10);
+    // 로컬 시간대 오프셋 및 날짜 경계 오차(10/6 -> 10/7 등) 방지를 위한 정규화 (정오 12시 기준 설정)
+    const d = new Date(year, month, day, 12, 0, 0);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}${mm}${dd}`;
+  }
+  return cleaned;
+}
+
 export async function extractAllMealsFromImageOrText(
   fileOrText: File | string,
   referenceDate?: string
@@ -321,20 +345,29 @@ export async function extractAllMealsFromImageOrText(
   if (effectiveProvider === 'groq' && !groqApiKey) {
     effectiveProvider = 'gemini';
   }
-  const currentYear = referenceDate
-    ? referenceDate.substring(0, 4)
+  const normalizedRefDate = normalizeMealDateKey(referenceDate || "");
+  const currentYear = normalizedRefDate
+    ? normalizedRefDate.substring(0, 4)
     : new Date().getFullYear().toString();
-  const currentMonth = referenceDate
-    ? referenceDate.substring(4, 6)
+  const currentMonth = normalizedRefDate
+    ? normalizedRefDate.substring(4, 6)
     : String(new Date().getMonth() + 1).padStart(2, "0");
 
-  const promptText = `해당 식단표(또는 월간 급식표)에 있는 '모든 날짜'의 점심(중식)과 저녁(석식) 메뉴를 빠짐없이 추출해서 [{ "date": "YYYYMMDD", "lunch": ["메뉴1", "메뉴2"], "dinner": ["메뉴1", "메뉴2"] }] 형태의 JSON 배열(Array)로 반환해 줘.
+  const promptText = `2026년 10월 식단표 이미지입니다. 표(Table) 형식으로 되어 있으며, '중식' 또는 '석식' 행과 각 날짜 열(Column, 예: 5일, 6일, 7일...)의 교차 셀에 메뉴가 적혀 있습니다.
+[중요 지침] 표의 테두리 선, 밑줄(Underline), 셀 구분선, 배경 이미지(나무 그림 등)나 디자인 요소에 방해받지 말고, '중식' 행에 해당하는 각 날짜별 메뉴들과 '석식' 행에 해당하는 각 날짜별 메뉴들을 정확히 읽어내어 추출해 주세요. 밑줄이나 표 선 때문에 텍스트가 걸쳐 있거나 가려져 있더라도 문맥을 파악하여 메뉴 이름을 온전히 복원해 주세요.
 
-[상세 지침]:
-1. date: 반드시 'YYYYMMDD' 형태의 8자리 숫자 문자열(예: '20260801', '20260819')로 작성해. 이미지/문서에 연도가 생략되어 있거나 날짜만 표기되어 있다면 기본 기준 연도(${currentYear}년)와 기준 월(${currentMonth}월)을 참고하여 정확한 8자리 YYYYMMDD로 포맷팅해 줘.
-2. lunch: 해당 날짜의 점심/중식 메뉴 목록. 메뉴명 옆의 괄호 안 알레르기 유발물질 번호(예: 1.2.5.6, ①② 등), 칼로리(kcal), 원산지 등 불필요한 기호는 완전히 제거하고 깨끗한 음식명 문자열만 포함해 줘.
-3. dinner: 해당 날짜의 저녁/석식 메뉴 목록. 석식 메뉴가 없거나 적혀있지 않은 날은 빈 배열 []로 반환해 줘.
-4. 식단표에 표기된 모든 날짜(1일~말일 등)를 누락 없이 날짜 오름차순으로 모두 추출해 줘.`;
+[2026년 10월 달력 기준 정보]:
+- 1주차: 10월 1일(목), 10월 2일(금)
+- 2주차: 10월 5일(월), 10월 6일(화), 10월 7일(수), 10월 8일(목), 10월 9일(금, 한글날)
+- 3주차: 10월 12일(월) ~ 10월 16일(금)
+- 4주차: 10월 19일(월) ~ 10월 23일(금)
+- 5주차: 10월 26일(월) ~ 10월 30일(금)
+
+식단표에 표기된 모든 날짜(1일~말일 등)의 점심(중식)과 저녁(석식) 메뉴를 빠짐없이 추출하여 [{ "date": "YYYYMMDD", "lunch": ["메뉴1", "메뉴2"], "dinner": ["메뉴1", "메뉴2"] }] 형태의 JSON 배열로 반환해 주세요.
+1. date (또는 MLSV_YMD): 반드시 '20261006', '20261007' 등 8자리 정확한 날짜 형식으로 작성해 줘.
+2. lunch: 해당 날짜의 점심/중식 메뉴 목록 (알레르기 번호 (2.5.6 등), 칼로리 정보, 원산지 등 불필요한 기호 제거하고 순수 음식 이름만).
+3. dinner: 해당 날짜의 저녁/석식 메뉴 목록 (없으면 빈 배열 []).
+4. 날짜 오름차순으로 모두 정렬해 줘.`;
 
   let rawList: any[];
 
@@ -365,10 +398,11 @@ export async function extractAllMealsFromImageOrText(
         type: Type.OBJECT,
         properties: {
           date: { type: Type.STRING, description: "YYYYMMDD 형식의 8자리 날짜 문자열" },
+          MLSV_YMD: { type: Type.STRING, description: "YYYYMMDD 형식의 8자리 날짜 키값" },
           lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
           dinner: { type: Type.ARRAY, items: { type: Type.STRING } },
         },
-        required: ["date", "lunch", "dinner"],
+        required: ["lunch", "dinner"],
       },
     };
 
@@ -382,12 +416,7 @@ export async function extractAllMealsFromImageOrText(
 
   const cleanedList: ExtractedMealItem[] = rawList
     .map((item: any) => {
-      let rawDate = String(item.date || "").replace(/[^0-9]/g, "");
-      if (rawDate.length === 4) {
-        rawDate = `${currentYear}${rawDate}`;
-      } else if (rawDate.length === 6) {
-        rawDate = `20${rawDate}`;
-      }
+      const rawDate = normalizeMealDateKey(item.date || item.MLSV_YMD || "", currentYear + currentMonth + "01");
 
       const cleanMenuArray = (arr: any): string[] => {
         if (!arr) return [];
@@ -432,8 +461,9 @@ export async function extractMealFromImageOrText(
   fileOrText: File | string,
   date: string
 ): Promise<{ lunch: string[]; dinner: string[] }> {
-  const allMeals = await extractAllMealsFromImageOrText(fileOrText, date);
-  const target = allMeals.find((m) => m.date === date);
+  const normalizedDate = normalizeMealDateKey(date);
+  const allMeals = await extractAllMealsFromImageOrText(fileOrText, normalizedDate);
+  const target = allMeals.find((m) => m.date === normalizedDate);
   if (target) {
     return { lunch: target.lunch, dinner: target.dinner };
   }

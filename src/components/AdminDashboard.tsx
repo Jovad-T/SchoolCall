@@ -1169,11 +1169,14 @@ export default function AdminDashboard() {
               <div className="flex items-center gap-2">
                 <label className="text-[10px] uppercase text-[#777] font-bold tracking-wider">적용 날짜</label>
                 <input 
-                  type="text"
-                  value={mealDate}
-                  onChange={(e) => setMealDate(e.target.value)}
-                  className="w-32 bg-[#1A1A1C] p-2 rounded-lg border border-[#444] text-white outline-none focus:border-yellow-500 transition-colors text-center text-xs font-mono"
-                  placeholder="YYYYMMDD"
+                  type="date"
+                  value={mealDate.length === 8 ? `${mealDate.substring(0,4)}-${mealDate.substring(4,6)}-${mealDate.substring(6,8)}` : mealDate}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setMealDate(e.target.value.replace(/-/g, ''));
+                    }
+                  }}
+                  className="bg-[#1A1A1C] p-2 rounded-lg border border-[#444] text-white outline-none focus:border-yellow-500 transition-colors text-center text-xs font-mono cursor-pointer"
                 />
               </div>
             </div>

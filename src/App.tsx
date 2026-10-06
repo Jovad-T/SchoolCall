@@ -2525,7 +2525,8 @@ ${htmlText.substring(0, 30000)}
                 
                 const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                 const rawDetail = timetableDetails[detailKey];
-                const detail = rawDetail || { location: '', memo: '' };
+                const today = getTodayDateKey();
+                const detail = (rawDetail && rawDetail.date === today) ? rawDetail : { location: '', memo: '', date: today };
                 
                 return (
                   <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
@@ -2541,9 +2542,10 @@ ${htmlText.substring(0, 30000)}
                           placeholder="장소 (예: 과학실, 체육관)"
                           value={detail.location}
                           onChange={(e) => {
+                            const todayDate = getTodayDateKey();
                             const newDetails = { 
                               ...timetableDetails, 
-                              [detailKey]: { location: e.target.value, memo: detail.memo }
+                              [detailKey]: { location: e.target.value, memo: detail.memo, date: todayDate }
                             };
                             delete newDetails[`${todayKey}-${period}`];
                             setTimetableDetails(newDetails);
@@ -2558,9 +2560,10 @@ ${htmlText.substring(0, 30000)}
                           placeholder="공지/메모 (예: 준비물 지참, 숙제 제출)"
                           value={detail.memo}
                           onChange={(e) => {
+                            const todayDate = getTodayDateKey();
                             const newDetails = { 
                               ...timetableDetails, 
-                              [detailKey]: { location: detail.location, memo: e.target.value }
+                              [detailKey]: { location: detail.location, memo: e.target.value, date: todayDate }
                             };
                             delete newDetails[`${todayKey}-${period}`];
                             setTimetableDetails(newDetails);
@@ -3351,7 +3354,22 @@ ${htmlText.substring(0, 30000)}
                 <div className="flex gap-1.5 flex-wrap">
                   <button
                     type="button"
-                    onClick={() => setAdminDisplayDayOverride('')}
+                    onClick={() => {
+                      setAdminDisplayDayOverride('');
+                      const realDay = String(new Date().getDay());
+                      const defaultDay = (realDay >= '1' && realDay <= '5') ? realDay : '1';
+                      setAdminTimetableDay(defaultDay);
+                      setSchoolConfig(prev => {
+                        const updated = { ...prev, displayDayOverride: '' };
+                        try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+                        return updated;
+                      });
+                      if (db) {
+                        import("firebase/database").then(({ ref: dbRef, update }) => {
+                          update(dbRef(db, 'globalData/schoolConfig'), { displayDayOverride: '' }).catch(console.error);
+                        });
+                      }
+                    }}
                     className={`px-3 py-2 text-xs font-bold rounded-xl transition-all ${!adminDisplayDayOverride ? 'bg-emerald-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
                   >
                     실제 오늘 요일 따름 (기본)
@@ -3363,7 +3381,20 @@ ${htmlText.substring(0, 30000)}
                       <button
                         key={d}
                         type="button"
-                        onClick={() => setAdminDisplayDayOverride(d)}
+                        onClick={() => {
+                          setAdminDisplayDayOverride(d);
+                          setAdminTimetableDay(d);
+                          setSchoolConfig(prev => {
+                            const updated = { ...prev, displayDayOverride: d };
+                            try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+                            return updated;
+                          });
+                          if (db) {
+                            import("firebase/database").then(({ ref: dbRef, update }) => {
+                              update(dbRef(db, 'globalData/schoolConfig'), { displayDayOverride: d }).catch(console.error);
+                            });
+                          }
+                        }}
                         className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${isSelected ? 'bg-amber-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
                       >
                         오늘 {label}요일 시간표로 고정
