@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { callUnifiedAi } from './lib/gemini';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon, RefreshCw, Save } from 'lucide-react';
+import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon, RefreshCw, Save, ChevronLeft, ChevronRight } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
@@ -40,6 +40,180 @@ const getPopupTheme = (color: string) => {
     amber: { hex: '#d97706', bgDark: '#fffbeb', bgBadge: '#fef3c7', textBadge: '#d97706', textMain: '#78350f', shadow: 'rgba(217,119,6,0.3)', icon: '#d97706' },
     purple: { hex: '#7e22ce', bgDark: '#faf5ff', bgBadge: '#f3e8ff', textBadge: '#7e22ce', textMain: '#4c1d95', shadow: 'rgba(126,34,206,0.3)', icon: '#7e22ce' }
   }[color as 'rose'|'blue'|'emerald'|'amber'|'purple'] || { hex: '#e11d48', bgDark: '#fff1f2', bgBadge: '#ffe4e6', textBadge: '#e11d48', textMain: '#881337', shadow: 'rgba(225,29,72,0.3)', icon: '#e11d48' };
+};
+
+const AdminCalendarPicker: React.FC<{
+  value: string;
+  onChange: (val: string) => void;
+}> = ({ value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [viewDate, setViewDate] = useState(() => {
+    const d = value ? new Date(value) : new Date();
+    return isNaN(d.getTime()) ? new Date() : d;
+  });
+
+  useEffect(() => {
+    if (value) {
+      const d = new Date(value);
+      if (!isNaN(d.getTime())) setViewDate(d);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const handlePrevMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setViewDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setViewDate(new Date(year, month + 1, 1));
+  };
+
+  const handleSelectToday = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    onChange(todayStr);
+    setViewDate(today);
+    setIsOpen(false);
+  };
+
+  const dayOfWeekNames = ['일', '월', '화', '수', '목', '금', '토'];
+  const selectedDayObj = value ? new Date(value) : new Date();
+  const dayName = !isNaN(selectedDayObj.getTime()) ? dayOfWeekNames[selectedDayObj.getDay()] : '';
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-3 px-4 py-2.5 bg-[#111a15] hover:bg-[#18261f] text-white font-bold rounded-xl border border-amber-500/70 shadow-md text-sm transition-all cursor-pointer focus:ring-2 focus:ring-amber-500/40 whitespace-nowrap shrink-0 select-none group"
+      >
+        <Calendar size={18} className="text-amber-400 group-hover:scale-110 transition-transform shrink-0" />
+        <span className="font-mono text-sm tracking-wider font-extrabold whitespace-nowrap text-white">
+          {value || '날짜 선택'}
+        </span>
+        {dayName && (
+          <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 whitespace-nowrap shrink-0">
+            {dayName}요일
+          </span>
+        )}
+        <span className="text-xs text-amber-400/70 ml-0.5 shrink-0 group-hover:translate-y-0.5 transition-transform">▼</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-2 w-72 bg-[#0e1713] border border-amber-500/50 rounded-2xl p-4 shadow-2xl z-50 animate-fade-in backdrop-blur-md">
+          <div className="flex items-center justify-between mb-3 pb-2 border-b border-white/10">
+            <button
+              type="button"
+              onClick={handlePrevMonth}
+              className="p-1 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white transition-colors cursor-pointer text-xs px-2 flex items-center justify-center"
+              title="이전 달"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-white text-sm">
+                {year}년 {month + 1}월
+              </span>
+              <button
+                type="button"
+                onClick={handleSelectToday}
+                className="px-2 py-0.5 text-[10px] bg-emerald-600/30 text-emerald-300 hover:bg-emerald-600/50 rounded-md font-bold transition-colors cursor-pointer"
+              >
+                오늘
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleNextMonth}
+              className="p-1 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white transition-colors cursor-pointer text-xs px-2 flex items-center justify-center"
+              title="다음 달"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center mb-1">
+            {dayOfWeekNames.map((d, i) => (
+              <span
+                key={d}
+                className={`text-[11px] font-bold py-1 ${
+                  i === 0 ? 'text-rose-400' : i === 6 ? 'text-sky-400' : 'text-slate-400'
+                }`}
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+              <div key={`empty-${i}`} className="h-8" />
+            ))}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const dayNum = i + 1;
+              const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+              const isSelected = value === dateStr;
+              const todayObj = new Date();
+              const isToday =
+                todayObj.getFullYear() === year &&
+                todayObj.getMonth() === month &&
+                todayObj.getDate() === dayNum;
+
+              const colIndex = (firstDayOfWeek + i) % 7;
+              const isSunday = colIndex === 0;
+              const isSaturday = colIndex === 6;
+
+              return (
+                <button
+                  key={dayNum}
+                  type="button"
+                  onClick={() => {
+                    onChange(dateStr);
+                    setIsOpen(false);
+                  }}
+                  className={`h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
+                    isSelected
+                      ? 'bg-amber-500 text-black shadow-[0_0_10px_rgba(245,158,11,0.5)] font-black scale-105'
+                      : isToday
+                      ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-500/50 hover:bg-emerald-800/80'
+                      : isSunday
+                      ? 'text-rose-400 hover:bg-white/10'
+                      : isSaturday
+                      ? 'text-sky-400 hover:bg-white/10'
+                      : 'text-slate-200 hover:bg-white/10'
+                  }`}
+                >
+                  {dayNum}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 export default function App() {
@@ -2694,16 +2868,19 @@ ${htmlText.substring(0, 30000)}
 
         <main className="flex-1 p-8 max-w-4xl mx-auto w-full space-y-8 pb-16" style={{ WebkitAppRegion: "no-drag" } as any}>
           
-          <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl flex items-center justify-between">
-            <div>
+          <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl flex items-center justify-between gap-6">
+            <div className="flex-1 min-w-0 pr-4">
               <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🗓️ 달력 데이터 선택</h2>
-              <p className="text-xs text-slate-400 mt-1">아래에서 요일을 선택하면 해당 요일의 <b>학기 고정 시간표</b>를 수정할 수 있습니다. (급식은 해당 특정 날짜로 저장됩니다)</p>
+              <p className="text-xs text-slate-300 mt-1">
+                아래에서 요일을 선택하면 해당 요일의 <b>학기 고정 시간표</b>를 수정할 수 있습니다.
+              </p>
+              <p className="text-[11px] text-amber-300/80 mt-1 font-medium">
+                ※ (급식은 해당 특정 날짜로 저장됩니다.)
+              </p>
             </div>
-            <input 
-              type="date" 
+            <AdminCalendarPicker 
               value={adminDate}
-              onChange={e => setAdminDate(e.target.value)}
-              className="px-4 py-3 bg-[#111a15] text-white font-bold rounded-xl border border-emerald-900 text-sm outline-none focus:border-amber-400 cursor-pointer"
+              onChange={setAdminDate}
             />
           </section>
 

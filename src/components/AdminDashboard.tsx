@@ -147,12 +147,11 @@ export default function AdminDashboard() {
 
       if (list && list.length > 0) {
         setExtractedMeals(list);
-        const match = list.find(m => m.date === mealDate) || list[0];
-        if (match) {
-          setMealDate(match.date);
+        const exactMatch = list.find(m => m.date === mealDate);
+        if (exactMatch) {
           setLocalMeal({
-            lunch: match.lunch.join('\n'),
-            dinner: match.dinner.join('\n')
+            lunch: exactMatch.lunch.join('\n'),
+            dinner: exactMatch.dinner.join('\n')
           });
         }
         setMealStatus(`✅ 총 ${list.length}일치의 식단 데이터가 추출되었습니다! 아래 목록에서 검토 후 '전체 식단 일괄 저장'을 눌러주세요.`);
@@ -269,12 +268,11 @@ export default function AdminDashboard() {
 
       if (list && list.length > 0) {
         setExtractedMeals(list);
-        const match = list.find(m => m.date === mealDate) || list[0];
-        if (match) {
-          setMealDate(match.date);
+        const exactMatch = list.find(m => m.date === mealDate);
+        if (exactMatch) {
           setLocalMeal({
-            lunch: match.lunch.join('\n'),
-            dinner: match.dinner.join('\n')
+            lunch: exactMatch.lunch.join('\n'),
+            dinner: exactMatch.dinner.join('\n')
           });
         }
         setMealStatus(`✅ 링크에서 총 ${list.length}일치의 급식 정보를 추출했습니다. 목록을 확인 후 일괄 저장해주세요.`);
