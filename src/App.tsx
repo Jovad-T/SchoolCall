@@ -185,6 +185,7 @@ export default function App() {
       geminiApiKey: parsed.geminiApiKey || '',
       aiProvider: parsed.aiProvider || 'gemini',
       geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
+      geminiModel: parsed.geminiModel || 'gemini-3.8-flash',
       groqApiKey: parsed.groqApiKey || '',
       groqModel: parsed.groqModel || 'llama-3.3-70b-versatile',
       eduCode: parsed.eduCode || 'C10',
@@ -355,6 +356,7 @@ export default function App() {
   const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
   const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
   const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
+  const [adminGeminiModel, setAdminGeminiModel] = useState<string>((schoolConfig as any).geminiModel || 'gemini-3.8-flash');
   const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
   const [adminGroqApiKey, setAdminGroqApiKey] = useState((schoolConfig as any).groqApiKey || '');
   const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
@@ -1236,6 +1238,7 @@ export default function App() {
       setAdminAppinServerUrl(schoolConfig.appinServerUrl || '');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
       setAdminGeminiThinkingLevel((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
+      setAdminGeminiModel((schoolConfig as any).geminiModel || 'gemini-3.8-flash');
       setAdminAiProvider((schoolConfig as any).aiProvider || 'gemini');
       setAdminGroqApiKey((schoolConfig as any).groqApiKey || '');
       setAdminGroqModel((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
@@ -1845,6 +1848,7 @@ ${htmlText.substring(0, 30000)}
       geminiApiKey: adminGeminiApiKey.trim(),
       aiProvider: adminAiProvider,
       geminiThinkingLevel: adminGeminiThinkingLevel,
+      geminiModel: adminGeminiModel,
       groqApiKey: adminGroqApiKey.trim(),
       groqModel: adminGroqModel,
       displayDayOverride: adminDisplayDayOverride,
@@ -2778,7 +2782,14 @@ ${htmlText.substring(0, 30000)}
                       name="aiProvider" 
                       value="gemini" 
                       checked={adminAiProvider === 'gemini'} 
-                      onChange={() => setAdminAiProvider('gemini')} 
+                      onChange={() => {
+                        setAdminAiProvider('gemini');
+                        setSchoolConfig(prev => {
+                          const updated = { ...prev, aiProvider: 'gemini' };
+                          try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+                          return updated;
+                        });
+                      }} 
                       className="w-4 h-4 accent-emerald-500 cursor-pointer"
                     />
                     Google Gemini (기본값)
@@ -2789,7 +2800,14 @@ ${htmlText.substring(0, 30000)}
                       name="aiProvider" 
                       value="groq" 
                       checked={adminAiProvider === 'groq'} 
-                      onChange={() => setAdminAiProvider('groq')} 
+                      onChange={() => {
+                        setAdminAiProvider('groq');
+                        setSchoolConfig(prev => {
+                          const updated = { ...prev, aiProvider: 'groq' };
+                          try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+                          return updated;
+                        });
+                      }} 
                       className="w-4 h-4 accent-emerald-500 cursor-pointer"
                     />
                     Groq Cloud (Llama 3 초고속 모델)
@@ -2814,6 +2832,24 @@ ${htmlText.substring(0, 30000)}
                     <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-3 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50 h-[46px] shrink-0">
                       <Key size={14} className="mr-1"/> 키 발급받기
                     </a>
+                  </div>
+
+                  {/* 💡 Gemini 모델 선택 */}
+                  <div className="mt-3 space-y-1">
+                    <label className="text-[11px] font-bold text-slate-400">활용할 Gemini AI 모델 선택</label>
+                    <select
+                      value={adminGeminiModel}
+                      onChange={e => setAdminGeminiModel(e.target.value)}
+                      className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
+                    >
+                      <option value="gemini-3.8-flash">Gemini 3.8 Flash (최신 기본 추천)</option>
+                      <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                      <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+                      <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                      <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
+                      <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                      <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (최고 성능 추론)</option>
+                    </select>
                   </div>
 
                   {/* 💡 Gemini 사고 수준(Thinking Level) 설정 */}

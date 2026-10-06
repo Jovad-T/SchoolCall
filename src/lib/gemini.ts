@@ -6,6 +6,7 @@ export function getAiConfig() {
   return {
     aiProvider: parsed.aiProvider || 'gemini',
     geminiApiKey: parsed.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (typeof window !== "undefined" && (window as any).VITE_GEMINI_API_KEY) || "",
+    geminiModel: parsed.geminiModel || "gemini-3.8-flash",
     geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
     groqApiKey: parsed.groqApiKey || "",
     groqModel: parsed.groqModel || "llama-3.3-70b-versatile"
@@ -25,7 +26,6 @@ export async function callGroq(
 
   const hasImage = base64Data && mimeType;
   
-  // 💡 이미지가 있는데 텍스트 전용 모델이 선택된 경우, 멀티모달 비전 모델(11b-vision-preview)로 스마트 자동 우회하여 오류 방지
   let modelToUse = groqModel;
   if (hasImage) {
     if (groqModel === "llama-3.3-70b-versatile" || groqModel === "llama-3.1-8b-instant" || groqModel === "llama-3.2-90b-vision-preview") {
@@ -76,51 +76,28 @@ export async function callGroq(
   return data.choices?.[0]?.message?.content || "";
 }
 
-export async function callUnifiedAi(
-  prompt: string,
-  base64Data?: string,
-  mimeType?: string,
-  jsonMode: boolean = true
-): Promise<string> {
-  const { aiProvider, geminiThinkingLevel } = getAiConfig();
-
-  if (aiProvider === 'groq') {
-    return callGroq(prompt, base64Data, mimeType, jsonMode);
-  }
-
-  // Fallback to Gemini API
+async function callGemini(contents: any, responseSchema?: any, jsonMode: boolean = true): Promise<string> {
+  const { geminiModel, geminiThinkingLevel } = getAiConfig();
   const ai = getGeminiClient();
-  let contents: any[] = [];
-  if (base64Data && mimeType) {
-    contents.push({
-      inlineData: {
-        data: base64Data,
-        mimeType: mimeType
-      }
-    });
-  }
-  contents.push({ text: prompt });
-
   const config: any = {};
   if (jsonMode) {
     config.responseMimeType = "application/json";
   }
+  if (responseSchema) {
+    config.responseSchema = responseSchema;
+  }
   if (geminiThinkingLevel && geminiThinkingLevel !== 'DEFAULT') {
-    import("@google/genai").then(({ ThinkingLevel }) => {
-      // handled via ThinkingLevel enum or string
-    });
-    // @google/genai supports thinkingConfig with ThinkingLevel
     if (geminiThinkingLevel === 'HIGH') {
-      config.thinkingConfig = { thinkingLevel: 2 }; // ThinkingLevel.HIGH
+      config.thinkingConfig = { thinkingLevel: 2 };
     } else if (geminiThinkingLevel === 'LOW') {
-      config.thinkingConfig = { thinkingLevel: 1 }; // ThinkingLevel.LOW
+      config.thinkingConfig = { thinkingLevel: 1 };
     } else if (geminiThinkingLevel === 'MINIMAL') {
-      config.thinkingConfig = { thinkingLevel: 0 }; // ThinkingLevel.MINIMAL
+      config.thinkingConfig = { thinkingLevel: 0 };
     }
   }
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.8-flash",
+    model: geminiModel || "gemini-3.8-flash",
     contents,
     config
   });
@@ -132,10 +109,37 @@ export async function callUnifiedAi(
   return text;
 }
 
-/**
- * Client-side Gemini AI client instance getter.
- * Retrieves the API key from Vite environment variable: import.meta.env.VITE_GEMINI_API_KEY
- */
+export async function callUnifiedAi(
+  prompt: string,
+  base64Data?: string,
+  mimeType?: string,
+  jsonMode: boolean = true
+): Promise<string> {
+  const { aiProvider, groqApiKey } = getAiConfig();
+
+  let effectiveProvider = aiProvider;
+  if (effectiveProvider === 'groq' && !groqApiKey) {
+    effectiveProvider = 'gemini';
+  }
+
+  if (effectiveProvider === 'groq') {
+    return callGroq(prompt, base64Data, mimeType, jsonMode);
+  }
+
+  let contents: any[] = [];
+  if (base64Data && mimeType) {
+    contents.push({
+      inlineData: {
+        data: base64Data,
+        mimeType: mimeType
+      }
+    });
+  }
+  contents.push({ text: prompt });
+
+  return callGemini(contents, undefined, jsonMode);
+}
+
 export function getGeminiClient(): GoogleGenAI {
   const { geminiApiKey } = getAiConfig();
 
@@ -148,9 +152,6 @@ export function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: geminiApiKey });
 }
 
-/**
- * Helper to convert a File object to base64 string and mimeType
- */
 export function fileToBase64(
   file: File
 ): Promise<{ base64Data: string; mimeType: string }> {
@@ -171,19 +172,17 @@ export function fileToBase64(
   });
 }
 
-/**
- * Directly extract timetable grid from an uploaded timetable image using client-side Gemini multimodal API.
- * Returns a JSON object with keys "1", "2", "3", "4", "5" (Monday to Friday),
- * each with an array of 7 subject strings for periods 1 to 7.
- */
 export async function extractTimetableFromImage(
   file: File
 ): Promise<Record<string, string[]>> {
-  const { aiProvider } = getAiConfig();
-  if (aiProvider === 'groq') {
+  const { aiProvider, groqApiKey } = getAiConfig();
+  let effectiveProvider = aiProvider;
+  if (effectiveProvider === 'groq' && !groqApiKey) {
+    effectiveProvider = 'gemini';
+  }
+  if (effectiveProvider === 'groq') {
     const { base64Data, mimeType } = await fileToBase64(file);
     const promptText = `이 시간표 이미지에서 월요일부터 금요일까지(1~5) 각 요일별 1교시부터 7교시까지의 과목명을 추출해 주세요.
-
 반환할 JSON 구조 요구사항:
 - 키는 반드시 "1"(월), "2"(화), "3"(수), "4"(목), "5"(금) 문자열입니다.
 - 각 키의 값은 1교시부터 7교시까지의 과목명 문자열 배열(string[], 총 7개 요소)입니다.
@@ -194,82 +193,44 @@ export async function extractTimetableFromImage(
     return JSON.parse(text);
   }
 
-  const ai = getGeminiClient();
   const { base64Data, mimeType } = await fileToBase64(file);
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: [
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType,
-        },
-      },
-      {
-        text: `이 시간표 이미지에서 월요일부터 금요일까지(1~5) 각 요일별 1교시부터 7교시까지의 과목명을 추출해 주세요.
-
+  const contents = [
+    { inlineData: { data: base64Data, mimeType } },
+    {
+      text: `이 시간표 이미지에서 월요일부터 금요일까지(1~5) 각 요일별 1교시부터 7교시까지의 과목명을 추출해 주세요.
 반환할 JSON 구조 요구사항:
 - 키는 반드시 "1"(월), "2"(화), "3"(수), "4"(목), "5"(금) 문자열입니다.
 - 각 키의 값은 1교시부터 7교시까지의 과목명 문자열 배열(string[], 총 7개 요소)입니다.
 - 수업이 없거나 비어있는 교시는 빈 문자열 ""을 넣어주세요.
-- 교시 번호, 시간(09:00 등), 학교명, 시간표 제목 등은 제외하고 순수 과목명(예: "국어", "수학", "영어", "체육", "한국사", "통합과학" 등)만 추출해 주세요.
-- 교사명이 과목과 함께 적혀있다면 과목명만 추출하거나 "수학/김선생" 형식으로 유지해도 됩니다.`,
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          "1": {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "월요일 1~7교시 과목 배열",
-          },
-          "2": {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "화요일 1~7교시 과목 배열",
-          },
-          "3": {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "수요일 1~7교시 과목 배열",
-          },
-          "4": {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "목요일 1~7교시 과목 배열",
-          },
-          "5": {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: "금요일 1~7교시 과목 배열",
-          },
-        },
-        required: ["1", "2", "3", "4", "5"],
-      },
+- 교시 번호, 시간(09:00 등), 학교명, 시간표 제목 등은 제외하고 순수 과목명(예: "국어", "수학", "영어", "체육", "한국사", "통합과학" 등)만 추출해 주세요.`,
     },
-  });
+  ];
 
-  const text = response.text;
-  if (!text) {
-    throw new Error("Gemini AI로부터 응답을 받지 못했습니다.");
-  }
+  const responseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      "1": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "2": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "3": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "4": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "5": { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+    required: ["1", "2", "3", "4", "5"],
+  };
 
-  const parsed = JSON.parse(text);
-  return parsed;
+  const text = await callGemini(contents, responseSchema, true);
+  return JSON.parse(text);
 }
 
-/**
- * Refine OCR text to timetable grid using client-side Gemini API.
- */
 export async function refineTimetableText(
   rawText: string
 ): Promise<Record<string, string[]>> {
-  const { aiProvider } = getAiConfig();
-  if (aiProvider === 'groq') {
+  const { aiProvider, groqApiKey } = getAiConfig();
+  let effectiveProvider = aiProvider;
+  if (effectiveProvider === 'groq' && !groqApiKey) {
+    effectiveProvider = 'gemini';
+  }
+  if (effectiveProvider === 'groq') {
     const promptText = `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
 If a period is empty, use an empty string "".
 Raw OCR Text:
@@ -278,38 +239,27 @@ ${rawText.substring(0, 50000)}`;
     return JSON.parse(text);
   }
 
-  const ai = getGeminiClient();
-
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
+  const contents = `Here is raw OCR text extracted from a class timetable. Extract the schedule. Return a JSON object where keys are "1", "2", "3", "4", "5" representing Monday to Friday. The values should be arrays of strings representing the subjects from period 1 to 7. Ignore times, teacher names, etc.
 If a period is empty, use an empty string "".
 Raw OCR Text:
-${rawText.substring(0, 50000)}`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          "1": { type: Type.ARRAY, items: { type: Type.STRING } },
-          "2": { type: Type.ARRAY, items: { type: Type.STRING } },
-          "3": { type: Type.ARRAY, items: { type: Type.STRING } },
-          "4": { type: Type.ARRAY, items: { type: Type.STRING } },
-          "5": { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
-        required: ["1", "2", "3", "4", "5"],
-      },
-    },
-  });
+${rawText.substring(0, 50000)}`;
 
-  const text = response.text;
-  if (!text) throw new Error("Gemini AI로부터 응답을 받지 못했습니다.");
+  const responseSchema = {
+    type: Type.OBJECT,
+    properties: {
+      "1": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "2": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "3": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "4": { type: Type.ARRAY, items: { type: Type.STRING } },
+      "5": { type: Type.ARRAY, items: { type: Type.STRING } },
+    },
+    required: ["1", "2", "3", "4", "5"],
+  };
+
+  const text = await callGemini(contents, responseSchema, true);
   return JSON.parse(text);
 }
 
-/**
- * Extract teacher schedule array from an uploaded image using client-side Gemini multimodal API.
- */
 export async function extractTeacherScheduleFromImage(
   file: File
 ): Promise<
@@ -320,50 +270,39 @@ export async function extractTeacherScheduleFromImage(
     teacherName: string;
   }>
 > {
-  const { aiProvider } = getAiConfig();
-  if (aiProvider === 'groq') {
+  const { aiProvider, groqApiKey } = getAiConfig();
+  let effectiveProvider = aiProvider;
+  if (effectiveProvider === 'groq' && !groqApiKey) {
+    effectiveProvider = 'gemini';
+  }
+  if (effectiveProvider === 'groq') {
     const { base64Data, mimeType } = await fileToBase64(file);
     const promptText = `이 이미지는 학교 시간표입니다. 표의 가로축은 '요일(월~금)', 세로축은 '교시(1~9)'입니다. 각 칸의 텍스트는 '과목/교사명' 구조로 되어 있습니다. 이 표를 분석하여 [{"dayOfWeek": 1, "period": 1, "subject": "진로활동", "teacherName": "구민식"}] 형태의 정확한 JSON 배열로만 응답해 주세요. 요일은 1(월요일)부터 5(금요일)까지의 숫자로 표시해주세요.`;
     const text = await callGroq(promptText, base64Data, mimeType, true);
     return JSON.parse(text);
   }
 
-  const ai = getGeminiClient();
   const { base64Data, mimeType } = await fileToBase64(file);
+  const contents = [
+    { inlineData: { data: base64Data, mimeType } },
+    { text: "이 이미지는 학교 시간표입니다. 표의 가로축은 '요일(월~금)', 세로축은 '교시(1~9)'입니다. 각 칸의 텍스트는 '과목/교사명' 구조로 되어 있습니다. 이 표를 분석하여 [{ dayOfWeek: 1, period: 1, subject: '진로활동', teacherName: '구민식' }, ...] 형태의 정확한 JSON 배열로만 응답해 주세요. 요일은 1(월요일)부터 5(금요일)까지의 숫자로 표시해주세요." }
+  ];
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: [
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType,
-        },
+  const responseSchema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        dayOfWeek: { type: Type.INTEGER },
+        period: { type: Type.INTEGER },
+        subject: { type: Type.STRING },
+        teacherName: { type: Type.STRING },
       },
-      {
-        text: "이 이미지는 학교 시간표입니다. 표의 가로축은 '요일(월~금)', 세로축은 '교시(1~9)'입니다. 각 칸의 텍스트는 '과목/교사명' 구조로 되어 있습니다. 이 표를 분석하여 [{ dayOfWeek: 1, period: 1, subject: '진로활동', teacherName: '구민식' }, ...] 형태의 정확한 JSON 배열로만 응답해 주세요. 요일은 1(월요일)부터 5(금요일)까지의 숫자로 표시해주세요.",
-      },
-    ],
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            dayOfWeek: { type: Type.INTEGER },
-            period: { type: Type.INTEGER },
-            subject: { type: Type.STRING },
-            teacherName: { type: Type.STRING },
-          },
-          required: ["dayOfWeek", "period", "subject", "teacherName"],
-        },
-      },
+      required: ["dayOfWeek", "period", "subject", "teacherName"],
     },
-  });
+  };
 
-  const text = response.text;
-  if (!text) throw new Error("Gemini AI로부터 응답을 받지 못했습니다.");
+  const text = await callGemini(contents, responseSchema, true);
   return JSON.parse(text);
 }
 
@@ -373,15 +312,15 @@ export type ExtractedMealItem = {
   dinner: string[];
 };
 
-/**
- * Extract monthly or all-date meal menu items from an uploaded meal schedule image or text using client-side Gemini API.
- * Prompted to extract all dates as a JSON array: [{ date: 'YYYYMMDD', lunch: [...], dinner: [...] }, ...]
- */
 export async function extractAllMealsFromImageOrText(
   fileOrText: File | string,
   referenceDate?: string
 ): Promise<ExtractedMealItem[]> {
-  const { aiProvider } = getAiConfig();
+  const { aiProvider, groqApiKey } = getAiConfig();
+  let effectiveProvider = aiProvider;
+  if (effectiveProvider === 'groq' && !groqApiKey) {
+    effectiveProvider = 'gemini';
+  }
   const currentYear = referenceDate
     ? referenceDate.substring(0, 4)
     : new Date().getFullYear().toString();
@@ -399,7 +338,7 @@ export async function extractAllMealsFromImageOrText(
 
   let rawList: any[];
 
-  if (aiProvider === 'groq') {
+  if (effectiveProvider === 'groq') {
     let text: string;
     if (typeof fileOrText === "string") {
       text = await callGroq(`${promptText}\n\n[식단 텍스트 자료]:\n${fileOrText.substring(0, 30000)}`, undefined, undefined, true);
@@ -409,59 +348,31 @@ export async function extractAllMealsFromImageOrText(
     }
     rawList = JSON.parse(text);
   } else {
-    const ai = getGeminiClient();
     let contents: any;
     if (typeof fileOrText === "string") {
       contents = `${promptText}\n\n[식단 텍스트 자료]:\n${fileOrText.substring(0, 70000)}`;
     } else {
       const { base64Data, mimeType } = await fileToBase64(fileOrText);
       contents = [
-        {
-          inlineData: {
-            data: base64Data,
-            mimeType: mimeType,
-          },
-        },
-        {
-          text: promptText,
-        },
+        { inlineData: { data: base64Data, mimeType } },
+        { text: promptText },
       ];
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
-      contents,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              date: {
-                type: Type.STRING,
-                description: "YYYYMMDD 형식의 8자리 날짜 문자열 (예: 20260819)",
-              },
-              lunch: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: "점심/중식 메뉴 배열",
-              },
-              dinner: {
-                type: Type.ARRAY,
-                items: { type: Type.STRING },
-                description: "저녁/석식 메뉴 배열",
-              },
-            },
-            required: ["date", "lunch", "dinner"],
-          },
+    const responseSchema = {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          date: { type: Type.STRING, description: "YYYYMMDD 형식의 8자리 날짜 문자열" },
+          lunch: { type: Type.ARRAY, items: { type: Type.STRING } },
+          dinner: { type: Type.ARRAY, items: { type: Type.STRING } },
         },
+        required: ["date", "lunch", "dinner"],
       },
-    });
+    };
 
-    const text = response.text;
-    if (!text) throw new Error("Gemini AI로부터 응답을 받지 못했습니다.");
-
+    const text = await callGemini(contents, responseSchema, true);
     rawList = JSON.parse(text);
   }
 
@@ -469,15 +380,12 @@ export async function extractAllMealsFromImageOrText(
     throw new Error("AI 응답이 배열 형식이 아닙니다.");
   }
 
-  // Normalize and clean up dates and array elements
   const cleanedList: ExtractedMealItem[] = rawList
     .map((item: any) => {
       let rawDate = String(item.date || "").replace(/[^0-9]/g, "");
       if (rawDate.length === 4) {
-        // e.g. MMDD -> YYYYMMDD
         rawDate = `${currentYear}${rawDate}`;
       } else if (rawDate.length === 6) {
-        // e.g. YYMMDD -> 20YYMMDD
         rawDate = `20${rawDate}`;
       }
 
@@ -520,9 +428,6 @@ export async function extractAllMealsFromImageOrText(
   return cleanedList;
 }
 
-/**
- * Backward-compatible single-date or monthly meal extraction helper.
- */
 export async function extractMealFromImageOrText(
   fileOrText: File | string,
   date: string
