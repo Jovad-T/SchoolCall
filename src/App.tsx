@@ -405,6 +405,42 @@ export default function App() {
   });
   const [tempClassPopupTimeouts, setTempClassPopupTimeouts] = useState<Record<string, number>>(classPopupTimeouts);
 
+  const [classroomZoom, setClassroomZoom] = useState<number | 'auto'>(() => {
+    try {
+      const saved = localStorage.getItem('classroom_zoom');
+      if (saved) {
+        if (saved === 'auto') return 'auto';
+        const parsed = parseFloat(saved);
+        return isNaN(parsed) ? 'auto' : parsed;
+      }
+    } catch (e) {}
+    return 'auto';
+  });
+
+  const [calculatedZoom, setCalculatedZoom] = useState<number>(1.0);
+
+  useEffect(() => {
+    if (classroomZoom !== 'auto') {
+      setCalculatedZoom(classroomZoom);
+      return;
+    }
+
+    const calculateAutoZoom = () => {
+      // 980px height is our ideal baseline target height for high-fidelity dashboards
+      const targetHeight = 980;
+      const currentHeight = window.innerHeight;
+      
+      // Calculate zoom to fit viewport height perfectly, clamped between 0.6 and 1.5
+      let zoom = currentHeight / targetHeight;
+      zoom = Math.max(0.6, Math.min(1.5, zoom));
+      setCalculatedZoom(zoom);
+    };
+
+    calculateAutoZoom();
+    window.addEventListener('resize', calculateAutoZoom);
+    return () => window.removeEventListener('resize', calculateAutoZoom);
+  }, [classroomZoom]);
+
   const [timetableDetails, setTimetableDetails] = useState<Record<string, { location: string, memo: string, date?: string }>>(() => {
     try {
       const saved = localStorage.getItem('timetable_details');
@@ -4075,7 +4111,10 @@ ${htmlText.substring(0, 30000)}
   return (
     <div 
       className={`h-screen w-full font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
-      style={{ WebkitAppRegion: 'drag' } as any}
+      style={{ 
+        WebkitAppRegion: 'drag',
+        zoom: calculatedZoom
+      } as any}
     >
       
       <header className={`h-20 px-8 flex items-center justify-between border-b shrink-0 transition-colors duration-1000 ${th.headerBg} ${th.headerBorder}`}>
@@ -4117,6 +4156,35 @@ ${htmlText.substring(0, 30000)}
               >
                 🔄 반 변경
               </button>
+
+              <div 
+                className="flex items-center gap-1.5 bg-black/40 backdrop-blur px-2.5 py-1 rounded-xl border border-white/10 shrink-0 select-none shadow-inner" 
+                style={{ WebkitAppRegion: 'no-drag' } as any}
+              >
+                <span className="text-[10px] font-bold text-slate-400">🔍 배율:</span>
+                <select
+                  value={classroomZoom}
+                  onChange={(e) => {
+                    const val = e.target.value === 'auto' ? 'auto' : parseFloat(e.target.value);
+                    setClassroomZoom(val);
+                    try { localStorage.setItem('classroom_zoom', String(val)); } catch(err) {}
+                  }}
+                  className="bg-transparent text-xs font-black text-amber-300 outline-none cursor-pointer border-none py-0.5"
+                  title="전자칠판 해상도에 맞춰 화면 비율 축소/확대"
+                >
+                  <option value="auto" className="bg-[#111] text-emerald-400 font-bold">자동 맞춤 (추천)</option>
+                  <option value="0.75" className="bg-[#111] text-white">75% (축소)</option>
+                  <option value="0.8" className="bg-[#111] text-white">80%</option>
+                  <option value="0.85" className="bg-[#111] text-white">85%</option>
+                  <option value="0.9" className="bg-[#111] text-white">90%</option>
+                  <option value="0.95" className="bg-[#111] text-white">95%</option>
+                  <option value="1" className="bg-[#111] text-white">100% (기본)</option>
+                  <option value="1.05" className="bg-[#111] text-white">105%</option>
+                  <option value="1.1" className="bg-[#111] text-white">110%</option>
+                  <option value="1.15" className="bg-[#111] text-white">115%</option>
+                  <option value="1.2" className="bg-[#111] text-white">120% (확대)</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
