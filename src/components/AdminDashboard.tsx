@@ -3,7 +3,7 @@ import { ref, set, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
 import { setGlobalStudents, useSchoolStructure, useClassTimetable, useClassTimetableImage, useCustomMeal, useAllCustomMeals, useRooms } from '../lib/store';
 import { extractTimetableFromImage, extractTeacherScheduleFromImage, extractMealFromImageOrText, extractAllMealsFromImageOrText, ExtractedMealItem } from '../lib/gemini';
-import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2, Plus, Check, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { Upload, Home, Clock, School, Calendar, Image as ImageIcon, Trash2, Utensils, Wand2, Plus, Check, ChevronDown, ChevronUp, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Tesseract from 'tesseract.js';
 
@@ -23,6 +23,204 @@ function formatDateWithDay(dateStr: string) {
   }
 }
 
+const AdminMealCalendarPicker: React.FC<{
+  value: string; // YYYYMMDD format
+  onChange: (val: string) => void; // YYYYMMDD format
+}> = ({ value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const [viewDate, setViewDate] = useState(() => {
+    if (value && value.length === 8) {
+      const y = parseInt(value.substring(0, 4), 10);
+      const m = parseInt(value.substring(4, 6), 10) - 1;
+      const d = parseInt(value.substring(6, 8), 10);
+      const date = new Date(y, m, d);
+      return isNaN(date.getTime()) ? new Date() : date;
+    }
+    return new Date();
+  });
+
+  useEffect(() => {
+    if (value && value.length === 8) {
+      const y = parseInt(value.substring(0, 4), 10);
+      const m = parseInt(value.substring(4, 6), 10) - 1;
+      const d = parseInt(value.substring(6, 8), 10);
+      const date = new Date(y, m, d);
+      if (!isNaN(date.getTime())) setViewDate(date);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const handlePrevMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setViewDate(new Date(year, month - 1, 1));
+  };
+
+  const handleNextMonth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setViewDate(new Date(year, month + 1, 1));
+  };
+
+  const handleSelectToday = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+    onChange(todayStr);
+    setViewDate(today);
+    setIsOpen(false);
+  };
+
+  const dayOfWeekNames = ['일', '월', '화', '수', '목', '금', '토'];
+  
+  let formattedDisplay = '';
+  let dayName = '';
+  if (value && value.length === 8) {
+    const y = value.substring(0, 4);
+    const m = value.substring(4, 6);
+    const d = value.substring(6, 8);
+    formattedDisplay = `${y}.${m}.${d}`;
+    try {
+      const dateObj = new Date(`${y}-${m}-${d}`);
+      const dayIndex = dateObj.getDay();
+      if (!isNaN(dayIndex)) {
+        dayName = dayOfWeekNames[dayIndex];
+      }
+    } catch {}
+  } else {
+    formattedDisplay = '날짜 선택';
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-2 bg-[#1A1A1C] hover:bg-[#222224] text-white font-bold rounded-lg border border-[#444] hover:border-yellow-500/70 shadow-sm text-xs transition-all cursor-pointer whitespace-nowrap shrink-0 select-none group"
+      >
+        <Calendar size={14} className="text-yellow-500 group-hover:scale-110 transition-transform shrink-0" />
+        <span className="font-mono tracking-wider font-extrabold text-white text-xs">
+          {formattedDisplay}
+        </span>
+        {dayName && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-300 font-bold border border-yellow-500/30 whitespace-nowrap shrink-0">
+            {dayName}요일
+          </span>
+        )}
+        <span className="text-[9px] text-yellow-400/70 ml-0.5 shrink-0 group-hover:translate-y-0.5 transition-transform">▼</span>
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 top-full mt-2 w-64 bg-[#141416] border border-yellow-500/40 rounded-xl p-3 shadow-2xl z-50 animate-fade-in backdrop-blur-md">
+          <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-[#333]">
+            <button
+              type="button"
+              onClick={handlePrevMonth}
+              className="p-1 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white transition-colors cursor-pointer text-xs flex items-center justify-center"
+              title="이전 달"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-white text-xs">
+                {year}년 {month + 1}월
+              </span>
+              <button
+                type="button"
+                onClick={handleSelectToday}
+                className="px-1.5 py-0.5 text-[9px] bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/40 rounded font-bold transition-colors cursor-pointer"
+              >
+                오늘
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={handleNextMonth}
+              className="p-1 hover:bg-white/10 rounded-lg text-slate-300 hover:text-white transition-colors cursor-pointer text-xs flex items-center justify-center"
+              title="다음 달"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 text-center mb-1">
+            {dayOfWeekNames.map((d, i) => (
+              <span
+                key={d}
+                className={`text-[9px] font-bold py-0.5 ${
+                  i === 0 ? 'text-rose-400' : i === 6 ? 'text-sky-400' : 'text-slate-400'
+                }`}
+              >
+                {d}
+              </span>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5">
+            {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+              <div key={`empty-${i}`} className="h-6" />
+            ))}
+            {Array.from({ length: daysInMonth }).map((_, i) => {
+              const dayNum = i + 1;
+              const dateKeyStr = `${year}${String(month + 1).padStart(2, '0')}${String(dayNum).padStart(2, '0')}`;
+              const isSelected = value === dateKeyStr;
+              const todayObj = new Date();
+              const isToday =
+                todayObj.getFullYear() === year &&
+                todayObj.getMonth() === month &&
+                todayObj.getDate() === dayNum;
+
+              const colIndex = (firstDayOfWeek + i) % 7;
+              const isSunday = colIndex === 0;
+              const isSaturday = colIndex === 6;
+
+              return (
+                <button
+                  key={dayNum}
+                  type="button"
+                  onClick={() => {
+                    onChange(dateKeyStr);
+                    setIsOpen(false);
+                  }}
+                  className={`h-6 w-full rounded text-[10px] font-bold transition-all flex items-center justify-center cursor-pointer ${
+                    isSelected
+                      ? 'bg-yellow-500 text-black shadow-[0_0_8px_rgba(234,179,8,0.5)] font-black scale-105'
+                      : isToday
+                      ? 'bg-yellow-500/10 text-yellow-300 border border-yellow-500/40 hover:bg-yellow-500/20'
+                      : isSunday
+                      ? 'text-rose-400 hover:bg-white/5'
+                      : isSaturday
+                      ? 'text-sky-400 hover:bg-white/5'
+                      : 'text-gray-300 hover:bg-white/5'
+                  }`}
+                >
+                  {dayNum}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const TimetableCell: React.FC<{ value: string, onChange: (val: string) => void }> = ({ value, onChange }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -1166,15 +1364,9 @@ export default function AdminDashboard() {
               </h3>
               <div className="flex items-center gap-2">
                 <label className="text-[10px] uppercase text-[#777] font-bold tracking-wider">적용 날짜</label>
-                <input 
-                  type="date"
-                  value={mealDate.length === 8 ? `${mealDate.substring(0,4)}-${mealDate.substring(4,6)}-${mealDate.substring(6,8)}` : mealDate}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setMealDate(e.target.value.replace(/-/g, ''));
-                    }
-                  }}
-                  className="bg-[#1A1A1C] p-2 rounded-lg border border-[#444] text-white outline-none focus:border-yellow-500 transition-colors text-center text-xs font-mono cursor-pointer"
+                <AdminMealCalendarPicker 
+                  value={mealDate}
+                  onChange={setMealDate}
                 />
               </div>
             </div>

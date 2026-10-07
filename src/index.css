@@ -9,6 +9,21 @@
   --color-bg-card: #1A1A1C;
 }
 
+@layer base {
+  html, body, #root {
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    background-color: #050505;
+  }
+  select option {
+    background-color: #1a1a1a;
+    color: #ffffff;
+  }
+}
+
 @layer utilities {
   .neon-text-red {
     text-shadow: 0 0 10px rgba(255, 62, 62, 0.8), 0 0 20px rgba(255, 62, 62, 0.4);
@@ -38,13 +53,5 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
-  }
-}
-
-
-@layer base {
-  select option {
-    background-color: #1a1a1a;
-    color: #ffffff;
   }
 }

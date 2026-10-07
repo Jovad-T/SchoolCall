@@ -4110,10 +4110,12 @@ ${htmlText.substring(0, 30000)}
 
   return (
     <div 
-      className={`h-screen w-full font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
+      className={`font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
       style={{ 
         WebkitAppRegion: 'drag',
-        zoom: calculatedZoom
+        zoom: calculatedZoom,
+        height: `${100 / calculatedZoom}vh`,
+        width: `${100 / calculatedZoom}vw`
       } as any}
     >
       
