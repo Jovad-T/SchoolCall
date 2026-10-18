@@ -14,14 +14,22 @@ export default function Home() {
   useEffect(() => {
     if (!db) return;
     const nameRef = ref(db, 'school_data/school_name');
-    const nameUnsub = onValue(nameRef, (snapshot) => {
-      if (snapshot.exists() && snapshot.val()) {
-        setSchoolName(snapshot.val());
-      } else {
-        setSchoolName('우리 학교');
+    const nameUnsub = onValue(
+      nameRef, 
+      (snapshot) => {
+        if (snapshot.exists() && snapshot.val()) {
+          setSchoolName(snapshot.val());
+        } else {
+          setSchoolName('우리 학교');
+        }
+      },
+      (err) => {
+        console.warn("Firebase schoolName listener warning in Home:", err?.message);
       }
-    });
-    return () => nameUnsub();
+    );
+    return () => {
+      try { nameUnsub(); } catch(e) {}
+    };
   }, []);
 
 

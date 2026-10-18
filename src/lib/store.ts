@@ -26,14 +26,22 @@ export function useCallState(classId: string) {
     if (!classId) return;
     if (db) {
       const callRef = ref(db, `classes/${classId}/callState`);
-      const unsub = onValue(callRef, (snapshot) => {
-        if (snapshot.exists()) {
-          setState(snapshot.val() as CallState);
-        } else {
-          setState(defaultState);
+      const unsub = onValue(
+        callRef, 
+        (snapshot) => {
+          if (snapshot.exists()) {
+            setState(snapshot.val() as CallState);
+          } else {
+            setState(defaultState);
+          }
+        },
+        (err) => {
+          console.warn("Firebase useCallState warning:", err?.message);
         }
-      });
-      return () => unsub();
+      );
+      return () => {
+        try { unsub(); } catch(e) {}
+      };
     } else {
       // Fallback
       setState(defaultState);
@@ -87,23 +95,32 @@ export function useLocalRoster(grade: string, classNm: string) {
 
     setIsLoading(true);
     const rosterRef = ref(db, `school_data/students/${grade}/${classNm}`);
-    const unsub = onValue(rosterRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        if (Array.isArray(data)) {
-          setRoster(data);
+    const unsub = onValue(
+      rosterRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          if (Array.isArray(data)) {
+            setRoster(data);
+          } else {
+            // If stored as object, convert to array and sort
+            const arr = Object.values(data) as string[];
+            setRoster(arr.sort((a, b) => parseInt(a) - parseInt(b)));
+          }
         } else {
-          // If stored as object, convert to array and sort
-          const arr = Object.values(data) as string[];
-          setRoster(arr.sort((a, b) => parseInt(a) - parseInt(b)));
+          setRoster([]);
         }
-      } else {
-        setRoster([]);
+        setIsLoading(false);
+      },
+      (err) => {
+        console.warn("Firebase roster warning:", err?.message);
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    });
+    );
 
-    return () => unsub();
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, [grade, classNm]);
 
   return { roster, isLoading };
@@ -122,24 +139,33 @@ export function useSchoolStructure() {
     }
 
     const studentsRef = ref(db, 'school_data/students');
-    const unsub = onValue(studentsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        const newStructure: Record<string, string[]> = {};
-        
-        // Extract grades and their classes
-        Object.keys(data).forEach(grade => {
-          newStructure[grade] = Object.keys(data[grade] || {}).sort((a, b) => parseInt(a) - parseInt(b));
-        });
-        
-        setStructure(newStructure);
-      } else {
-        setStructure({});
+    const unsub = onValue(
+      studentsRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          const newStructure: Record<string, string[]> = {};
+          
+          // Extract grades and their classes
+          Object.keys(data).forEach(grade => {
+            newStructure[grade] = Object.keys(data[grade] || {}).sort((a, b) => parseInt(a) - parseInt(b));
+          });
+          
+          setStructure(newStructure);
+        } else {
+          setStructure({});
+        }
+        setIsLoading(false);
+      },
+      (err) => {
+        console.warn("Firebase structure warning:", err?.message);
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    });
+    );
 
-    return () => unsub();
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, []);
 
   return { structure, isLoading };
@@ -155,29 +181,41 @@ export function useClassAnnouncement(grade: string, classNm: string) {
       return;
     }
     const annRef = ref(db, `classes/${grade}-${classNm}/announcement`);
-    const unsub = onValue(annRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        if (typeof data === 'string') {
-          setAnnouncement(data);
-        } else if (data && typeof data === 'object') {
-          setAnnouncement(data.text || '');
-          setLastUpdatedAt(data.updatedAt || 0);
+    const unsub = onValue(
+      annRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.val();
+          if (typeof data === 'string') {
+            setAnnouncement(data);
+          } else if (data && typeof data === 'object') {
+            setAnnouncement(data.text || '');
+            setLastUpdatedAt(data.updatedAt || 0);
+          }
+        } else {
+          setAnnouncement('');
         }
-      } else {
-        setAnnouncement('');
+      },
+      (err) => {
+        console.warn("Firebase announcement warning:", err?.message);
       }
-    });
+    );
 
-    return () => unsub();
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, [grade, classNm]);
 
   const updateAnnouncement = async (newAnnouncement: string) => {
     if (!grade || !classNm || !db) return;
-    await set(ref(db, `classes/${grade}-${classNm}/announcement`), {
-      text: newAnnouncement,
-      updatedAt: Date.now()
-    });
+    try {
+      await set(ref(db, `classes/${grade}-${classNm}/announcement`), {
+        text: newAnnouncement,
+        updatedAt: Date.now()
+      });
+    } catch (e: any) {
+      console.warn("Firebase updateAnnouncement warning:", e?.message);
+    }
   };
 
   return { announcement, updateAnnouncement, lastUpdatedAt };
@@ -193,15 +231,23 @@ export function useClassTimetable(grade: string, classNm: string) {
     }
 
     const ttRef = ref(db, `school_data/timetables/${grade}/${classNm}`);
-    const unsub = onValue(ttRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setCustomTimetable(snapshot.val());
-      } else {
-        setCustomTimetable({});
+    const unsub = onValue(
+      ttRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setCustomTimetable(snapshot.val());
+        } else {
+          setCustomTimetable({});
+        }
+      },
+      (err) => {
+        console.warn("Firebase customTimetable warning:", err?.message);
       }
-    });
+    );
 
-    return () => unsub();
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, [grade, classNm]);
 
   const updateCustomTimetable = async (newTimetable: Record<string, string[]>) => {
@@ -222,23 +268,35 @@ export function useClassTimetableImage(grade: string, classNm: string) {
     }
 
     const imgRef = ref(db, `school_data/timetable_images/${grade}/${classNm}`);
-    const unsub = onValue(imgRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setTimetableImage(snapshot.val());
-      } else {
-        setTimetableImage(null);
+    const unsub = onValue(
+      imgRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setTimetableImage(snapshot.val());
+        } else {
+          setTimetableImage(null);
+        }
+      },
+      (err) => {
+        console.warn("Firebase timetableImage warning:", err?.message);
       }
-    });
+    );
 
-    return () => unsub();
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, [grade, classNm]);
 
   const updateTimetableImage = async (base64Str: string | null) => {
     if (!grade || !classNm || !db) return;
-    if (base64Str) {
-      await set(ref(db, `school_data/timetable_images/${grade}/${classNm}`), base64Str);
-    } else {
-      await set(ref(db, `school_data/timetable_images/${grade}/${classNm}`), null);
+    try {
+      if (base64Str) {
+        await set(ref(db, `school_data/timetable_images/${grade}/${classNm}`), base64Str);
+      } else {
+        await set(ref(db, `school_data/timetable_images/${grade}/${classNm}`), null);
+      }
+    } catch (e: any) {
+      console.warn("Firebase updateTimetableImage warning:", e?.message);
     }
   };
 
@@ -257,19 +315,31 @@ export function useCustomMeal(date: string) {
   useEffect(() => {
     if (!db || !date) return;
     const mealRef = ref(db, `school_data/meals/${date}`);
-    const unsub = onValue(mealRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setCustomMeal(snapshot.val() as CustomMeal);
-      } else {
-        setCustomMeal(null);
+    const unsub = onValue(
+      mealRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setCustomMeal(snapshot.val() as CustomMeal);
+        } else {
+          setCustomMeal(null);
+        }
+      },
+      (err) => {
+        console.warn("Firebase customMeal warning:", err?.message);
       }
-    });
-    return () => unsub();
+    );
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, [date]);
 
   const updateCustomMeal = async (meal: CustomMeal | null) => {
     if (!db || !date) return;
-    await set(ref(db, `school_data/meals/${date}`), meal);
+    try {
+      await set(ref(db, `school_data/meals/${date}`), meal);
+    } catch (e: any) {
+      console.warn("Firebase updateCustomMeal warning:", e?.message);
+    }
   };
 
   return { customMeal, updateCustomMeal };
@@ -285,15 +355,24 @@ export function useAllCustomMeals() {
       return;
     }
     const mealsRef = ref(db, 'school_data/meals');
-    const unsub = onValue(mealsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setAllMeals(snapshot.val() as Record<string, CustomMeal>);
-      } else {
-        setAllMeals({});
+    const unsub = onValue(
+      mealsRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setAllMeals(snapshot.val() as Record<string, CustomMeal>);
+        } else {
+          setAllMeals({});
+        }
+        setIsLoading(false);
+      },
+      (err) => {
+        console.warn("Firebase allMeals warning:", err?.message);
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    });
-    return () => unsub();
+    );
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, []);
 
   const saveMultipleCustomMeals = async (meals: CustomMeal[]) => {
@@ -308,17 +387,29 @@ export function useAllCustomMeals() {
         };
       }
     });
-    await update(ref(db), updates);
+    try {
+      await update(ref(db), updates);
+    } catch (e: any) {
+      console.warn("Firebase saveMultipleCustomMeals warning:", e?.message);
+    }
   };
 
   const deleteCustomMeal = async (date: string) => {
     if (!db || !date) return;
-    await set(ref(db, `school_data/meals/${date}`), null);
+    try {
+      await set(ref(db, `school_data/meals/${date}`), null);
+    } catch (e: any) {
+      console.warn("Firebase deleteCustomMeal warning:", e?.message);
+    }
   };
 
   const clearAllCustomMeals = async () => {
     if (!db) return;
-    await set(ref(db, 'school_data/meals'), null);
+    try {
+      await set(ref(db, 'school_data/meals'), null);
+    } catch (e: any) {
+      console.warn("Firebase clearAllCustomMeals warning:", e?.message);
+    }
   };
 
   return { allMeals, isLoading, saveMultipleCustomMeals, deleteCustomMeal, clearAllCustomMeals };
@@ -343,19 +434,31 @@ export function useRooms() {
   useEffect(() => {
     if (!db) return;
     const roomsRef = ref(db, 'school_data/rooms');
-    const unsub = onValue(roomsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setRooms(snapshot.val());
-      } else {
-        setRooms([]);
+    const unsub = onValue(
+      roomsRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setRooms(snapshot.val());
+        } else {
+          setRooms([]);
+        }
+      },
+      (err) => {
+        console.warn("Firebase rooms warning:", err?.message);
       }
-    });
-    return () => unsub();
+    );
+    return () => {
+      try { unsub(); } catch(e) {}
+    };
   }, []);
 
   const updateRooms = async (newRooms: Room[]) => {
     if (!db) return;
-    await set(ref(db, 'school_data/rooms'), newRooms);
+    try {
+      await set(ref(db, 'school_data/rooms'), newRooms);
+    } catch (e: any) {
+      console.warn("Firebase updateRooms warning:", e?.message);
+    }
   };
 
   return { rooms, updateRooms };

@@ -7,6 +7,7 @@ import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, Shield
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
 import { getDatabase, ref, set, onValue } from 'firebase/database';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBDSR5PlGMZv6lUex279A4yWYL_QVmwKUs",
@@ -19,11 +20,16 @@ const firebaseConfig = {
 };
 
 let db: any = null;
+let auth: any = null;
 try {
   const app = initializeApp(firebaseConfig);
   db = getDatabase(app);
+  auth = getAuth(app);
+  signInAnonymously(auth).catch((err) => {
+    console.warn("Firebase 익명 인증 선택적 폴백:", err?.message);
+  });
 } catch (e) {
-  console.error("Firebase 연결 실패:", e);
+  console.warn("Firebase 연결 실패:", e);
 }
 
 export const APP_VERSION = 'v1.3.4';
@@ -668,41 +674,49 @@ export default function App() {
   useEffect(() => {
     if (!db) return;
     const globalRef = ref(db, 'globalData');
-    const unsubscribe = onValue(globalRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        if (data.schoolConfig) {
-          setSchoolConfig(prev => ({ ...data.schoolConfig, currentGrade: prev.currentGrade, currentClass: prev.currentClass }));
-          if (data.schoolConfig.forcePopupDuringClass !== undefined) {
-            setAdminForcePopupDuringClass(Boolean(data.schoolConfig.forcePopupDuringClass));
+    const unsubscribe = onValue(
+      globalRef, 
+      (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          if (data.schoolConfig) {
+            setSchoolConfig(prev => ({ ...data.schoolConfig, currentGrade: prev.currentGrade, currentClass: prev.currentClass }));
+            if (data.schoolConfig.forcePopupDuringClass !== undefined) {
+              setAdminForcePopupDuringClass(Boolean(data.schoolConfig.forcePopupDuringClass));
+            }
+          }
+          if (data.classRosters) setClassRosters(data.classRosters);
+          if (data.dailySchedule) setDailySchedule(data.dailySchedule);
+          if (data.classTimetables) setClassTimetables(data.classTimetables);
+          if (data.classPopupTimeouts) {
+            setClassPopupTimeouts(data.classPopupTimeouts);
+            try { localStorage.setItem('class_popup_timeouts', JSON.stringify(data.classPopupTimeouts)); } catch(e) {}
+          }
+          if (data.timetableDetails) {
+            const valid: Record<string, { location: string; memo: string; date?: string }> = {};
+            Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
+              if (v && typeof v === 'object' && (v.location || v.memo)) {
+                valid[k] = v;
+              }
+            });
+
+            setTimetableDetails(valid);
+            try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
+          }
+          if (data.meals) setMeals(data.meals);
+          if (data.customCallPresets) {
+            setCustomCallPresets(data.customCallPresets);
+            try { localStorage.setItem('custom_call_presets', JSON.stringify(data.customCallPresets)); } catch(e) {}
           }
         }
-        if (data.classRosters) setClassRosters(data.classRosters);
-        if (data.dailySchedule) setDailySchedule(data.dailySchedule);
-        if (data.classTimetables) setClassTimetables(data.classTimetables);
-        if (data.classPopupTimeouts) {
-          setClassPopupTimeouts(data.classPopupTimeouts);
-          try { localStorage.setItem('class_popup_timeouts', JSON.stringify(data.classPopupTimeouts)); } catch(e) {}
-        }
-        if (data.timetableDetails) {
-          const valid: Record<string, { location: string; memo: string; date?: string }> = {};
-          Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
-            if (v && typeof v === 'object' && (v.location || v.memo)) {
-              valid[k] = v;
-            }
-          });
-
-          setTimetableDetails(valid);
-          try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
-        }
-        if (data.meals) setMeals(data.meals);
-        if (data.customCallPresets) {
-          setCustomCallPresets(data.customCallPresets);
-          try { localStorage.setItem('custom_call_presets', JSON.stringify(data.customCallPresets)); } catch(e) {}
-        }
+      },
+      (error) => {
+        console.warn("Firebase globalData subscription warning (falling back to local storage):", error?.message);
       }
-    });
-    return () => unsubscribe();
+    );
+    return () => {
+      try { unsubscribe(); } catch(e) {}
+    };
   }, []);
 
   const getScheduleForPeriod = (p: number) => {
@@ -1282,12 +1296,24 @@ export default function App() {
       setNotInitial();
     };
 
-    const unsubscribeLocal = onValue(announceRef, createHandler(() => isLocalInitial, () => { isLocalInitial = false; }));
-    const unsubscribeGlobal = onValue(globalAnnounceRef, createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; }));
+    const unsubscribeLocal = onValue(
+      announceRef, 
+      createHandler(() => isLocalInitial, () => { isLocalInitial = false; }),
+      (err) => {
+        console.warn("Firebase local announce listener warning:", err?.message);
+      }
+    );
+    const unsubscribeGlobal = onValue(
+      globalAnnounceRef, 
+      createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; }),
+      (err) => {
+        console.warn("Firebase global announce listener warning:", err?.message);
+      }
+    );
 
     return () => {
-      unsubscribeLocal();
-      unsubscribeGlobal();
+      try { unsubscribeLocal(); } catch(e) {}
+      try { unsubscribeGlobal(); } catch(e) {}
     };
   }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule, classPopupTimeouts, schoolConfig.popupTimeout, schoolConfig.forcePopupDuringClass]);
 
@@ -2376,7 +2402,11 @@ ${htmlText.substring(0, 30000)}
               <label className="text-[11px] font-bold text-slate-400 tracking-wider">학년</label>
               <select 
                 value={schoolConfig.currentGrade}
-                onChange={(e) => setSchoolConfig({ ...schoolConfig, currentGrade: Number(e.target.value) })}
+                onChange={(e) => {
+                  const newConfig = { ...schoolConfig, currentGrade: Number(e.target.value) };
+                  setSchoolConfig(newConfig);
+                  try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                }}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
               >
                 {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
@@ -2387,7 +2417,11 @@ ${htmlText.substring(0, 30000)}
               <label className="text-[11px] font-bold text-slate-400 tracking-wider">반</label>
               <select 
                 value={schoolConfig.currentClass}
-                onChange={(e) => setSchoolConfig({ ...schoolConfig, currentClass: Number(e.target.value) })}
+                onChange={(e) => {
+                  const newConfig = { ...schoolConfig, currentClass: Number(e.target.value) };
+                  setSchoolConfig(newConfig);
+                  try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                }}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
               >
                 {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
@@ -2734,10 +2768,24 @@ ${htmlText.substring(0, 30000)}
                 const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
                 
                 const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
-                const rawDetail = timetableDetails[detailKey];
-                const today = getTodayDateKey();
-                const detail = (rawDetail && rawDetail.date === today) ? rawDetail : { location: '', memo: '', date: today };
+                const rawDetail = timetableDetails[detailKey] || timetableDetails[`${todayKey}-${period}`];
+                const detail = rawDetail || { location: '', memo: '' };
                 
+                const handleUpdate = (newLoc: string, newMemo: string) => {
+                  const newDetails = { 
+                    ...timetableDetails, 
+                    [detailKey]: { location: newLoc, memo: newMemo }
+                  };
+                  delete newDetails[`${todayKey}-${period}`];
+                  setTimetableDetails(newDetails);
+                  try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
+                  if (db) {
+                    import("firebase/database").then(({ ref: dbRef, set }) => {
+                      set(dbRef(db, 'globalData/timetableDetails'), newDetails).catch(console.error);
+                    });
+                  }
+                };
+
                 return (
                   <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
                     <div className="flex items-center gap-2 w-full md:w-36 shrink-0">
@@ -2750,16 +2798,8 @@ ${htmlText.substring(0, 30000)}
                         <input
                           type="text"
                           placeholder="장소 (예: 과학실, 체육관)"
-                          value={detail.location}
-                          onChange={(e) => {
-                            const todayDate = getTodayDateKey();
-                            const newDetails = { 
-                              ...timetableDetails, 
-                              [detailKey]: { location: e.target.value, memo: detail.memo, date: todayDate }
-                            };
-                            delete newDetails[`${todayKey}-${period}`];
-                            setTimetableDetails(newDetails);
-                          }}
+                          value={detail.location || ''}
+                          onChange={(e) => handleUpdate(e.target.value, detail.memo || '')}
                           className="w-full bg-transparent text-xs text-white py-2 outline-none"
                         />
                       </div>
@@ -2768,16 +2808,8 @@ ${htmlText.substring(0, 30000)}
                         <input
                           type="text"
                           placeholder="공지/메모 (예: 준비물 지참, 숙제 제출)"
-                          value={detail.memo}
-                          onChange={(e) => {
-                            const todayDate = getTodayDateKey();
-                            const newDetails = { 
-                              ...timetableDetails, 
-                              [detailKey]: { location: detail.location, memo: e.target.value, date: todayDate }
-                            };
-                            delete newDetails[`${todayKey}-${period}`];
-                            setTimetableDetails(newDetails);
-                          }}
+                          value={detail.memo || ''}
+                          onChange={(e) => handleUpdate(detail.location || '', e.target.value)}
                           className="w-full bg-transparent text-xs text-white py-2 outline-none"
                         />
                       </div>
@@ -4307,13 +4339,11 @@ ${htmlText.substring(0, 30000)}
                 'bg-[#fff7ed] text-slate-800 rotate-[-0.3deg]'
               ];
               const effectiveDay = (currentDayOfWeekStr >= '1' && currentDayOfWeekStr <= '5') ? currentDayOfWeekStr : '1';
-              const today = getTodayDateKey();
               const detailKey = `${currentKey}-${effectiveDay}-${idx + 1}`;
-              const rawDetail = timetableDetails[detailKey] || timetableDetails[`${currentKey}-${currentDayOfWeekStr}-${idx + 1}`];
-              // 💡 [매일 초기화] 오늘 날짜의 메모만 표시, 이전 날짜나 날짜가 없는 구 데이터는 자동 제외(초기화)
-              const detail = (rawDetail && rawDetail.date === today)
-                ? rawDetail
-                : { location: '', memo: '', date: today };
+              const rawDetail = timetableDetails[detailKey] 
+                || timetableDetails[`${currentKey}-${currentDayOfWeekStr}-${idx + 1}`]
+                || timetableDetails[`${currentKey}-${idx + 1}`];
+              const detail = rawDetail || { location: '', memo: '' };
               const hasDetail = Boolean(detail.location || detail.memo);
               return (
                 <div 
@@ -4479,10 +4509,9 @@ ${htmlText.substring(0, 30000)}
                   onClick={() => {
                     const effectiveDay = (currentDayOfWeekStr >= '1' && currentDayOfWeekStr <= '5') ? currentDayOfWeekStr : '1';
                     const detailKey = `${currentKey}-${effectiveDay}-${subjectModal.period}`;
-                    const today = getTodayDateKey();
                     const newDetails = { 
                       ...timetableDetails, 
-                      [detailKey]: { location: subjectModal.location, memo: subjectModal.memo, date: today } 
+                      [detailKey]: { location: subjectModal.location.trim(), memo: subjectModal.memo.trim() } 
                     };
                     delete newDetails[`${currentKey}-${subjectModal.period}`];
                     setTimetableDetails(newDetails);
@@ -4499,7 +4528,7 @@ ${htmlText.substring(0, 30000)}
                     
                     setSubjectModal({ ...subjectModal, isOpen: false });
                   }}
-                  className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-bold transition-colors shadow-lg"
+                  className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-bold transition-colors shadow-lg cursor-pointer"
                 >
                   저장하기
                 </button>

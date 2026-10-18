@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 
 // 사용자가 나중에 설정값을 입력할 수 있도록 비워둔 Firebase Config
 const firebaseConfig = {
@@ -17,3 +18,11 @@ const isConfigured = firebaseConfig.apiKey !== "";
 
 export const app = isConfigured ? initializeApp(firebaseConfig) : null;
 export const db = isConfigured ? getDatabase(app) : null;
+export const auth = isConfigured ? getAuth(app) : null;
+
+if (auth) {
+  signInAnonymously(auth).catch((err) => {
+    console.warn("Firebase 익명 인증 선택적 폴백:", err?.message);
+  });
+}
+

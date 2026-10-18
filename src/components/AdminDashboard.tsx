@@ -681,21 +681,33 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!db) return;
     const scheduleRef = ref(db, 'school_data/schedule');
-    const unsub = onValue(scheduleRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setSchedule(snapshot.val());
+    const unsub = onValue(
+      scheduleRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setSchedule(snapshot.val());
+        }
+      },
+      (err) => {
+        console.warn("Firebase schedule listener warning:", err?.message);
       }
-    });
-        const nameRef = ref(db, 'school_data/school_name');
-    const nameUnsub = onValue(nameRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setSchoolName(snapshot.val());
+    );
+    const nameRef = ref(db, 'school_data/school_name');
+    const nameUnsub = onValue(
+      nameRef, 
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setSchoolName(snapshot.val());
+        }
+      },
+      (err) => {
+        console.warn("Firebase schoolName listener warning:", err?.message);
       }
-    });
+    );
 
     return () => {
-      unsub();
-      nameUnsub();
+      try { unsub(); } catch(e) {}
+      try { nameUnsub(); } catch(e) {}
     };
   }, []);
 
