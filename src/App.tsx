@@ -538,7 +538,7 @@ export default function App() {
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
   const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
   const [globalTargetGrades, setGlobalTargetGrades] = useState<number[]>([]);
-  const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(false);
+  const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(true);
   const [selectedPopupColor, setSelectedPopupColor] = useState<'rose' | 'blue' | 'emerald' | 'amber' | 'purple'>('rose');
   const [remoteDayOfWeek, setRemoteDayOfWeek] = useState<string>(() => {
     const d = new Date().getDay();
@@ -670,16 +670,19 @@ export default function App() {
   const applyIncomingGlobalData = (data: any) => {
     if (!data || typeof data !== 'object') return;
     if (data.schoolConfig) {
-      setSchoolConfig(prev => ({ 
-        ...prev, 
-        ...data.schoolConfig, 
-        currentGrade: prev.currentGrade || data.schoolConfig.currentGrade || 1, 
-        currentClass: prev.currentClass || data.schoolConfig.currentClass || 1 
-      }));
+      setSchoolConfig(prev => {
+        const merged = { 
+          ...prev, 
+          ...data.schoolConfig, 
+          currentGrade: data.schoolConfig.currentGrade || prev.currentGrade || 1, 
+          currentClass: data.schoolConfig.currentClass || prev.currentClass || 1 
+        };
+        try { localStorage.setItem('school_config', JSON.stringify(merged)); } catch(e) {}
+        return merged;
+      });
       if (data.schoolConfig.forcePopupDuringClass !== undefined) {
         setAdminForcePopupDuringClass(Boolean(data.schoolConfig.forcePopupDuringClass));
       }
-      try { localStorage.setItem('school_config', JSON.stringify(data.schoolConfig)); } catch(e) {}
     }
     if (data.classRosters) {
       setClassRosters(prev => ({ ...prev, ...data.classRosters }));
@@ -1368,17 +1371,31 @@ export default function App() {
           }
         }
         
+        const now = Date.now();
+        const msgTime = data.time || now;
+        const msgDuration = Number(data.duration) || 60;
+        const isRecent = (now - msgTime) < (msgDuration * 1000);
+
         if (getIsInitial()) {
           // 최초 로드 시 12시간이 지났거나 날짜가 다른 어제 메시지면 빈 문자열로 무시
           const msgDateStr = data.time ? getTodayDateKey(new Date(data.time)) : '';
-          const isExpired = !data.time || (Date.now() - data.time > 12 * 60 * 60 * 1000) || (msgDateStr !== getTodayDateKey());
+          const isExpired = !data.time || (now - data.time > 12 * 60 * 60 * 1000) || (msgDateStr !== getTodayDateKey());
           
           // 여러 초기 동기화 중 가장 최신 메시지만 표시되도록 시간 비교
           if (data.time >= (lastSyncTimeRef.current || 0)) {
             setAnnouncement(isExpired ? DEFAULT_MSG : incomingText);
             lastSyncTimeRef.current = data.time;
+
+            // 유효 시간 내의 최근 메시지인 경우 팝업 활성화
+            if (!isExpired && incomingText && isRecent) {
+              if (data.color) setCurrentAnnouncementColor(data.color);
+              setCurrentAnnouncementDuration(msgDuration);
+              setIsPopupOpen(true);
+              setIsExited(false);
+              playNeonAlertSound();
+            }
           }
-        } else if (data.time > lastSyncTimeRef.current) {
+        } else if (data.time > (lastSyncTimeRef.current || 0) || (!isPopupOpen && incomingText && isRecent)) {
           lastSyncTimeRef.current = data.time;
           
           if (!incomingText) {
@@ -1401,9 +1418,10 @@ export default function App() {
             setCurrentAnnouncementColor('rose');
           }
           
-          const isForced = Boolean(data.forcePopup || schoolConfig.forcePopupDuringClass);
+          // 리모컨 전송 메시지는 즉시 팝업을 우선 표시
+          const isForced = data.forcePopup !== false;
 
-          if (isClassTime() && !isForced) {
+          if (isClassTime() && !isForced && !schoolConfig.forcePopupDuringClass) {
             console.log("현재 수업 시간이므로 알림이 예약 대기열에 저장되었습니다. 쉬는 시간에 자동 표시됩니다.");
             setPendingAnnouncements(prev => {
               if (!prev.some(a => a.id === data.time.toString())) {
@@ -1427,7 +1445,7 @@ export default function App() {
           speakAnnouncementText(incomingText);
           
           if ((window as any).electron && (window as any).electron.ipcRenderer) {
-            (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout, isClassTime: isClassTime() });
+            (window as any).electron.ipcRenderer.send('trigger-my-call', { timeout: currentTimeout, isClassTime: false });
           }
         }
       }
@@ -2219,17 +2237,7 @@ ${htmlText.substring(0, 30000)}
   const handleSendSmartCall = (e: React.FormEvent) => {
     e.preventDefault();
     const actualMessage = selectedCallMessage === '직접 입력' ? customAnnouncement.trim() : selectedCallMessage;
-    if (!actualMessage) {
-      alert("호출 메시지를 입력해주세요.");
-      return;
-    }
-
-    const targetLabel = isGlobalSend 
-      ? (globalTargetGrades.length > 0 ? `${globalTargetGrades.join(', ')}학년 전체` : '전체 교실')
-      : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
-    if (!window.confirm(`[확인] ${targetLabel}에 호출 메시지를 전송하시겠습니까?`)) {
-      return;
-    }
+    if (!actualMessage) return;
 
     const targetStr = selectedStudent.length > 0 ? selectedStudent.join(', ') : '학급 전체';
     const teacherStr = teacherName.trim() ? `\n(${teacherName.trim()} 선생님 호출)` : '';
@@ -2238,18 +2246,7 @@ ${htmlText.substring(0, 30000)}
   };
 
   const handleSendClassAnnouncement = () => {
-    if (!customAnnouncement.trim()) {
-      alert('내용을 입력해주세요.');
-      return;
-    }
-
-    const targetLabel = isGlobalSend 
-      ? (globalTargetGrades.length > 0 ? `${globalTargetGrades.join(', ')}학년 전체` : '전체 교실')
-      : `${schoolConfig.currentGrade}학년 ${schoolConfig.currentClass}반`;
-    if (!window.confirm(`[확인] ${targetLabel}에 이 메시지를 전송하시겠습니까?`)) {
-      return;
-    }
-
+    if (!customAnnouncement.trim()) return;
     sendFirebaseMessage(customAnnouncement.trim(), isGlobalSend);
   };
 
