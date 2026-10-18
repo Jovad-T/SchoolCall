@@ -662,62 +662,200 @@ export default function App() {
           localStorage.setItem('class_timetables_map', JSON.stringify(newData));
         } catch(e) {}
         
-        if (db) {
-           import("firebase/database").then(({ ref: dbRef, set }) => {
-             set(dbRef(db, 'globalData/classTimetables'), JSON.parse(JSON.stringify(newData))).catch(console.error);
-           });
-        }
+        syncGlobalData({ classTimetables: newData });
       });
     }
   }, [db]);
 
-  useEffect(() => {
-    if (!db) return;
-    const globalRef = ref(db, 'globalData');
-    const unsubscribe = onValue(
-      globalRef, 
-      (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          if (data.schoolConfig) {
-            setSchoolConfig(prev => ({ ...data.schoolConfig, currentGrade: prev.currentGrade, currentClass: prev.currentClass }));
-            if (data.schoolConfig.forcePopupDuringClass !== undefined) {
-              setAdminForcePopupDuringClass(Boolean(data.schoolConfig.forcePopupDuringClass));
-            }
-          }
-          if (data.classRosters) setClassRosters(data.classRosters);
-          if (data.dailySchedule) setDailySchedule(data.dailySchedule);
-          if (data.classTimetables) setClassTimetables(data.classTimetables);
-          if (data.classPopupTimeouts) {
-            setClassPopupTimeouts(data.classPopupTimeouts);
-            try { localStorage.setItem('class_popup_timeouts', JSON.stringify(data.classPopupTimeouts)); } catch(e) {}
-          }
-          if (data.timetableDetails) {
-            const valid: Record<string, { location: string; memo: string; date?: string }> = {};
-            Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
-              if (v && typeof v === 'object' && (v.location || v.memo)) {
-                valid[k] = v;
-              }
-            });
-
-            setTimetableDetails(valid);
-            try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
-          }
-          if (data.meals) setMeals(data.meals);
-          if (data.customCallPresets) {
-            setCustomCallPresets(data.customCallPresets);
-            try { localStorage.setItem('custom_call_presets', JSON.stringify(data.customCallPresets)); } catch(e) {}
-          }
-        }
-      },
-      (error) => {
-        console.warn("Firebase globalData subscription warning (falling back to local storage):", error?.message);
+  const applyIncomingGlobalData = (data: any) => {
+    if (!data || typeof data !== 'object') return;
+    if (data.schoolConfig) {
+      setSchoolConfig(prev => ({ 
+        ...prev, 
+        ...data.schoolConfig, 
+        currentGrade: prev.currentGrade || data.schoolConfig.currentGrade || 1, 
+        currentClass: prev.currentClass || data.schoolConfig.currentClass || 1 
+      }));
+      if (data.schoolConfig.forcePopupDuringClass !== undefined) {
+        setAdminForcePopupDuringClass(Boolean(data.schoolConfig.forcePopupDuringClass));
       }
-    );
+      try { localStorage.setItem('school_config', JSON.stringify(data.schoolConfig)); } catch(e) {}
+    }
+    if (data.classRosters) {
+      setClassRosters(prev => ({ ...prev, ...data.classRosters }));
+      try { 
+        const current = JSON.parse(localStorage.getItem('class_rosters_map') || '{}');
+        localStorage.setItem('class_rosters_map', JSON.stringify({ ...current, ...data.classRosters })); 
+      } catch(e) {}
+    }
+    if (data.dailySchedule) {
+      setDailySchedule(data.dailySchedule);
+      try { localStorage.setItem('daily_schedule', JSON.stringify(data.dailySchedule)); } catch(e) {}
+    }
+    if (data.classTimetables) {
+      setClassTimetables(prev => ({ ...prev, ...data.classTimetables }));
+      setTempClassTimetables(prev => ({ ...prev, ...data.classTimetables }));
+      try { 
+        const current = JSON.parse(localStorage.getItem('class_timetables_map') || '{}');
+        localStorage.setItem('class_timetables_map', JSON.stringify({ ...current, ...data.classTimetables })); 
+      } catch(e) {}
+    }
+    if (data.classPopupTimeouts) {
+      setClassPopupTimeouts(prev => ({ ...prev, ...data.classPopupTimeouts }));
+      try { 
+        const current = JSON.parse(localStorage.getItem('class_popup_timeouts') || '{}');
+        localStorage.setItem('class_popup_timeouts', JSON.stringify({ ...current, ...data.classPopupTimeouts })); 
+      } catch(e) {}
+    }
+    if (data.timetableDetails) {
+      const valid: Record<string, { location: string; memo: string; date?: string }> = {};
+      Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
+        if (v && typeof v === 'object' && (v.location || v.memo)) {
+          valid[k] = v;
+        }
+      });
+      setTimetableDetails(prev => {
+        const merged = { ...prev, ...valid };
+        try { localStorage.setItem('timetable_details', JSON.stringify(merged)); } catch(e) {}
+        return merged;
+      });
+    }
+    if (data.meals) {
+      setMeals(data.meals);
+      try { localStorage.setItem('meal_data', JSON.stringify(data.meals)); } catch(e) {}
+    }
+    if (data.customCallPresets) {
+      setCustomCallPresets(data.customCallPresets);
+      try { localStorage.setItem('custom_call_presets', JSON.stringify(data.customCallPresets)); } catch(e) {}
+    }
+  };
+
+  const syncGlobalData = (payload: any) => {
+    applyIncomingGlobalData(payload);
+
+    try {
+      const bc = new BroadcastChannel('school_call_sync_channel');
+      bc.postMessage({ type: 'globalData', data: payload });
+      bc.close();
+    } catch(e) {}
+
+    fetch('/api/sync/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(e => console.warn("Server globalData sync warning:", e));
+
+    if (db) {
+      import("firebase/database").then(({ ref: dbRef, update: dbUpdate }) => {
+        dbUpdate(dbRef(db, 'globalData'), payload).catch((err) => {
+          console.warn("Firebase globalData backup warning:", err?.message);
+        });
+      }).catch(err => console.warn("Firebase import warning:", err?.message));
+    }
+  };
+
+  const syncAnnouncement = (targetPath: string, payload: any) => {
+    try {
+      const bc = new BroadcastChannel('school_call_sync_channel');
+      bc.postMessage({ type: 'announcement', payload: { target: targetPath, announcement: payload } });
+      bc.close();
+    } catch(e) {}
+
+    fetch('/api/sync/announce', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: targetPath, announcement: payload })
+    }).catch(e => console.warn("Server announcement sync warning:", e));
+
+    if (db) {
+      import("firebase/database").then(({ ref: dbRef, set: dbSet }) => {
+        const cleanPath = targetPath.startsWith('announcements/') ? targetPath : `announcements/${targetPath}`;
+        dbSet(dbRef(db, cleanPath), payload).catch((err) => {
+          console.warn("Firebase announcement backup warning:", err?.message);
+        });
+      }).catch(err => console.warn("Firebase import warning:", err?.message));
+    }
+  };
+
+  useEffect(() => {
+    // 1. Initial snapshot from Server
+    fetch('/api/sync/data')
+      .then(res => res.json())
+      .then(res => {
+        if (res && res.success && res.globalData && Object.keys(res.globalData).length > 0) {
+          applyIncomingGlobalData(res.globalData);
+        }
+      })
+      .catch(e => console.warn("Server initial sync warning:", e));
+
+    // 2. Real-time Server-Sent Events (SSE) stream
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/sync/stream');
+      eventSource.addEventListener('globalData', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          applyIncomingGlobalData(data);
+        } catch(err) {}
+      });
+    } catch(e) {
+      console.warn("EventSource init warning:", e);
+    }
+
+    // 3. BroadcastChannel for instant local tab-to-tab sync
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('school_call_sync_channel');
+      bc.onmessage = (e) => {
+        if (e.data?.type === 'globalData') {
+          applyIncomingGlobalData(e.data.data);
+        }
+      };
+    } catch(e) {}
+
+    // 4. Fallback periodic sync with server every 4 seconds
+    const periodicSync = setInterval(() => {
+      fetch('/api/sync/data')
+        .then(res => res.json())
+        .then(res => {
+          if (res && res.success && res.globalData && Object.keys(res.globalData).length > 0) {
+            applyIncomingGlobalData(res.globalData);
+          }
+        })
+        .catch(() => {});
+    }, 4000);
+
+    // 5. Firebase onValue as optional fallback
+    let firebaseUnsub: (() => void) | null = null;
+    if (db) {
+      try {
+        const globalRef = ref(db, 'globalData');
+        firebaseUnsub = onValue(
+          globalRef, 
+          (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+              applyIncomingGlobalData(data);
+            }
+          },
+          (error) => {
+            console.warn("Firebase globalData subscription warning:", error?.message);
+          }
+        );
+      } catch(e) {
+        console.warn("Firebase globalRef init warning:", e);
+      }
+    }
+
     return () => {
-      try { unsubscribe(); } catch(e) {}
+      if (eventSource) eventSource.close();
+      if (bc) bc.close();
+      clearInterval(periodicSync);
+      if (firebaseUnsub) {
+        try { firebaseUnsub(); } catch(e) {}
+      }
     };
-  }, []);
+  }, [db]);
 
   const getScheduleForPeriod = (p: number) => {
     if (!dailySchedule) return null;
@@ -1206,11 +1344,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!db || viewMode !== 'classroom') return;
+    if (viewMode !== 'classroom') return;
 
     const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-    const announceRef = ref(db, `announcements/${classKey}`);
-    const globalAnnounceRef = ref(db, 'announcements/global');
+    const announceRef = db ? ref(db, `announcements/${classKey}`) : null;
+    const globalAnnounceRef = db ? ref(db, 'announcements/global') : null;
 
     let isLocalInitial = true;
     let isGlobalInitial = true;
@@ -1296,24 +1434,94 @@ export default function App() {
       setNotInitial();
     };
 
-    const unsubscribeLocal = onValue(
-      announceRef, 
-      createHandler(() => isLocalInitial, () => { isLocalInitial = false; }),
-      (err) => {
-        console.warn("Firebase local announce listener warning:", err?.message);
+    // 1. Server SSE stream for announcements
+    let sse: EventSource | null = null;
+    try {
+      sse = new EventSource('/api/sync/stream');
+      sse.addEventListener('announcement', (e) => {
+        try {
+          const { target, announcement: ann } = JSON.parse(e.data);
+          if (target === 'announcements/global' || target === 'global' || target === `announcements/${classKey}` || target === classKey) {
+            createHandler(() => false, () => {})({ val: () => ann });
+          }
+        } catch(err) {}
+      });
+    } catch(err) {
+      console.warn("Classroom SSE error:", err);
+    }
+
+    // 2. BroadcastChannel for instant local tab sync
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('school_call_sync_channel');
+      bc.onmessage = (e) => {
+        if (e.data?.type === 'announcement') {
+          const { target, announcement: ann } = e.data.payload || {};
+          if (target === 'announcements/global' || target === 'global' || target === `announcements/${classKey}` || target === classKey) {
+            createHandler(() => false, () => {})({ val: () => ann });
+          }
+        }
+      };
+    } catch(err) {}
+
+    // 3. Fallback polling for announcements every 3 seconds
+    const pollAnnounce = () => {
+      fetch('/api/sync/announce')
+        .then(res => res.json())
+        .then(res => {
+          if (res && res.success && res.announcements) {
+            const globalAnn = res.announcements['announcements/global'] || res.announcements['global'];
+            const classAnn = res.announcements[`announcements/${classKey}`] || res.announcements[classKey];
+            if (globalAnn) {
+              createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; })({ val: () => globalAnn });
+            }
+            if (classAnn) {
+              createHandler(() => isLocalInitial, () => { isLocalInitial = false; })({ val: () => classAnn });
+            }
+          }
+        })
+        .catch(() => {});
+    };
+    pollAnnounce();
+    const announceTimer = setInterval(pollAnnounce, 3000);
+
+    // 4. Optional Firebase listeners with safe catch
+    let unsubscribeLocal: (() => void) | null = null;
+    if (announceRef) {
+      try {
+        unsubscribeLocal = onValue(
+          announceRef, 
+          createHandler(() => isLocalInitial, () => { isLocalInitial = false; }),
+          (err) => {
+            console.warn("Firebase local announce listener warning:", err?.message);
+          }
+        );
+      } catch(e) {
+        console.warn("Firebase announceRef init warning:", e);
       }
-    );
-    const unsubscribeGlobal = onValue(
-      globalAnnounceRef, 
-      createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; }),
-      (err) => {
-        console.warn("Firebase global announce listener warning:", err?.message);
+    }
+
+    let unsubscribeGlobal: (() => void) | null = null;
+    if (globalAnnounceRef) {
+      try {
+        unsubscribeGlobal = onValue(
+          globalAnnounceRef, 
+          createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; }),
+          (err) => {
+            console.warn("Firebase global announce listener warning:", err?.message);
+          }
+        );
+      } catch(e) {
+        console.warn("Firebase globalAnnounceRef init warning:", e);
       }
-    );
+    }
 
     return () => {
-      try { unsubscribeLocal(); } catch(e) {}
-      try { unsubscribeGlobal(); } catch(e) {}
+      if (sse) sse.close();
+      if (bc) bc.close();
+      clearInterval(announceTimer);
+      if (unsubscribeLocal) { try { unsubscribeLocal(); } catch(e) {} }
+      if (unsubscribeGlobal) { try { unsubscribeGlobal(); } catch(e) {} }
     };
   }, [viewMode, schoolConfig.currentGrade, schoolConfig.currentClass, dailySchedule, classPopupTimeouts, schoolConfig.popupTimeout, schoolConfig.forcePopupDuringClass]);
 
@@ -1950,32 +2158,25 @@ ${htmlText.substring(0, 30000)}
     const shouldForce = forcePopupOverride !== undefined ? forcePopupOverride : isForcePopupSend;
     const finalColor = colorOverride !== undefined ? colorOverride : selectedPopupColor;
 
-    if (!db) {
-      alert("❌ Firebase가 연결되지 않아 로컬에만 저장됩니다.");
-      localStorage.setItem('class_announcement', msg);
-      setAnnouncement(msg);
-      setCurrentAnnouncementDuration(effectiveTimeout);
-      setCurrentAnnouncementColor(finalColor);
-      setSendSuccessToast(true);
-      setTimeout(() => setSendSuccessToast(false), 3000);
-      return;
-    }
-
-    const targetPath = isGlobal ? 'announcements/global' : `announcements/${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-    set(ref(db, targetPath), {
+    const payload = {
       text: msg,
       time: Date.now(),
       duration: effectiveTimeout,
       forcePopup: shouldForce,
       color: finalColor,
       targetGrades: isGlobal && globalTargetGrades.length > 0 ? globalTargetGrades : null
-    }).then(() => {
-      setSendSuccessToast(true);
-      setTimeout(() => setSendSuccessToast(false), 3000);
-    }).catch(e => {
-      console.error(e);
-      alert("❌ 전송 실패: " + e.message);
-    });
+    };
+
+    const targetPath = isGlobal ? 'announcements/global' : `announcements/${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+
+    localStorage.setItem('class_announcement', msg);
+    setAnnouncement(msg);
+    setCurrentAnnouncementDuration(effectiveTimeout);
+    setCurrentAnnouncementColor(finalColor);
+    setSendSuccessToast(true);
+    setTimeout(() => setSendSuccessToast(false), 3000);
+
+    syncAnnouncement(targetPath, payload);
   };
 
   const renderGlobalGradeSelector = () => {
@@ -2059,17 +2260,10 @@ ${htmlText.substring(0, 30000)}
 
   const handleToggleForcePopupDuringClass = (val: boolean) => {
     setAdminForcePopupDuringClass(val);
-    setSchoolConfig(prev => {
-      const updated = { ...prev, forcePopupDuringClass: val };
-      try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
-      return updated;
-    });
-
-    if (db) {
-      import("firebase/database").then(({ ref: dbRef, update }) => {
-        update(dbRef(db, 'globalData/schoolConfig'), { forcePopupDuringClass: val }).catch(console.error);
-      });
-    }
+    const updated = { ...schoolConfig, forcePopupDuringClass: val };
+    setSchoolConfig(updated);
+    try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+    syncGlobalData({ schoolConfig: updated });
   };
 
   // 💡 [핵심 수정] Quota Exceeded (용량 초과) 방지 및 자동 복구 로직 추가
@@ -2108,22 +2302,18 @@ ${htmlText.substring(0, 30000)}
     setCustomCallPresets(tempCustomCallPresets);
     try { localStorage.setItem('custom_call_presets', JSON.stringify(tempCustomCallPresets)); } catch(e) {}
 
-    if (db) {
-      const cleanData = JSON.parse(JSON.stringify({
-        schoolConfig: newConfig,
-        classRosters: tempClassRosters,
-        dailySchedule: tempDailySchedule,
-        classTimetables: tempClassTimetables,
-        classPopupTimeouts: tempClassPopupTimeouts,
-        timetableDetails: timetableDetails,
-        meals: tempMeals,
-        customCallPresets: tempCustomCallPresets
-      }));
+    const cleanData = JSON.parse(JSON.stringify({
+      schoolConfig: newConfig,
+      classRosters: tempClassRosters,
+      dailySchedule: tempDailySchedule,
+      classTimetables: tempClassTimetables,
+      classPopupTimeouts: tempClassPopupTimeouts,
+      timetableDetails: timetableDetails,
+      meals: tempMeals,
+      customCallPresets: tempCustomCallPresets
+    }));
 
-      set(ref(db, 'globalData'), cleanData).catch(e => {
-        console.warn('Firebase 백그라운드 동기화 실패:', e);
-      });
-    }
+    syncGlobalData(cleanData);
 
     const safeSave = (key: string, value: any) => {
       try {
@@ -2456,9 +2646,7 @@ ${htmlText.substring(0, 30000)}
                       const newTimeouts = { ...classPopupTimeouts, [key]: sec };
                       setClassPopupTimeouts(newTimeouts);
                       try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newTimeouts)); } catch(e) {}
-                      if (db) {
-                        set(ref(db, 'globalData/classPopupTimeouts'), newTimeouts).catch(console.error);
-                      }
+                      syncGlobalData({ classPopupTimeouts: newTimeouts });
                     }}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow-md font-black' : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'}`}
                   >
@@ -2708,17 +2896,9 @@ ${htmlText.substring(0, 30000)}
               <button 
                 onClick={() => {
                   try { localStorage.setItem('daily_schedule', JSON.stringify(dailySchedule)); } catch(e) {}
-                  if (db) {
-                    import("firebase/database").then(({ ref: dbRef, set }) => {
-                      set(dbRef(db, 'globalData/dailySchedule'), dailySchedule).then(() => {
-                        setMemoSuccessToast(true);
-                        setTimeout(() => setMemoSuccessToast(false), 3000);
-                      }).catch(console.error);
-                    });
-                  } else {
-                    setMemoSuccessToast(true);
-                    setTimeout(() => setMemoSuccessToast(false), 3000);
-                  }
+                  syncGlobalData({ dailySchedule });
+                  setMemoSuccessToast(true);
+                  setTimeout(() => setMemoSuccessToast(false), 3000);
                 }}
                 className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
               >
@@ -2779,11 +2959,7 @@ ${htmlText.substring(0, 30000)}
                   delete newDetails[`${todayKey}-${period}`];
                   setTimetableDetails(newDetails);
                   try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
-                  if (db) {
-                    import("firebase/database").then(({ ref: dbRef, set }) => {
-                      set(dbRef(db, 'globalData/timetableDetails'), newDetails).catch(console.error);
-                    });
-                  }
+                  syncGlobalData({ timetableDetails: newDetails });
                 };
 
                 return (
@@ -2830,11 +3006,7 @@ ${htmlText.substring(0, 30000)}
                   });
                   setTimetableDetails(newDetails);
                   try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
-                  if (db) {
-                    import("firebase/database").then(({ ref: dbRef, set }) => {
-                      set(dbRef(db, 'globalData/timetableDetails'), newDetails).catch(console.error);
-                    });
-                  }
+                  syncGlobalData({ timetableDetails: newDetails });
                 }}
                 className="bg-[#2a2a2a] hover:bg-[#333] text-slate-300 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors cursor-pointer"
               >
@@ -2844,17 +3016,9 @@ ${htmlText.substring(0, 30000)}
               <button 
                 onClick={() => {
                   try { localStorage.setItem('timetable_details', JSON.stringify(timetableDetails)); } catch(e) {}
-                  if (db) {
-                    import("firebase/database").then(({ ref: dbRef, set }) => {
-                      set(dbRef(db, 'globalData/timetableDetails'), timetableDetails).then(() => {
-                        setMemoSuccessToast(true);
-                        setTimeout(() => setMemoSuccessToast(false), 3000);
-                      }).catch(console.error);
-                    });
-                  } else {
-                    setMemoSuccessToast(true);
-                    setTimeout(() => setMemoSuccessToast(false), 3000);
-                  }
+                  syncGlobalData({ timetableDetails });
+                  setMemoSuccessToast(true);
+                  setTimeout(() => setMemoSuccessToast(false), 3000);
                 }}
                 className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-3 rounded-xl font-bold shadow-[0_0_15px_rgba(217,119,6,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
               >
@@ -3278,9 +3442,7 @@ ${htmlText.substring(0, 30000)}
                       onClick={() => {
                         setClassPopupTimeouts(tempClassPopupTimeouts);
                         try { localStorage.setItem('class_popup_timeouts', JSON.stringify(tempClassPopupTimeouts)); } catch(e) {}
-                        if (db) {
-                          set(ref(db, 'globalData/classPopupTimeouts'), tempClassPopupTimeouts).catch(console.error);
-                        }
+                        syncGlobalData({ classPopupTimeouts: tempClassPopupTimeouts });
                         setSaveSuccessToast(true);
                         setTimeout(() => setSaveSuccessToast(false), 3000);
                       }}
@@ -3320,7 +3482,7 @@ ${htmlText.substring(0, 30000)}
                           setTempClassPopupTimeouts(newMap);
                           setClassPopupTimeouts(newMap);
                           try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newMap)); } catch(e) {}
-                          if (db) { set(ref(db, 'globalData/classPopupTimeouts'), newMap).catch(console.error); }
+                          syncGlobalData({ classPopupTimeouts: newMap });
                         }}
                         className="text-[10px] bg-rose-900/60 hover:bg-rose-800 text-rose-200 px-2 py-1 rounded border border-rose-700 whitespace-nowrap cursor-pointer"
                       >
@@ -3366,7 +3528,7 @@ ${htmlText.substring(0, 30000)}
                                   setTempClassPopupTimeouts(newMap);
                                   setClassPopupTimeouts(newMap);
                                   try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newMap)); } catch(e) {}
-                                  if (db) { set(ref(db, 'globalData/classPopupTimeouts'), newMap).catch(console.error); }
+                                  syncGlobalData({ classPopupTimeouts: newMap });
                                 }}
                                 className="text-rose-400 hover:text-rose-200 text-[10px] font-black cursor-pointer"
                                 title="삭제 (기본값으로 복원)"
@@ -3604,16 +3766,10 @@ ${htmlText.substring(0, 30000)}
                       const realDay = String(new Date().getDay());
                       const defaultDay = (realDay >= '1' && realDay <= '5') ? realDay : '1';
                       setAdminTimetableDay(defaultDay);
-                      setSchoolConfig(prev => {
-                        const updated = { ...prev, displayDayOverride: '' };
-                        try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
-                        return updated;
-                      });
-                      if (db) {
-                        import("firebase/database").then(({ ref: dbRef, update }) => {
-                          update(dbRef(db, 'globalData/schoolConfig'), { displayDayOverride: '' }).catch(console.error);
-                        });
-                      }
+                      const updated = { ...schoolConfig, displayDayOverride: '' };
+                      setSchoolConfig(updated);
+                      try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+                      syncGlobalData({ schoolConfig: updated });
                     }}
                     className={`px-3 py-2 text-xs font-bold rounded-xl transition-all ${!adminDisplayDayOverride ? 'bg-emerald-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
                   >
@@ -3629,16 +3785,10 @@ ${htmlText.substring(0, 30000)}
                         onClick={() => {
                           setAdminDisplayDayOverride(d);
                           setAdminTimetableDay(d);
-                          setSchoolConfig(prev => {
-                            const updated = { ...prev, displayDayOverride: d };
-                            try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
-                            return updated;
-                          });
-                          if (db) {
-                            import("firebase/database").then(({ ref: dbRef, update }) => {
-                              update(dbRef(db, 'globalData/schoolConfig'), { displayDayOverride: d }).catch(console.error);
-                            });
-                          }
+                          const updated = { ...schoolConfig, displayDayOverride: d };
+                          setSchoolConfig(updated);
+                          try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
+                          syncGlobalData({ schoolConfig: updated });
                         }}
                         className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${isSelected ? 'bg-amber-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
                       >
@@ -4520,11 +4670,7 @@ ${htmlText.substring(0, 30000)}
                       localStorage.setItem('timetable_details', JSON.stringify(newDetails));
                     } catch(e) {}
                     
-                    if (db) {
-                       import("firebase/database").then(({ ref: dbRef, set }) => {
-                         set(dbRef(db, 'globalData/timetableDetails'), newDetails).catch(console.error);
-                       });
-                    }
+                    syncGlobalData({ timetableDetails: newDetails });
                     
                     setSubjectModal({ ...subjectModal, isOpen: false });
                   }}
