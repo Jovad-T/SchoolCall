@@ -120,7 +120,9 @@ async function startServer() {
     console.log("Server received sync updates:", JSON.stringify(updates));
     const merged: Record<string, any> = { ...storeData.globalData };
     for (const [key, val] of Object.entries(updates)) {
-      if (
+      if (key === 'timetableDetails') {
+        merged[key] = val;
+      } else if (
         val && 
         typeof val === 'object' && 
         !Array.isArray(val) && 

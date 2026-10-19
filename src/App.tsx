@@ -567,8 +567,6 @@ export default function App() {
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
   const [adminSchoolLevel, setAdminSchoolLevel] = useState<'elementary' | 'middle' | 'high'>(schoolConfig.schoolLevel || 'high');
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
-  const [adminSelectedGrade, setAdminSelectedGrade] = useState(schoolConfig.currentGrade);
-  const [adminSelectedClass, setAdminSelectedClass] = useState(schoolConfig.currentClass);
   const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
   const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
   const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
@@ -668,18 +666,16 @@ export default function App() {
   }, [db]);
 
   const applyIncomingGlobalData = (data: any) => {
-    // 💡 디코딩: 인코딩된 데이터를 안전하게 복구
-    const actualData = data.encoded ? JSON.parse(decodeURIComponent(data.encoded)) : data;
-    console.log("Classroom received sync data:", JSON.stringify(actualData));
-    if (!actualData || typeof actualData !== 'object') return;
-    if (actualData.schoolConfig) {
+    console.log("Classroom received sync data:", JSON.stringify(data));
+    if (!data || typeof data !== 'object') return;
+    if (data.schoolConfig) {
       setSchoolConfig(prev => {
         const merged = { 
           ...prev, 
-          ...actualData.schoolConfig, 
+          ...data.schoolConfig, 
           // 💡 원격 모드에서는 외부 데이터에 의해 반이 변경되지 않도록 현재 값 유지
-          currentGrade: viewMode === 'remote' ? prev.currentGrade : (actualData.schoolConfig.currentGrade || prev.currentGrade || 1), 
-          currentClass: viewMode === 'remote' ? prev.currentClass : (actualData.schoolConfig.currentClass || prev.currentClass || 1)
+          currentGrade: viewMode === 'remote' ? prev.currentGrade : (data.schoolConfig.currentGrade || prev.currentGrade || 1), 
+          currentClass: viewMode === 'remote' ? prev.currentClass : (data.schoolConfig.currentClass || prev.currentClass || 1)
         };
         try { localStorage.setItem('school_config', JSON.stringify(merged)); } catch(e) {}
         return merged;
@@ -721,11 +717,8 @@ export default function App() {
           valid[k] = v;
         }
       });
-      setTimetableDetails(prev => {
-        const merged = { ...prev, ...valid };
-        try { localStorage.setItem('timetable_details', JSON.stringify(merged)); } catch(e) {}
-        return merged;
-      });
+      setTimetableDetails(valid);
+      try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
     }
     if (data.meals) {
       setMeals(data.meals);
@@ -738,25 +731,23 @@ export default function App() {
   };
 
   const syncGlobalData = (payload: any) => {
-    // 💡 인코딩: Firebase 전송 전 메시지 인코딩
-    const encodedPayload = { encoded: encodeURIComponent(JSON.stringify(payload)) };
-    applyIncomingGlobalData(encodedPayload);
+    applyIncomingGlobalData(payload);
 
     try {
       const bc = new BroadcastChannel('school_call_sync_channel');
-      bc.postMessage({ type: 'globalData', data: encodedPayload });
+      bc.postMessage({ type: 'globalData', data: payload });
       bc.close();
     } catch(e) {}
 
     fetch('/api/sync/data', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(encodedPayload)
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(payload)
     }).catch(e => console.warn("Server globalData sync warning:", e));
 
     if (db) {
       import("firebase/database").then(({ ref: dbRef, update: dbUpdate }) => {
-        dbUpdate(dbRef(db, 'globalData'), encodedPayload).catch((err) => {
+        dbUpdate(dbRef(db, 'globalData'), payload).catch((err) => {
           console.warn("Firebase globalData backup warning:", err?.message);
         });
       }).catch(err => console.warn("Firebase import warning:", err?.message));
@@ -1703,8 +1694,6 @@ export default function App() {
       setAdminSchoolName(schoolConfig.schoolName);
       setAdminSchoolLevel(schoolConfig.schoolLevel || 'high');
       setAdminGradeCounts(schoolConfig.gradeCounts);
-      setAdminSelectedGrade(schoolConfig.currentGrade);
-      setAdminSelectedClass(schoolConfig.currentClass);
       setAdminNeisApiKey(schoolConfig.neisApiKey);
       setAdminClassroomTheme(schoolConfig.classroomTheme || 'default');
       setAdminAppinServerUrl(schoolConfig.appinServerUrl || '');
@@ -2205,6 +2194,7 @@ ${htmlText.substring(0, 30000)}
     setTimeout(() => setSendSuccessToast(false), 3000);
 
     syncAnnouncement(targetPath, payload);
+    setIsGlobalSend(false);
   };
 
   const renderGlobalGradeSelector = () => {
@@ -2279,8 +2269,8 @@ ${htmlText.substring(0, 30000)}
       schoolName: adminSchoolName.trim() || '학교명', 
       schoolLevel: adminSchoolLevel,
       gradeCounts: adminGradeCounts,
-      currentGrade: adminSelectedGrade,
-      currentClass: adminSelectedClass,
+      currentGrade: schoolConfig.currentGrade,
+      currentClass: schoolConfig.currentClass,
       neisApiKey: adminNeisApiKey.trim(),
       geminiApiKey: adminGeminiApiKey.trim(),
       aiProvider: adminAiProvider,
@@ -2444,8 +2434,8 @@ ${htmlText.substring(0, 30000)}
                         const newVal = Number(e.target.value);
                         const newConfig = { ...schoolConfig, currentGrade: newVal };
                         setSchoolConfig(newConfig);
-                        setAdminSelectedGrade(newVal);
                         localStorage.setItem('school_config', JSON.stringify(newConfig));
+                        syncGlobalData({ schoolConfig: newConfig });
                       }}
                       className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
                     >
@@ -2458,8 +2448,8 @@ ${htmlText.substring(0, 30000)}
                         const newVal = Number(e.target.value);
                         const newConfig = { ...schoolConfig, currentClass: newVal };
                         setSchoolConfig(newConfig);
-                        setAdminSelectedClass(newVal);
                         localStorage.setItem('school_config', JSON.stringify(newConfig));
+                        syncGlobalData({ schoolConfig: newConfig });
                       }}
                       className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
                     >
@@ -2607,8 +2597,8 @@ ${htmlText.substring(0, 30000)}
                   const newVal = Number(e.target.value);
                   const newConfig = { ...schoolConfig, currentGrade: newVal };
                   setSchoolConfig(newConfig);
-                  setAdminSelectedGrade(newVal);
                   try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                  syncGlobalData({ schoolConfig: newConfig });
                 }}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
               >
@@ -2624,8 +2614,8 @@ ${htmlText.substring(0, 30000)}
                   const newVal = Number(e.target.value);
                   const newConfig = { ...schoolConfig, currentClass: newVal };
                   setSchoolConfig(newConfig);
-                  setAdminSelectedClass(newVal);
                   try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                  syncGlobalData({ schoolConfig: newConfig });
                 }}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
               >
@@ -2957,7 +2947,7 @@ ${htmlText.substring(0, 30000)}
             
             <div className="space-y-3">
               {[1, 2, 3, 4, 5, 6, 7].map(period => {
-                const todayKey = `${adminSelectedGrade}-${adminSelectedClass}`;
+                const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
                 const subjectVal = classTimetables[todayKey]?.[remoteDayOfWeek]?.[period]
                   || classTimetables[todayKey]?.['1']?.[period];
                 const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
@@ -2968,7 +2958,7 @@ ${htmlText.substring(0, 30000)}
                 
                 const handleUpdate = (newLoc: string, newMemo: string) => {
                   // 💡 반 이동 버그 수정: 현재 상태를 참조하도록 수정
-                  const todayKey = `${adminSelectedGrade}-${adminSelectedClass}`;
+                  const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
                   const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                   
                   const newDetails = { 
@@ -3017,7 +3007,7 @@ ${htmlText.substring(0, 30000)}
               <button 
                 onClick={() => {
                   const newDetails = { ...timetableDetails };
-                  const todayKey = `${adminSelectedGrade}-${adminSelectedClass}`;
+                  const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
                   [1, 2, 3, 4, 5, 6, 7].forEach(period => {
                     const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                     delete newDetails[detailKey];
