@@ -222,6 +222,41 @@ const AdminCalendarPicker: React.FC<{
   );
 };
 
+const TimetableInputItem = ({ initialValue, onSave, placeholder, icon: Icon }: { initialValue: string; onSave: (val: string) => void; placeholder: string; icon: any }) => {
+  const [val, setVal] = useState(initialValue);
+  const debouncedSaveRef = useRef<any>(null);
+
+  useEffect(() => {
+    setVal(initialValue);
+  }, [initialValue]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextVal = e.target.value;
+    setVal(nextVal);
+    if (debouncedSaveRef.current) clearTimeout(debouncedSaveRef.current);
+    debouncedSaveRef.current = setTimeout(() => {
+      onSave(nextVal);
+    }, 400);
+  };
+
+  return (
+    <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-3 border border-white/10 focus-within:border-amber-500/50">
+      <Icon size={12} className="text-slate-500 shrink-0"/>
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={val}
+        onChange={handleChange}
+        onBlur={() => {
+          if (debouncedSaveRef.current) clearTimeout(debouncedSaveRef.current);
+          onSave(val);
+        }}
+        className="w-full bg-transparent text-xs text-white py-2 outline-none"
+      />
+    </div>
+  );
+};
+
 export default function App() {
   const defaultMode = localStorage.getItem('default_view_mode') as 'classroom' | 'remote' | 'admin' | null;
   const urlParamsForView = new URLSearchParams(window.location.search);
@@ -2169,7 +2204,9 @@ ${htmlText.substring(0, 30000)}
   };
 
   const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number, forcePopupOverride?: boolean, colorOverride?: string) => {
-    const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    const grade = schoolConfig.currentGrade || 1;
+    const cls = schoolConfig.currentClass || 1;
+    const classKey = `${grade}-${cls}`;
     const effectiveTimeout = customDuration 
       || (classPopupTimeouts[classKey] !== undefined ? classPopupTimeouts[classKey] : (schoolConfig.popupTimeout || 60));
     const shouldForce = forcePopupOverride !== undefined ? forcePopupOverride : isForcePopupSend;
@@ -2184,7 +2221,9 @@ ${htmlText.substring(0, 30000)}
       targetGrades: isGlobal && globalTargetGrades.length > 0 ? globalTargetGrades : null
     };
 
-    const targetPath = isGlobal ? 'announcements/global' : `announcements/${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    // 💡 철저한 경로 검증 및 강제: 전체 전송이 아닐 경우 반드시 현재 선택된 학년-반 경로로 지정
+    const targetPath = isGlobal ? 'announcements/global' : `announcements/${grade}-${cls}`;
+    console.log("Strictly targeted announcement path:", targetPath);
 
     localStorage.setItem('class_announcement', msg);
     setAnnouncement(msg);
@@ -2978,26 +3017,18 @@ ${htmlText.substring(0, 30000)}
                       <span className={`text-xs font-bold truncate ${displaySubject === '과목 미지정' ? 'text-slate-500' : 'text-white'}`}>{displaySubject}</span>
                     </div>
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 relative z-0">
-                      <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-3 border border-white/10 focus-within:border-amber-500/50">
-                        <MapPin size={12} className="text-slate-500 shrink-0"/>
-                        <input
-                          type="text"
-                          placeholder="장소 (예: 과학실, 체육관)"
-                          value={detail.location || ''}
-                          onChange={(e) => handleUpdate(e.target.value, detail.memo || '')}
-                          className="w-full bg-transparent text-xs text-white py-2 outline-none"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2 bg-[#1a1a1a] rounded-lg px-3 border border-white/10 focus-within:border-amber-500/50">
-                        <FileText size={12} className="text-slate-500 shrink-0"/>
-                        <input
-                          type="text"
-                          placeholder="공지/메모 (예: 준비물 지참, 숙제 제출)"
-                          value={detail.memo || ''}
-                          onChange={(e) => handleUpdate(detail.location || '', e.target.value)}
-                          className="w-full bg-transparent text-xs text-white py-2 outline-none"
-                        />
-                      </div>
+                      <TimetableInputItem
+                        initialValue={detail.location || ''}
+                        onSave={(loc) => handleUpdate(loc, detail.memo || '')}
+                        placeholder="장소 (예: 과학실, 체육관)"
+                        icon={MapPin}
+                      />
+                      <TimetableInputItem
+                        initialValue={detail.memo || ''}
+                        onSave={(memo) => handleUpdate(detail.location || '', memo)}
+                        placeholder="공지/메모 (예: 준비물 지참, 숙제 제출)"
+                        icon={FileText}
+                      />
                     </div>
                   </div>
                 );
