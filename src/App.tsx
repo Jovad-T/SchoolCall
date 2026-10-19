@@ -862,7 +862,7 @@ export default function App() {
           }
         })
         .catch(() => {});
-    }, 4000);
+    }, 1500);
 
     // 5. Firebase onValue as optional fallback
     let firebaseUnsub: (() => void) | null = null;
@@ -4453,8 +4453,8 @@ ${htmlText.substring(0, 30000)}
                 <Bell size={10} /> 새 알림 대기중 ({pendingAnnouncements.length})
               </div>
             )}
-            <div className={`text-5xl font-black tracking-widest font-mono mb-1 drop-shadow-sm ${th.timeText}`}>{timeString}</div>
-            <div className={`text-sm font-semibold tracking-wide ${th.dateText}`}>{dateString}</div>
+            <div className={`text-3xl font-black tracking-widest font-mono mb-0.5 drop-shadow-sm ${th.timeText}`}>{timeString}</div>
+            <div className={`text-xs font-semibold tracking-wide ${th.dateText}`}>{dateString}</div>
           </div>
           <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
             <button 

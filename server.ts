@@ -54,6 +54,7 @@ async function startServer() {
     for (const client of Array.from(sseClients)) {
       try {
         client.write(message);
+        (client as any).flush?.();
       } catch {
         sseClients.delete(client);
       }
