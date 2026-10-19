@@ -267,6 +267,12 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'select' | 'classroom' | 'remote' | 'admin'>(
     isDirectClass ? 'classroom' : (defaultMode || 'select')
   );
+  const viewModeRef = useRef(viewMode);
+  useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
+  const mountTimeRef = useRef<number>(Date.now());
+  const [reloadSentToast, setReloadSentToast] = useState(false);
   
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -703,14 +709,22 @@ export default function App() {
   const applyIncomingGlobalData = (data: any) => {
     console.log("Classroom received sync data:", JSON.stringify(data));
     if (!data || typeof data !== 'object') return;
+    if (data.forceReloadAt && Number(data.forceReloadAt) > mountTimeRef.current) {
+      if (viewModeRef.current !== 'remote' && viewModeRef.current !== 'admin') {
+        mountTimeRef.current = Number(data.forceReloadAt);
+        window.location.reload();
+        return;
+      }
+    }
     if (data.schoolConfig) {
       setSchoolConfig(prev => {
+        const isProtectedMode = viewModeRef.current === 'remote' || viewModeRef.current === 'admin' || viewModeRef.current === 'classroom';
         const merged = { 
           ...prev, 
           ...data.schoolConfig, 
-          // 💡 원격 모드에서는 외부 데이터에 의해 반이 변경되지 않도록 현재 값 유지
-          currentGrade: viewMode === 'remote' ? prev.currentGrade : (data.schoolConfig.currentGrade || prev.currentGrade || 1), 
-          currentClass: viewMode === 'remote' ? prev.currentClass : (data.schoolConfig.currentClass || prev.currentClass || 1)
+          // 💡 원격/교실 모드에서는 외부 데이터에 의해 반이 변경되지 않도록 현재 값 유지
+          currentGrade: (isProtectedMode && prev.currentGrade) ? prev.currentGrade : (data.schoolConfig.currentGrade || prev.currentGrade || 1), 
+          currentClass: (isProtectedMode && prev.currentClass) ? prev.currentClass : (data.schoolConfig.currentClass || prev.currentClass || 1)
         };
         try { localStorage.setItem('school_config', JSON.stringify(merged)); } catch(e) {}
         return merged;
@@ -766,23 +780,27 @@ export default function App() {
   };
 
   const syncGlobalData = (payload: any) => {
-    applyIncomingGlobalData(payload);
+    const safePayload = payload?.timetableDetails
+      ? { ...payload, timetableDetails: { ...payload.timetableDetails, _updatedAt: Date.now() } }
+      : payload;
+
+    applyIncomingGlobalData(safePayload);
 
     try {
       const bc = new BroadcastChannel('school_call_sync_channel');
-      bc.postMessage({ type: 'globalData', data: payload });
+      bc.postMessage({ type: 'globalData', data: safePayload });
       bc.close();
     } catch(e) {}
 
     fetch('/api/sync/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(safePayload)
     }).catch(e => console.warn("Server globalData sync warning:", e));
 
     if (db) {
       import("firebase/database").then(({ ref: dbRef, update: dbUpdate }) => {
-        dbUpdate(dbRef(db, 'globalData'), payload).catch((err) => {
+        dbUpdate(dbRef(db, 'globalData'), safePayload).catch((err) => {
           console.warn("Firebase globalData backup warning:", err?.message);
         });
       }).catch(err => console.warn("Firebase import warning:", err?.message));
@@ -2620,6 +2638,20 @@ ${htmlText.substring(0, 30000)}
                 </div>
               );
             })()}
+            <button
+              type="button"
+              onClick={() => {
+                syncGlobalData({ forceReloadAt: Date.now() });
+                setReloadSentToast(true);
+                setTimeout(() => setReloadSentToast(false), 3000);
+              }}
+              style={{ WebkitAppRegion: "no-drag" } as any}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600/80 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors border border-indigo-400/30 shadow-sm"
+              title="모든 교실의 전자칠판(.exe/웹) 화면을 원격으로 즉시 새로고침합니다"
+            >
+              <RefreshCw size={13} className={reloadSentToast ? "animate-spin" : ""} />
+              {reloadSentToast ? "전체 새로고침 전송됨!" : "모든 교실 새로고침"}
+            </button>
             <div className="text-xs text-emerald-400 font-mono">{timeString}</div>
           </div>
         </header>
