@@ -1,7 +1,8 @@
 {
-  "latestVersion": "v1.3.4",
-  "downloadUrlClass": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.4/SchoolCallApp_Class_Setup_v1.3.4.exe",
-  "downloadUrlOffice": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.4/SchoolCallApp_Office_Setup_v1.3.4.exe",
+  "latestVersion": "v1.3.5",
+  "downloadUrlClass": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.5/SchoolCallApp_Class_Setup_v1.3.5.exe",
+  "downloadUrlOffice": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.5/SchoolCallApp_Office_Setup_v1.3.5.exe",
   "downloadUrl": "https://github.com/Jovad-T/SchoolCall/releases/latest",
-  "releaseNotes": "시간표 알림장/메모장 매일 자동 초기화 기능 추가 (날짜 변경 및 자정 경과 시 전날 메모 자동 초기화, 이전 잔여 데이터 청소)"
+  "releaseNotes": "전자칠판 직접 메모 입력 비활성화(학생 장난 방지), 원격 전체 교실 강제 새로고침 기능 및 실시간 동기화 안정화"
 }
+

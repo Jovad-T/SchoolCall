@@ -32,7 +32,7 @@ try {
   console.warn("Firebase 연결 실패:", e);
 }
 
-export const APP_VERSION = 'v1.3.4';
+export const APP_VERSION = 'v1.3.5';
 
 export const getTodayDateKey = (d: Date = new Date()) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -316,12 +316,19 @@ export default function App() {
             latest: data.latestVersion,
             url: finalUrl
           });
+
+          // 💡 새 웹 버전 배포 감지 시 교실 알림판 자동 새로고침
+          if (viewModeRef.current !== 'remote' && viewModeRef.current !== 'admin') {
+            window.location.reload();
+          }
         }
       } catch (e) {
         console.log('버전 확인 실패:', e);
       }
     };
     checkForUpdates();
+    const versionTimer = setInterval(checkForUpdates, 60000);
+    return () => clearInterval(versionTimer);
   }, []);
 
   const renderUpdateBadge = () => {
