@@ -4538,16 +4538,7 @@ ${htmlText.substring(0, 30000)}
               return (
                 <div 
                   key={idx} 
-                  onClick={() => {
-                    setSubjectModal({
-                      isOpen: true,
-                      period: idx + 1,
-                      subject: item.subject,
-                      location: detail?.location || '',
-                      memo: detail?.memo || ''
-                    });
-                  }}
-                  className={`${colors[idx % colors.length]} rounded-3xl p-4 flex flex-col shadow-xl font-handwriting transition-transform hover:scale-105 duration-200 relative border border-black/5 h-full cursor-pointer`}
+                  className={`${colors[idx % colors.length]} rounded-3xl p-4 flex flex-col shadow-xl font-handwriting relative border border-black/5 h-full select-none`}
                 >
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-6 bg-amber-400/40 rotate-2 shadow-sm border border-amber-200/20 backdrop-blur-sm z-10"></div>
                   
@@ -4637,91 +4628,6 @@ ${htmlText.substring(0, 30000)}
         </section>
       </main>
 
-      {subjectModal.isOpen && (
-          <div 
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-            style={{ WebkitAppRegion: 'no-drag' } as any}
-          >
-            <div className="bg-[#1a1a1a] border border-amber-500/50 p-8 rounded-3xl w-full max-w-md shadow-2xl animate-fade-in relative text-white">
-              <button 
-                onClick={() => setSubjectModal({ ...subjectModal, isOpen: false })}
-                className="absolute top-6 right-6 text-slate-400 hover:text-white transition-colors"
-              >
-                <X size={24} />
-              </button>
-              
-              <div className="flex items-center gap-4 mb-6 border-b border-white/10 pb-4">
-                <div className="text-4xl">{getSubjectIcon(subjectModal.subject)}</div>
-                <div>
-                  <h3 className="text-2xl font-black text-amber-400">{subjectModal.period}교시 {subjectModal.subject}</h3>
-                  <p className="text-xs text-slate-400 mt-1">교과 교실 및 간단한 수업 메모를 작성하세요.</p>
-                </div>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="space-y-2 text-left">
-                  <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><MapPin size={16}/> 장소 (교과교실)</label>
-                  <input 
-                    type="text" 
-                    value={subjectModal.location}
-                    onChange={e => setSubjectModal({ ...subjectModal, location: e.target.value })}
-                    className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-amber-400"
-                    placeholder="예: 과학실, 체육관, 미술실 등"
-                  />
-                </div>
-                
-                <div className="space-y-2 text-left">
-                  <label className="text-sm font-bold text-slate-300 flex items-center gap-2"><FileText size={16}/> 알림장/메모</label>
-                  <textarea 
-                    value={subjectModal.memo}
-                    onChange={e => setSubjectModal({ ...subjectModal, memo: e.target.value })}
-                    className="w-full h-32 bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-amber-400 resize-none"
-                    placeholder="예: 체육복 지참, 리코더 준비 등"
-                  />
-                </div>
-              </div>
-              
-              <div className="mt-6 flex justify-end gap-2">
-                <button 
-                  type="button"
-                  onClick={() => setSubjectModal({ ...subjectModal, location: '', memo: '' })}
-                  className="px-4 py-3 bg-[#222] hover:bg-[#333] text-rose-300 hover:text-rose-200 rounded-xl text-sm font-bold transition-colors mr-auto border border-rose-900/30"
-                >
-                  지우기
-                </button>
-                <button 
-                  onClick={() => setSubjectModal({ ...subjectModal, isOpen: false })}
-                  className="px-6 py-3 bg-[#333] hover:bg-[#444] text-white rounded-xl text-sm font-bold transition-colors"
-                >
-                  취소
-                </button>
-                <button 
-                  onClick={() => {
-                    const effectiveDay = (currentDayOfWeekStr >= '1' && currentDayOfWeekStr <= '5') ? currentDayOfWeekStr : '1';
-                    const detailKey = `${currentKey}-${effectiveDay}-${subjectModal.period}`;
-                    const newDetails = { 
-                      ...timetableDetails, 
-                      [detailKey]: { location: subjectModal.location.trim(), memo: subjectModal.memo.trim() } 
-                    };
-                    delete newDetails[`${currentKey}-${subjectModal.period}`];
-                    setTimetableDetails(newDetails);
-                    
-                    try {
-                      localStorage.setItem('timetable_details', JSON.stringify(newDetails));
-                    } catch(e) {}
-                    
-                    syncGlobalData({ timetableDetails: newDetails });
-                    
-                    setSubjectModal({ ...subjectModal, isOpen: false });
-                  }}
-                  className="px-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-bold transition-colors shadow-lg cursor-pointer"
-                >
-                  저장하기
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
       {viewMode === 'classroom' && pendingAnnouncements.length > 0 && (
         <div 
