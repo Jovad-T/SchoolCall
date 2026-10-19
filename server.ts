@@ -117,6 +117,7 @@ async function startServer() {
   // 📤 Update globalData and broadcast to all connected devices
   app.post("/api/sync/data", (req, res) => {
     const updates = req.body || {};
+    console.log("Server received sync updates:", JSON.stringify(updates));
     const merged: Record<string, any> = { ...storeData.globalData };
     for (const [key, val] of Object.entries(updates)) {
       if (

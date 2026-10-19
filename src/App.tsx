@@ -357,8 +357,8 @@ export default function App() {
       schoolName: parsed.schoolName || '사직여자고등학교', 
       schoolLevel: parsed.schoolLevel || 'high',
       gradeCounts: parsed.gradeCounts || { 1: 8, 2: 8, 3: 8, 4: 8, 5: 8, 6: 8 },
-      currentGrade: Number(urlG) || parsed.currentGrade || 0, 
-      currentClass: Number(urlC) || parsed.currentClass || 0,
+      currentGrade: parsed.currentGrade || Number(urlG) || 0, 
+      currentClass: parsed.currentClass || Number(urlC) || 0,
       classroomTheme: parsed.classroomTheme || 'default',
       appinServerUrl: parsed.appinServerUrl || '',
       neisApiKey: parsed.neisApiKey || '',
@@ -668,14 +668,18 @@ export default function App() {
   }, [db]);
 
   const applyIncomingGlobalData = (data: any) => {
-    if (!data || typeof data !== 'object') return;
-    if (data.schoolConfig) {
+    // 💡 디코딩: 인코딩된 데이터를 안전하게 복구
+    const actualData = data.encoded ? JSON.parse(decodeURIComponent(data.encoded)) : data;
+    console.log("Classroom received sync data:", JSON.stringify(actualData));
+    if (!actualData || typeof actualData !== 'object') return;
+    if (actualData.schoolConfig) {
       setSchoolConfig(prev => {
         const merged = { 
           ...prev, 
-          ...data.schoolConfig, 
-          currentGrade: data.schoolConfig.currentGrade || prev.currentGrade || 1, 
-          currentClass: data.schoolConfig.currentClass || prev.currentClass || 1 
+          ...actualData.schoolConfig, 
+          // 💡 원격 모드에서는 외부 데이터에 의해 반이 변경되지 않도록 현재 값 유지
+          currentGrade: viewMode === 'remote' ? prev.currentGrade : (actualData.schoolConfig.currentGrade || prev.currentGrade || 1), 
+          currentClass: viewMode === 'remote' ? prev.currentClass : (actualData.schoolConfig.currentClass || prev.currentClass || 1)
         };
         try { localStorage.setItem('school_config', JSON.stringify(merged)); } catch(e) {}
         return merged;
@@ -734,23 +738,25 @@ export default function App() {
   };
 
   const syncGlobalData = (payload: any) => {
-    applyIncomingGlobalData(payload);
+    // 💡 인코딩: Firebase 전송 전 메시지 인코딩
+    const encodedPayload = { encoded: encodeURIComponent(JSON.stringify(payload)) };
+    applyIncomingGlobalData(encodedPayload);
 
     try {
       const bc = new BroadcastChannel('school_call_sync_channel');
-      bc.postMessage({ type: 'globalData', data: payload });
+      bc.postMessage({ type: 'globalData', data: encodedPayload });
       bc.close();
     } catch(e) {}
 
     fetch('/api/sync/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(encodedPayload)
     }).catch(e => console.warn("Server globalData sync warning:", e));
 
     if (db) {
       import("firebase/database").then(({ ref: dbRef, update: dbUpdate }) => {
-        dbUpdate(dbRef(db, 'globalData'), payload).catch((err) => {
+        dbUpdate(dbRef(db, 'globalData'), encodedPayload).catch((err) => {
           console.warn("Firebase globalData backup warning:", err?.message);
         });
       }).catch(err => console.warn("Firebase import warning:", err?.message));
@@ -801,6 +807,9 @@ export default function App() {
           applyIncomingGlobalData(data);
         } catch(err) {}
       });
+      eventSource.onmessage = (e) => {
+        console.log("SSE raw message:", e.data);
+      };
     } catch(e) {
       console.warn("EventSource init warning:", e);
     }
@@ -821,7 +830,8 @@ export default function App() {
       fetch('/api/sync/data')
         .then(res => res.json())
         .then(res => {
-          if (res && res.success && res.globalData && Object.keys(res.globalData).length > 0) {
+          console.log("Periodic sync received:", JSON.stringify(res));
+          if (res && res.success && res.globalData) {
             applyIncomingGlobalData(res.globalData);
           }
         })
@@ -2431,8 +2441,10 @@ ${htmlText.substring(0, 30000)}
                     <select 
                       value={schoolConfig.currentGrade}
                       onChange={(e) => {
-                        const newConfig = { ...schoolConfig, currentGrade: Number(e.target.value) };
+                        const newVal = Number(e.target.value);
+                        const newConfig = { ...schoolConfig, currentGrade: newVal };
                         setSchoolConfig(newConfig);
+                        setAdminSelectedGrade(newVal);
                         localStorage.setItem('school_config', JSON.stringify(newConfig));
                       }}
                       className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
@@ -2443,8 +2455,10 @@ ${htmlText.substring(0, 30000)}
                     <select 
                       value={schoolConfig.currentClass}
                       onChange={(e) => {
-                        const newConfig = { ...schoolConfig, currentClass: Number(e.target.value) };
+                        const newVal = Number(e.target.value);
+                        const newConfig = { ...schoolConfig, currentClass: newVal };
                         setSchoolConfig(newConfig);
+                        setAdminSelectedClass(newVal);
                         localStorage.setItem('school_config', JSON.stringify(newConfig));
                       }}
                       className="flex-1 bg-[#111a15] text-white text-xs px-2 py-2.5 rounded-xl border border-emerald-700/50 outline-none focus:border-emerald-400 cursor-pointer text-center"
@@ -2590,8 +2604,10 @@ ${htmlText.substring(0, 30000)}
               <select 
                 value={schoolConfig.currentGrade}
                 onChange={(e) => {
-                  const newConfig = { ...schoolConfig, currentGrade: Number(e.target.value) };
+                  const newVal = Number(e.target.value);
+                  const newConfig = { ...schoolConfig, currentGrade: newVal };
                   setSchoolConfig(newConfig);
+                  setAdminSelectedGrade(newVal);
                   try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
                 }}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
@@ -2605,8 +2621,10 @@ ${htmlText.substring(0, 30000)}
               <select 
                 value={schoolConfig.currentClass}
                 onChange={(e) => {
-                  const newConfig = { ...schoolConfig, currentClass: Number(e.target.value) };
+                  const newVal = Number(e.target.value);
+                  const newConfig = { ...schoolConfig, currentClass: newVal };
                   setSchoolConfig(newConfig);
+                  setAdminSelectedClass(newVal);
                   try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
                 }}
                 className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
@@ -2939,7 +2957,7 @@ ${htmlText.substring(0, 30000)}
             
             <div className="space-y-3">
               {[1, 2, 3, 4, 5, 6, 7].map(period => {
-                const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                const todayKey = `${adminSelectedGrade}-${adminSelectedClass}`;
                 const subjectVal = classTimetables[todayKey]?.[remoteDayOfWeek]?.[period]
                   || classTimetables[todayKey]?.['1']?.[period];
                 const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
@@ -2949,11 +2967,15 @@ ${htmlText.substring(0, 30000)}
                 const detail = rawDetail || { location: '', memo: '' };
                 
                 const handleUpdate = (newLoc: string, newMemo: string) => {
+                  // 💡 반 이동 버그 수정: 현재 상태를 참조하도록 수정
+                  const todayKey = `${adminSelectedGrade}-${adminSelectedClass}`;
+                  const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
+                  
                   const newDetails = { 
                     ...timetableDetails, 
                     [detailKey]: { location: newLoc, memo: newMemo }
                   };
-                  delete newDetails[`${todayKey}-${period}`];
+                  // delete newDetails[`${todayKey}-${period}`]; // 불필요한 삭제 방지
                   setTimetableDetails(newDetails);
                   try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
                   syncGlobalData({ timetableDetails: newDetails });
@@ -2995,7 +3017,7 @@ ${htmlText.substring(0, 30000)}
               <button 
                 onClick={() => {
                   const newDetails = { ...timetableDetails };
-                  const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                  const todayKey = `${adminSelectedGrade}-${adminSelectedClass}`;
                   [1, 2, 3, 4, 5, 6, 7].forEach(period => {
                     const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                     delete newDetails[detailKey];
@@ -4794,13 +4816,15 @@ ${htmlText.substring(0, 30000)}
               const pColor = currentAnnouncementColor || 'rose';
               const popupStyles = getPopupTheme(pColor);
 
+              const isClassTime = getScheduleProgress().type === 'class';
+
               return (
             <motion.div 
               initial={{ opacity: 0, scale: 0.8, y: -60 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.8, y: 60 }}
               transition={{ type: "spring", damping: 15, stiffness: 200 }}
-              className="relative w-full max-w-4xl border-[6px] rounded-[2rem] p-12 flex flex-col items-center text-center overflow-hidden" 
+              className={`relative w-full border-[6px] rounded-[2rem] flex flex-col items-center text-center overflow-hidden ${isClassTime ? 'max-w-sm p-6' : 'max-w-4xl p-12'}`}
               style={{ backgroundColor: popupStyles.bgDark, borderColor: popupStyles.hex, boxShadow: `0 20px 80px ${popupStyles.shadow}, inset 0 4px 20px #ffffff, inset 0 -8px 30px ${popupStyles.shadow}` }}
               onClick={(e: any) => e.stopPropagation()}
             >

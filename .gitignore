@@ -11,4 +11,6 @@ dist_office/
 dist_electron/
 dist_installer/
 *.exe
-dist/
+data/
+*.bak
+select_block*.txt
