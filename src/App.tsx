@@ -3035,9 +3035,9 @@ ${htmlText.substring(0, 30000)}
 
                     return (
                       <div key={period} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-[#111] p-2.5 px-3 rounded-xl border border-white/5 relative z-0">
-                        <div className="flex items-center gap-2 w-full sm:w-32 shrink-0">
-                          <span className="text-amber-500 font-black text-xs w-9">{period}교시</span>
-                          <span className={`text-xs font-bold truncate ${displaySubject === '과목 미지정' ? 'text-slate-500' : 'text-white'}`}>{displaySubject}</span>
+                        <div className="flex items-center gap-2 w-full sm:w-44 shrink-0">
+                          <span className="text-amber-500 font-black text-xs w-9 shrink-0">{period}교시</span>
+                          <span className={`text-xs font-bold break-keep leading-tight ${displaySubject === '과목 미지정' ? 'text-slate-500' : 'text-white'}`} title={displaySubject}>{displaySubject}</span>
                         </div>
                         <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 relative z-0">
                           <TimetableInputItem
@@ -3113,53 +3113,53 @@ ${htmlText.substring(0, 30000)}
                 <p className="text-xs text-slate-400 break-keep">
                   단축수업 등 오늘 하루 특별한 일과가 있다면 여기서 시간을 변경할 수 있습니다. 변경 시 즉시 모든 전자칠판에 반영됩니다.
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                     const sch = dailySchedule?.[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
                     return (
-                      <div key={p} className="bg-[#111] px-3 py-2.5 rounded-xl border border-white/5 flex items-center justify-between gap-1.5">
-                        <span className="text-xs font-bold text-blue-400 shrink-0">{p}교시</span>
-                        <div className="flex items-center gap-0.5 text-xs">
+                      <div key={p} className="bg-[#111] px-4 py-3 rounded-xl border border-white/10 flex items-center justify-between gap-2 overflow-hidden">
+                        <span className="text-xs font-bold text-blue-400 shrink-0 w-12">{p}교시</span>
+                        <div className="flex items-center gap-1.5 text-xs">
                           <select 
                             value={sch.startH}
                             onChange={(e) => {
                               const newSchedule = {...dailySchedule, [p]: {...sch, startH: e.target.value}};
                               setDailySchedule(newSchedule);
                             }}
-                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                            className="bg-[#1a1a1a] text-white border border-blue-900/50 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                           >
                             {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
                           </select>
-                          <span>:</span>
+                          <span className="text-slate-400 font-bold">:</span>
                           <select 
                             value={sch.startM}
                             onChange={(e) => {
                               const newSchedule = {...dailySchedule, [p]: {...sch, startM: e.target.value}};
                               setDailySchedule(newSchedule);
                             }}
-                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                            className="bg-[#1a1a1a] text-white border border-blue-900/50 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                           >
                             {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
                           </select>
-                          <span className="text-blue-600 mx-0.5">~</span>
+                          <span className="text-blue-500 font-bold mx-1">~</span>
                           <select 
                             value={sch.endH}
                             onChange={(e) => {
                               const newSchedule = {...dailySchedule, [p]: {...sch, endH: e.target.value}};
                               setDailySchedule(newSchedule);
                             }}
-                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                            className="bg-[#1a1a1a] text-white border border-blue-900/50 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                           >
                             {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
                           </select>
-                          <span>:</span>
+                          <span className="text-slate-400 font-bold">:</span>
                           <select 
                             value={sch.endM}
                             onChange={(e) => {
                               const newSchedule = {...dailySchedule, [p]: {...sch, endM: e.target.value}};
                               setDailySchedule(newSchedule);
                             }}
-                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                            className="bg-[#1a1a1a] text-white border border-blue-900/50 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                           >
                             {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
                           </select>
@@ -3947,41 +3947,41 @@ ${htmlText.substring(0, 30000)}
                 
                 <div className="space-y-2.5">
                   <label className="text-xs text-amber-300 font-bold block">교시별 일과시간 설정 (학교 전체 공통)</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                       const sch = tempDailySchedule[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
                       return (
-                        <div key={p} className="bg-[#111a15] px-3 py-2.5 rounded-xl border border-emerald-900 flex items-center justify-between gap-1.5">
-                          <span className="text-xs font-bold text-emerald-400 shrink-0">{p}교시</span>
-                          <div className="flex items-center gap-0.5 text-xs">
+                        <div key={p} className="bg-[#111a15] px-4 py-3 rounded-xl border border-emerald-900 flex items-center justify-between gap-2 overflow-hidden">
+                          <span className="text-xs font-bold text-emerald-400 shrink-0 w-12">{p}교시</span>
+                          <div className="flex items-center gap-1.5 text-xs">
                             <select 
                               value={sch.startH}
                               onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, startH: e.target.value}})}
-                              className="bg-transparent text-white border-b border-emerald-700 py-0.5 outline-none"
+                              className="bg-[#162d22] text-white border border-emerald-800 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                             >
                               {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
                             </select>
-                            <span>:</span>
+                            <span className="text-slate-400 font-bold">:</span>
                             <select 
                               value={sch.startM}
                               onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, startM: e.target.value}})}
-                              className="bg-transparent text-white border-b border-emerald-700 py-0.5 outline-none"
+                              className="bg-[#162d22] text-white border border-emerald-800 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                             >
                               {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
                             </select>
-                            <span className="text-emerald-600 mx-0.5">~</span>
+                            <span className="text-emerald-500 font-bold mx-1">~</span>
                             <select 
                               value={sch.endH}
                               onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, endH: e.target.value}})}
-                              className="bg-transparent text-white border-b border-emerald-700 py-0.5 outline-none"
+                              className="bg-[#162d22] text-white border border-emerald-800 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                             >
                               {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
                             </select>
-                            <span>:</span>
+                            <span className="text-slate-400 font-bold">:</span>
                             <select 
                               value={sch.endM}
                               onChange={(e) => setTempDailySchedule({...tempDailySchedule, [p]: {...sch, endM: e.target.value}})}
-                              className="bg-transparent text-white border-b border-emerald-700 py-0.5 outline-none"
+                              className="bg-[#162d22] text-white border border-emerald-800 rounded-lg px-1.5 py-1 outline-none cursor-pointer"
                             >
                               {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
                             </select>
@@ -3994,11 +3994,11 @@ ${htmlText.substring(0, 30000)}
 
                 <div className="pt-4 border-t border-emerald-900/40 space-y-4">
                   {/* 오늘 표시 요일 강제 변경 (특수 시간표 운영) */}
-                  <div className="flex flex-col gap-2 p-3.5 bg-[#111a15] border border-amber-900/60 rounded-2xl">
-                    <label className="text-xs text-amber-300 font-bold flex items-center gap-1.5">
-                      <Calendar size={14} /> 특수 시간표 운영 (오늘 다른 요일 시간표로 전자칠판 표시)
-                    </label>
-                    <div className="flex gap-1.5 flex-wrap">
+                  <div className="flex flex-col gap-2.5 p-3.5 bg-[#111a15] border border-amber-900/60 rounded-2xl">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <label className="text-xs text-amber-300 font-bold flex items-center gap-1.5 break-keep">
+                        <Calendar size={14} className="shrink-0" /> 특수 시간표 운영 (오늘 다른 요일 시간표로 전자칠판 표시)
+                      </label>
                       <button
                         type="button"
                         onClick={() => {
@@ -4011,10 +4011,12 @@ ${htmlText.substring(0, 30000)}
                           try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
                           syncGlobalData({ schoolConfig: updated });
                         }}
-                        className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${!adminDisplayDayOverride ? 'bg-emerald-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
+                        className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap ${!adminDisplayDayOverride ? 'bg-emerald-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white border border-emerald-900/60'}`}
                       >
                         실제 오늘 요일 따름 (기본)
                       </button>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                       {['1', '2', '3', '4', '5'].map((d) => {
                         const label = ['월', '화', '수', '목', '금'][Number(d) - 1];
                         const isSelected = adminDisplayDayOverride === d;
@@ -4030,7 +4032,7 @@ ${htmlText.substring(0, 30000)}
                               try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
                               syncGlobalData({ schoolConfig: updated });
                             }}
-                            className={`flex-1 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${isSelected ? 'bg-amber-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
+                            className={`py-2 px-2 text-xs font-bold rounded-xl transition-all cursor-pointer whitespace-nowrap text-center ${isSelected ? 'bg-amber-600 text-white shadow' : 'bg-[#162d22] text-slate-400 hover:text-white'}`}
                           >
                             오늘 {label}요일로 고정
                           </button>
@@ -4114,23 +4116,24 @@ ${htmlText.substring(0, 30000)}
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-7 gap-2 pt-2 border-t border-emerald-900/40">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-emerald-900/40">
                       {[1, 2, 3, 4, 5, 6, 7].map((p) => {
                         const currentMap = tempClassTimetables[`${editTargetGrade}-${editTargetClass}`] || {};
                         const currentDayObj = currentMap[adminTimetableDay] || {};
                         return (
                           <div key={p} className="flex flex-col gap-1">
-                            <span className="text-[10px] text-center text-emerald-500 font-bold">{p}교시</span>
+                            <span className="text-[11px] text-center text-emerald-400 font-bold">{p}교시</span>
                             <input 
                               type="text" 
                               value={currentDayObj[p] || ''}
+                              title={currentDayObj[p] || ''}
                               onChange={(e) => {
                                 const newMap = { ...currentMap };
                                 newMap[adminTimetableDay] = { ...currentDayObj, [p]: e.target.value };
                                 setTempClassTimetables({ ...tempClassTimetables, [`${editTargetGrade}-${editTargetClass}`]: newMap });
                               }}
-                              className="w-full text-center px-1 py-2 bg-[#162d22] border border-emerald-800 rounded-lg text-xs text-white focus:border-amber-400 outline-none"
-                              placeholder="과목"
+                              className="w-full text-center px-2.5 py-2.5 bg-[#162d22] border border-emerald-800 rounded-xl text-xs font-bold text-white focus:border-amber-400 outline-none"
+                              placeholder="과목 입력"
                             />
                           </div>
                         );
