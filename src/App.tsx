@@ -596,7 +596,7 @@ export default function App() {
   const [customAnnouncement, setCustomAnnouncement] = useState<string>('');
   const [isGlobalSend, setIsGlobalSend] = useState<boolean>(false);
   const [globalTargetGrades, setGlobalTargetGrades] = useState<number[]>([]);
-  const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(true);
+  const [isForcePopupSend, setIsForcePopupSend] = useState<boolean>(false);
   const [selectedPopupColor, setSelectedPopupColor] = useState<'rose' | 'blue' | 'emerald' | 'amber' | 'purple'>('rose');
   const [remoteDayOfWeek, setRemoteDayOfWeek] = useState<string>(() => {
     const d = new Date().getDay();
@@ -2303,6 +2303,7 @@ ${htmlText.substring(0, 30000)}
 
     syncAnnouncement(targetPath, payload);
     setIsGlobalSend(false);
+    setIsForcePopupSend(false);
   };
 
   const renderGlobalGradeSelector = () => {
@@ -2347,6 +2348,13 @@ ${htmlText.substring(0, 30000)}
     const actualMessage = selectedCallMessage === '직접 입력' ? customAnnouncement.trim() : selectedCallMessage;
     if (!actualMessage) return;
 
+    if (isForcePopupSend) {
+      const isConfirmed = window.confirm(
+        "⚠️ [수업 중 즉시 강제 팝업 확인]\n\n'수업 중 즉시 강제 팝업'이 켜져 있습니다.\n수업 진행 중인 교실의 전자칠판 화면을 즉시 가리고 팝업이 뜨게 됩니다.\n\n정말로 지금 바로 강제 팝업으로 전송하시겠습니까?"
+      );
+      if (!isConfirmed) return;
+    }
+
     const targetStr = selectedStudent.length > 0 ? selectedStudent.join(', ') : '학급 전체';
     const teacherStr = teacherName.trim() ? `\n(${teacherName.trim()} 선생님 호출)` : '';
     const finalMsg = `[대상: ${targetStr}]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
@@ -2355,6 +2363,14 @@ ${htmlText.substring(0, 30000)}
 
   const handleSendClassAnnouncement = () => {
     if (!customAnnouncement.trim()) return;
+
+    if (isForcePopupSend) {
+      const isConfirmed = window.confirm(
+        "⚠️ [수업 중 즉시 강제 팝업 확인]\n\n'수업 중 즉시 강제 팝업'이 켜져 있습니다.\n수업 진행 중인 교실의 전자칠판 화면을 즉시 가리고 팝업이 뜨게 됩니다.\n\n정말로 지금 바로 강제 팝업으로 전송하시겠습니까?"
+      );
+      if (!isConfirmed) return;
+    }
+
     sendFirebaseMessage(customAnnouncement.trim(), isGlobalSend);
   };
 
