@@ -500,12 +500,22 @@ export default function App() {
       const saved = localStorage.getItem('timetable_details');
       if (saved) {
         const parsed = JSON.parse(saved);
+        const todayKeyStr = getTodayDateKey();
         const valid: Record<string, { location: string, memo: string, date?: string }> = {};
+        let hasExpired = false;
         Object.entries(parsed).forEach(([key, val]: [string, any]) => {
+          if (key === '_updatedAt') return;
           if (val && typeof val === 'object' && (val.location || val.memo)) {
-            valid[key] = val;
+            if (val.date === todayKeyStr) {
+              valid[key] = val;
+            } else {
+              hasExpired = true;
+            }
           }
         });
+        if (hasExpired) {
+          try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
+        }
         return valid;
       }
     } catch(e) {}
@@ -680,20 +690,32 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  const lastActiveDateRef = useRef<string>(getTodayDateKey());
+  const lastActiveDateRef = useRef<string>(localStorage.getItem('last_active_date') || getTodayDateKey());
 
-  // 💡 [매일 자동 초기화] 자정(00시)이 지나거나 새 날짜가 되었을 때 메모장 및 과거 데이터 자동 청소
+  // 💡 [매일 자동 초기화] 자정(00시/24:00)이 지나거나 새 날짜가 되었을 때 각 반 메모장 및 과거 데이터 자동 청소
   useEffect(() => {
     const today = getTodayDateKey(currentTime);
+    try {
+      if (!localStorage.getItem('last_active_date')) {
+        localStorage.setItem('last_active_date', today);
+      }
+    } catch(e) {}
+
     if (lastActiveDateRef.current !== today) {
-      console.log(`[매일 자동 초기화] 날짜가 ${lastActiveDateRef.current}에서 ${today}로 변경되어 메모장 및 이전 호출 내역을 초기화합니다.`);
+      console.log(`[매일 자동 초기화] 날짜가 ${lastActiveDateRef.current}에서 ${today}로 변경되어 모든 학급 시간표 메모 및 이전 호출 내역을 초기화합니다.`);
       lastActiveDateRef.current = today;
+      try { localStorage.setItem('last_active_date', today); } catch(e) {}
 
       // 1. 어제 보낸 호출/전달사항 및 알림 대기열 초기화
       setAnnouncement('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
       setIsPopupOpen(false);
       setPendingAnnouncements([]);
       try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
+
+      // 2. 각 반 시간표 이동수업 장소 및 알림 메모(timetableDetails) 전체 초기화
+      setTimetableDetails({});
+      try { localStorage.removeItem('timetable_details'); } catch(e) {}
+      syncGlobalData({ timetableDetails: {} });
     }
   }, [currentTime, db]);
 
@@ -767,14 +789,36 @@ export default function App() {
       } catch(e) {}
     }
     if (data.timetableDetails) {
+      const todayKeyStr = getTodayDateKey();
       const valid: Record<string, { location: string; memo: string; date?: string }> = {};
+      let hasExpiredInSync = false;
       Object.entries(data.timetableDetails).forEach(([k, v]: [string, any]) => {
+        if (k === '_updatedAt') return;
         if (v && typeof v === 'object' && (v.location || v.memo)) {
-          valid[k] = v;
+          if (v.date === todayKeyStr) {
+            valid[k] = v;
+          } else {
+            hasExpiredInSync = true;
+          }
         }
       });
       setTimetableDetails(valid);
       try { localStorage.setItem('timetable_details', JSON.stringify(valid)); } catch(e) {}
+
+      // 💡 서버나 Firebase에 지난 날짜(또는 날짜 미기재)의 잔여 메모가 남아있다면 즉시 정리하여 재부활 방지
+      if (hasExpiredInSync) {
+        const cleanedPayload = { timetableDetails: { ...valid, _updatedAt: Date.now() } };
+        fetch('/api/sync/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify(cleanedPayload)
+        }).catch(() => {});
+        if (db) {
+          import("firebase/database").then(({ ref: dbRef, update: dbUpdate }) => {
+            dbUpdate(dbRef(db, 'globalData'), cleanedPayload).catch(() => {});
+          }).catch(() => {});
+        }
+      }
     }
     if (data.meals) {
       setMeals(data.meals);
@@ -3035,13 +3079,13 @@ ${htmlText.substring(0, 30000)}
                 const detail = rawDetail || { location: '', memo: '' };
                 
                 const handleUpdate = (newLoc: string, newMemo: string) => {
-                  // 💡 반 이동 버그 수정: 현재 상태를 참조하도록 수정
+                  // 💡 반 이동 버그 수정: 현재 상태를 참조하도록 수정 + 오늘 날짜(date) 기록으로 자정 자동 만료 보장
                   const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
                   const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
                   
                   const newDetails = { 
                     ...timetableDetails, 
-                    [detailKey]: { location: newLoc, memo: newMemo }
+                    [detailKey]: { location: newLoc, memo: newMemo, date: getTodayDateKey() }
                   };
                   // delete newDetails[`${todayKey}-${period}`]; // 불필요한 삭제 방지
                   setTimetableDetails(newDetails);
