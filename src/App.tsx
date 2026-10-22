@@ -2664,9 +2664,9 @@ ${htmlText.substring(0, 30000)}
   if (viewMode === 'remote') {
     return (
       <div className="h-screen w-full bg-[#111111] text-white flex flex-col select-none overflow-y-auto" style={{ WebkitAppRegion: "drag" } as any}>
-        <header className="h-16 px-6 bg-[#161616] border-b border-white/10 flex items-center justify-between shrink-0">
+        <header className="h-16 px-6 lg:px-10 bg-[#161616] border-b border-white/10 flex items-center justify-between shrink-0 sticky top-0 z-30">
           <div className="flex items-center gap-3">
-            <button onClick={handleGoHome} style={{ WebkitAppRegion: "no-drag" } as any} className="p-2 rounded-xl bg-white/10 text-emerald-300 hover:bg-white/20 cursor-pointer flex items-center gap-1 text-xs font-bold" title="홈 화면으로 이동 및 고정 해제">
+            <button onClick={handleGoHome} style={{ WebkitAppRegion: "no-drag" } as any} className="p-2 px-3 rounded-xl bg-white/10 text-emerald-300 hover:bg-white/20 cursor-pointer flex items-center gap-1.5 text-xs font-bold border border-white/10" title="홈 화면으로 이동 및 고정 해제">
               <ArrowLeft size={16} /> 홈으로 (고정 해제)
             </button>
             <h1 className="text-lg font-bold text-amber-400 flex items-center gap-2">
@@ -2708,448 +2708,470 @@ ${htmlText.substring(0, 30000)}
         </header>
         {renderScheduleProgressBar()}
 
-        <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-8 pb-12" style={{ WebkitAppRegion: "no-drag" } as any}>
+        <main className="flex-1 w-full max-w-[1760px] mx-auto px-6 lg:px-10 py-6 pb-16 space-y-6" style={{ WebkitAppRegion: "no-drag" } as any}>
           
-          <section className="grid grid-cols-2 gap-4">
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider">학년</label>
-              <select 
-                value={schoolConfig.currentGrade}
-                onChange={(e) => {
-                  const newVal = Number(e.target.value);
-                  const newConfig = { ...schoolConfig, currentGrade: newVal };
-                  setSchoolConfig(newConfig);
-                  try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
-                  syncGlobalData({ schoolConfig: newConfig });
-                }}
-                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
-              >
-                {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
-              </select>
+          {/* 상단 통합 제어 바: 학년/반 선택 + 팝업 표시 유지 시간 */}
+          <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-stretch">
+            <div className="lg:col-span-5 grid grid-cols-2 gap-3 bg-[#1a1a1a] border border-white/10 rounded-2xl p-3.5">
+              <div className="flex items-center gap-2.5">
+                <label className="text-xs font-bold text-slate-400 whitespace-nowrap pl-1">대상 학년</label>
+                <select 
+                  value={schoolConfig.currentGrade}
+                  onChange={(e) => {
+                    const newVal = Number(e.target.value);
+                    const newConfig = { ...schoolConfig, currentGrade: newVal };
+                    setSchoolConfig(newConfig);
+                    try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                    syncGlobalData({ schoolConfig: newConfig });
+                  }}
+                  className="flex-1 bg-[#111] border border-white/20 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none focus:border-amber-400 cursor-pointer"
+                >
+                  {Array.from({ length: schoolConfig.schoolLevel === 'elementary' ? 6 : 3 }, (_, i) => i + 1).map(g => <option key={g} value={g}>{g}학년</option>)}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <label className="text-xs font-bold text-slate-400 whitespace-nowrap">대상 반</label>
+                <select 
+                  value={schoolConfig.currentClass}
+                  onChange={(e) => {
+                    const newVal = Number(e.target.value);
+                    const newConfig = { ...schoolConfig, currentClass: newVal };
+                    setSchoolConfig(newConfig);
+                    try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                    syncGlobalData({ schoolConfig: newConfig });
+                  }}
+                  className="flex-1 bg-[#111] border border-white/20 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none focus:border-amber-400 cursor-pointer"
+                >
+                  {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
+                </select>
+              </div>
             </div>
 
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 space-y-2">
-              <label className="text-[11px] font-bold text-slate-400 tracking-wider">반</label>
-              <select 
-                value={schoolConfig.currentClass}
-                onChange={(e) => {
-                  const newVal = Number(e.target.value);
-                  const newConfig = { ...schoolConfig, currentClass: newVal };
-                  setSchoolConfig(newConfig);
-                  try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
-                  syncGlobalData({ schoolConfig: newConfig });
-                }}
-                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
-              >
-                {Array.from({ length: schoolConfig.gradeCounts[schoolConfig.currentGrade as any] || 8 }, (_, i) => i + 1).map(c => <option key={c} value={c}>{c}반</option>)}
-              </select>
-            </div>
-          </section>
-
-          <section className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Clock size={16} className="text-amber-400" />
-              <span className="text-xs font-bold text-slate-300">
-                {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 화면 표시 유지 시간:
-              </span>
-              <span className="text-xs font-mono font-black text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2 py-0.5 rounded">
-                {classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`] !== undefined 
-                  ? `${classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`]}초` 
-                  : `${schoolConfig.popupTimeout || 60}초 (기본)`}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {[15, 30, 60, 90, 120].map(sec => {
-                const curVal = classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`] !== undefined
-                  ? classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`]
-                  : (schoolConfig.popupTimeout || 60);
-                const isSelected = curVal === sec;
-                return (
-                  <button
-                    key={sec}
-                    type="button"
-                    onClick={() => {
-                      const key = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-                      const newTimeouts = { ...classPopupTimeouts, [key]: sec };
-                      setClassPopupTimeouts(newTimeouts);
-                      try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newTimeouts)); } catch(e) {}
-                      syncGlobalData({ classPopupTimeouts: newTimeouts });
-                    }}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow-md font-black' : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'}`}
-                  >
-                    {sec}초
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-400 tracking-wider">학생 선택 ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 학생 명렬 - 총 {currentStudents.length}명)</label>
-              <span className="text-xs text-amber-400 font-bold">{selectedStudent.length > 0 ? selectedStudent.join(', ') : '전체 선택됨'} <span className="text-slate-400 ml-1 font-normal">(다중 선택 가능)</span></span>
-            </div>
-            
-            {currentStudents.length > 0 ? (
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-3 overflow-y-visible pr-1">
-                {currentStudents.map((stu, i) => {
-                  const isSelected = selectedStudent.includes(stu);
+            <div className="lg:col-span-7 bg-[#1a1a1a] border border-white/10 rounded-2xl p-3.5 px-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Clock size={16} className="text-amber-400 shrink-0" />
+                <span className="text-xs font-bold text-slate-300">
+                  {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 팝업 유지 시간:
+                </span>
+                <span className="text-xs font-mono font-black text-amber-400 bg-amber-950/60 border border-amber-800/60 px-2.5 py-0.5 rounded-lg">
+                  {classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`] !== undefined 
+                    ? `${classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`]}초` 
+                    : `${schoolConfig.popupTimeout || 60}초 (기본)`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[15, 30, 60, 90, 120].map(sec => {
+                  const curVal = classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`] !== undefined
+                    ? classPopupTimeouts[`${schoolConfig.currentGrade}-${schoolConfig.currentClass}`]
+                    : (schoolConfig.popupTimeout || 60);
+                  const isSelected = curVal === sec;
                   return (
                     <button
+                      key={sec}
                       type="button"
-                      key={i}
-                      onClick={() => setSelectedStudent(prev => prev.includes(stu) ? prev.filter(s => s !== stu) : [...prev, stu])}
-                      className={`py-3 px-2 rounded-2xl text-xs font-bold transition-all border cursor-pointer truncate ${isSelected ? 'bg-rose-600 text-white border-rose-500 shadow-lg scale-105' : 'bg-[#222] text-slate-300 border-white/10 hover:bg-[#2a2a2a]'}`}
+                      onClick={() => {
+                        const key = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                        const newTimeouts = { ...classPopupTimeouts, [key]: sec };
+                        setClassPopupTimeouts(newTimeouts);
+                        try { localStorage.setItem('class_popup_timeouts', JSON.stringify(newTimeouts)); } catch(e) {}
+                        syncGlobalData({ classPopupTimeouts: newTimeouts });
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow-md font-black' : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'}`}
                     >
-                      {stu}
+                      {sec}초
                     </button>
                   );
                 })}
               </div>
-            ) : (
-              <div className="text-center py-8 text-sm text-slate-500 bg-[#111] rounded-2xl border border-white/5">등록된 학생이 없습니다. 관리자 모드에서 설정해주세요.</div>
-            )}
+            </div>
           </section>
 
-          <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3">
-            <label className="text-xs font-bold text-slate-400 tracking-wider">호출 메시지</label>
-                        <div className="space-y-2">
-              {[...customCallPresets, '직접 입력'].map((msg) => {
-                const isSelected = selectedCallMessage === msg;
-                return (
-                  <div
-                    key={msg}
-                    onClick={() => setSelectedCallMessage(msg)}
-                    className={`w-full p-4 rounded-2xl text-sm font-bold border transition-all cursor-pointer flex items-center justify-between ${isSelected ? 'bg-[#251515] border-rose-500 text-rose-400 shadow-md' : 'bg-[#161616] border-white/10 text-slate-300 hover:bg-[#222]'}`}
-                  >
-                    {msg}
-                    {isSelected && <CheckCircle2 size={18} className="text-rose-400" />}
+          {/* 메인 2단 대시보드 그리드 */}
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+            
+            {/* ================= 좌측 컬럼: 학생 선택 + 스마트 리모컨 호출 전송 ================= */}
+            <div className="xl:col-span-6 space-y-6">
+              
+              <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-xs font-bold text-slate-300 tracking-wider flex items-center gap-2">
+                    👥 학생 선택 ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 명렬 - 총 {currentStudents.length}명)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-amber-400 font-bold">
+                      {selectedStudent.length > 0 ? `${selectedStudent.length}명 선택됨 (${selectedStudent.join(', ')})` : '학급 전체 대상'}
+                    </span>
+                    {selectedStudent.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudent([])}
+                        className="text-[11px] px-2 py-0.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/60 font-bold cursor-pointer"
+                      >
+                        선택 해제
+                      </button>
+                    )}
                   </div>
-                );
-              })}
-              {selectedCallMessage === '직접 입력' && (
-                <textarea
+                </div>
+                
+                {currentStudents.length > 0 ? (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2.5 overflow-y-visible">
+                    {currentStudents.map((stu, i) => {
+                      const isSelected = selectedStudent.includes(stu);
+                      return (
+                        <button
+                          type="button"
+                          key={i}
+                          onClick={() => setSelectedStudent(prev => prev.includes(stu) ? prev.filter(s => s !== stu) : [...prev, stu])}
+                          className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all border cursor-pointer truncate ${isSelected ? 'bg-rose-600 text-white border-rose-500 shadow-lg scale-[1.03]' : 'bg-[#222] text-slate-300 border-white/10 hover:bg-[#2a2a2a]'}`}
+                        >
+                          {stu}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-sm text-slate-500 bg-[#111] rounded-2xl border border-white/5">등록된 학생이 없습니다. 관리자 모드에서 설정해주세요.</div>
+                )}
+              </section>
+
+              <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-5">
+                <div className="space-y-2.5">
+                  <label className="text-xs font-bold text-slate-300 tracking-wider block">📢 호출 메시지 선택</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {[...customCallPresets, '직접 입력'].map((msg) => {
+                      const isSelected = selectedCallMessage === msg;
+                      return (
+                        <div
+                          key={msg}
+                          onClick={() => setSelectedCallMessage(msg)}
+                          className={`w-full p-3.5 rounded-2xl text-xs sm:text-sm font-bold border transition-all cursor-pointer flex items-center justify-between gap-2 ${isSelected ? 'bg-[#251515] border-rose-500 text-rose-400 shadow-md' : 'bg-[#161616] border-white/10 text-slate-300 hover:bg-[#222]'}`}
+                        >
+                          <span className="truncate">{msg}</span>
+                          {isSelected && <CheckCircle2 size={16} className="text-rose-400 shrink-0" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {selectedCallMessage === '직접 입력' && (
+                    <textarea
+                      value={customAnnouncement}
+                      onChange={e => setCustomAnnouncement(e.target.value)}
+                      placeholder="직접 전달할 메시지를 자유롭게 입력하세요... (줄바꿈 지원)"
+                      className="w-full h-28 bg-[#111] border border-rose-900/50 rounded-xl p-3.5 text-sm font-bold text-white outline-none focus:border-rose-500 resize-none mt-2 leading-relaxed"
+                    />
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-white/10">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400 tracking-wider">호출 장소</label>
+                    <input 
+                      type="text" 
+                      value={locationName}
+                      onChange={e => setLocationName(e.target.value)}
+                      placeholder="예: 본교무실"
+                      className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-slate-400 tracking-wider">호출 교사</label>
+                    <input 
+                      type="text" 
+                      value={teacherName}
+                      onChange={e => setTeacherName(e.target.value)}
+                      placeholder="예: 홍길동"
+                      className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+
+                <form onSubmit={handleSendSmartCall} className="pt-2 border-t border-white/10 space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-amber-400 bg-amber-950/40 px-3 py-1.5 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
+                      <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
+                      <span className="text-xs font-bold flex items-center gap-1">⚡ 수업 중 즉시 강제 팝업 (대기열 무시)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-rose-400 bg-rose-950/40 px-3 py-1.5 rounded-xl border border-rose-500/30 hover:bg-rose-900/40 transition-colors">
+                      <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-rose-500 cursor-pointer" />
+                      <span className="text-xs font-bold">전체 교실로 전송</span>
+                    </label>
+                  </div>
+                  
+                  {renderGlobalGradeSelector()}
+
+                  {renderColorPickerWithPreview()}
+
+                  <button 
+                    type="submit"
+                    disabled={!selectedCallMessage || !locationName}
+                    className={`w-full py-4 text-white font-black rounded-2xl transition-all text-base flex items-center justify-center gap-2.5 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                      {
+                        rose: 'bg-rose-600 hover:bg-rose-500 shadow-[0_0_20px_rgba(225,29,72,0.4)]',
+                        blue: 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.4)]',
+                        emerald: 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_20px_rgba(5,150,105,0.4)]',
+                        amber: 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_20px_rgba(217,119,6,0.4)]',
+                        purple: 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_20px_rgba(147,51,234,0.4)]'
+                      }[selectedPopupColor]
+                    }`}
+                  >
+                    <Send size={20} /> 스마트 리모컨 호출 전송
+                  </button>
+                </form>
+              </section>
+
+              <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-xs font-bold text-slate-300 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 공지/호출 메시지 전송</label>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="flex items-center gap-1.5 cursor-pointer text-amber-400 bg-amber-950/40 px-2.5 py-1 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
+                      <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-3.5 h-3.5 accent-amber-500 cursor-pointer" />
+                      <span className="text-[11px] font-bold">⚡ 수업 중 강제 팝업</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-emerald-400 bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-500/30 hover:bg-emerald-900/40 transition-colors">
+                      <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer" />
+                      <span className="text-[11px] font-bold">전체 교실 전송</span>
+                    </label>
+                  </div>
+                </div>
+
+                {renderGlobalGradeSelector()}
+
+                <textarea 
                   value={customAnnouncement}
                   onChange={e => setCustomAnnouncement(e.target.value)}
-                  placeholder="직접 전달할 메시지를 자유롭게 입력하세요... (줄바꿈 지원)"
-                  className="w-full h-32 bg-[#111] border border-rose-900/50 rounded-xl p-4 text-sm font-bold text-white outline-none focus:border-rose-500 resize-none mt-4 leading-relaxed"
+                  placeholder="교실 전자칠판에 바로 띄울 자유 공지사항을 입력하세요..."
+                  className="w-full h-28 bg-[#111] border border-white/20 rounded-xl p-3.5 text-sm font-bold text-white outline-none focus:border-emerald-400 resize-none leading-relaxed"
                 />
-              )}
-            </div>
-          </section>
 
-          <section className="grid grid-cols-2 gap-4">
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3 flex flex-col justify-center">
-              <label className="text-xs font-bold text-slate-400 tracking-wider">호출 장소</label>
-              <input 
-                type="text" 
-                value={locationName}
-                onChange={e => setLocationName(e.target.value)}
-                placeholder="예: 본교무실"
-                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-4 text-sm font-bold text-white outline-none focus:border-amber-400"
-              />
-            </div>
-            
-            <div className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-3 flex flex-col justify-center">
-              <label className="text-xs font-bold text-slate-400 tracking-wider">호출 교사</label>
-              <input 
-                type="text" 
-                value={teacherName}
-                onChange={e => setTeacherName(e.target.value)}
-                placeholder="예: 홍길동"
-                className="w-full bg-[#111] border border-white/20 rounded-xl px-4 py-4 text-sm font-bold text-white outline-none focus:border-amber-400"
-              />
-            </div>
-          </section>
-
-          <form onSubmit={handleSendSmartCall} className="pt-4">
-            <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-              <label className="flex items-center gap-2 cursor-pointer text-amber-400 bg-amber-950/40 px-3 py-1.5 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
-                <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
-                <span className="text-xs font-bold flex items-center gap-1">⚡ 수업 중 즉시 강제 팝업 (대기열 무시)</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer text-rose-400 bg-rose-950/40 px-3 py-1.5 rounded-xl border border-rose-500/30 hover:bg-rose-900/40 transition-colors">
-                <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-rose-500 cursor-pointer" />
-                <span className="text-xs font-bold">전체 교실로 전송</span>
-              </label>
-            </div>
-            
-            {renderGlobalGradeSelector()}
-
-            {renderColorPickerWithPreview()}
-
-            <button 
-              type="submit"
-              disabled={!selectedCallMessage || !locationName}
-              className={`w-full py-5 text-white font-black rounded-2xl transition-all text-lg flex items-center justify-center gap-3 active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                {
-                  rose: 'bg-rose-600 hover:bg-rose-500 shadow-[0_0_20px_rgba(225,29,72,0.4)]',
-                  blue: 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_20px_rgba(37,99,235,0.4)]',
-                  emerald: 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_20px_rgba(5,150,105,0.4)]',
-                  amber: 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_20px_rgba(217,119,6,0.4)]',
-                  purple: 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_20px_rgba(147,51,234,0.4)]'
-                }[selectedPopupColor]
-              }`}
-            >
-              <Send size={24} /> 스마트 리모컨 호출 전송
-            </button>
-          </form>
-
-          <div className="my-8 flex items-center gap-4">
-            <div className="h-px bg-white/10 flex-1"></div>
-            <span className="text-xs font-bold text-slate-500 tracking-widest">OR</span>
-            <div className="h-px bg-white/10 flex-1"></div>
-          </div>
-
-          <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <label className="text-xs font-bold text-slate-400 tracking-wider flex items-center gap-2"><Edit3 size={14}/> 직접 입력 호출 메시지</label>
-              <div className="flex items-center gap-3 flex-wrap">
-                <label className="flex items-center gap-2 cursor-pointer text-amber-400 bg-amber-950/40 px-3 py-1 rounded-xl border border-amber-500/30 hover:bg-amber-900/40 transition-colors">
-                  <input type="checkbox" checked={isForcePopupSend} onChange={e => setIsForcePopupSend(e.target.checked)} className="w-4 h-4 accent-amber-500 cursor-pointer" />
-                  <span className="text-xs font-bold flex items-center gap-1">⚡ 수업 중 즉시 강제 팝업</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer text-emerald-400 bg-emerald-950/40 px-3 py-1 rounded-xl border border-emerald-500/30 hover:bg-emerald-900/40 transition-colors">
-                  <input type="checkbox" checked={isGlobalSend} onChange={e => setIsGlobalSend(e.target.checked)} className="w-4 h-4 accent-emerald-500 cursor-pointer" />
-                  <span className="text-xs font-bold">전체 교실로 전송</span>
-                </label>
-              </div>
+                <div className="flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={handleResetClassAnnouncement}
+                    className="px-5 py-3.5 bg-[#222] hover:bg-[#333] text-slate-300 font-bold rounded-xl transition-colors text-xs cursor-pointer"
+                  >
+                    초기화
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={handleSendClassAnnouncement}
+                    className={`flex-1 py-3.5 text-white font-black rounded-xl transition-all text-sm flex items-center justify-center gap-2 active:scale-95 cursor-pointer ${
+                      {
+                        rose: 'bg-rose-600 hover:bg-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.4)]',
+                        blue: 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.4)]',
+                        emerald: 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_15px_rgba(5,150,105,0.4)]',
+                        amber: 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_15px_rgba(217,119,6,0.4)]',
+                        purple: 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_15px_rgba(147,51,234,0.4)]'
+                      }[selectedPopupColor]
+                    }`}
+                  >
+                    <Send size={16} /> 메시지 직접 전송
+                  </button>
+                </div>
+              </section>
             </div>
 
-            {renderGlobalGradeSelector()}
-
-            <textarea 
-              value={customAnnouncement}
-              onChange={e => setCustomAnnouncement(e.target.value)}
-              placeholder="직접 전달할 메시지를 자유롭게 입력하세요..."
-              className="w-full h-32 bg-[#111] border border-white/20 rounded-xl p-4 text-sm font-bold text-white outline-none focus:border-emerald-400 resize-none leading-relaxed"
-            />
-            
-            {renderColorPickerWithPreview()}
-
-            <div className="flex gap-3 pt-2">
-              <button 
-                type="button"
-                onClick={handleResetClassAnnouncement}
-                className="px-6 py-4 bg-[#222] hover:bg-[#333] text-slate-300 font-bold rounded-xl transition-colors text-sm cursor-pointer"
-              >
-                초기화
-              </button>
-              <button 
-                type="button"
-                onClick={handleSendClassAnnouncement}
-                className={`flex-1 py-4 text-white font-black rounded-xl transition-all text-sm flex items-center justify-center gap-2 active:scale-95 cursor-pointer ${
-                  {
-                    rose: 'bg-rose-600 hover:bg-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.4)]',
-                    blue: 'bg-blue-600 hover:bg-blue-500 shadow-[0_0_15px_rgba(37,99,235,0.4)]',
-                    emerald: 'bg-emerald-600 hover:bg-emerald-500 shadow-[0_0_15px_rgba(5,150,105,0.4)]',
-                    amber: 'bg-amber-600 hover:bg-amber-500 shadow-[0_0_15px_rgba(217,119,6,0.4)]',
-                    purple: 'bg-purple-600 hover:bg-purple-500 shadow-[0_0_15px_rgba(147,51,234,0.4)]'
-                  }[selectedPopupColor]
-                }`}
-              >
-                <Send size={18} /> 메시지 직접 전송
-              </button>
-            </div>
-          </section>
-        
-          <section className="bg-[#1a1a1a] border border-blue-900/40 rounded-3xl p-6 space-y-4">
-            <div className="flex items-center gap-2 text-blue-400 mb-2">
-              <Clock size={18} />
-              <h2 className="font-bold text-sm">교시별 일과시간 설정 (전체 공통 적용)</h2>
-            </div>
-            <p className="text-xs text-slate-400 mb-4 break-keep">
-              단축수업 등 오늘 하루 특별한 일과가 있다면 여기서 시간을 변경할 수 있습니다. 변경 시 즉시 모든 전자칠판에 반영됩니다.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {[1, 2, 3, 4, 5, 6, 7].map((p) => {
-                const sch = dailySchedule?.[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
-                return (
-                  <div key={p} className="bg-[#111] p-3 rounded-xl border border-white/5 flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-blue-400 w-16">{p}교시</span>
+            {/* ================= 우측 컬럼: 시간표 알림장/이동수업 장소 메모 + 교시별 일과시간 설정 ================= */}
+            <div className="xl:col-span-6 space-y-6">
+              
+              <section className="bg-[#1a1a1a] border border-amber-900/40 rounded-3xl p-6 space-y-4 relative z-0">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-2 text-amber-400">
+                    <Calendar size={18} />
+                    <h2 className="font-bold text-sm">
+                      {schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 시간표 알림장 / 이동수업 메모
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-1 bg-[#111] p-1 rounded-xl border border-white/10">
+                    {[
+                      { day: '1', label: '월' },
+                      { day: '2', label: '화' },
+                      { day: '3', label: '수' },
+                      { day: '4', label: '목' },
+                      { day: '5', label: '금' },
+                    ].map(({ day, label }) => {
+                      const isSelected = remoteDayOfWeek === day;
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => setRemoteDayOfWeek(day)}
+                          className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow font-black' : 'text-slate-400 hover:text-white'}`}
+                        >
+                          {label}요일
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 break-keep">
+                  교시별 이동수업 장소와 준비물/알림 메모를 입력하면 교실 전자칠판 시간표 카드에 실시간 표시됩니다. (매일 자정 24:00 자동 초기화)
+                </p>
+                
+                <div className="space-y-2.5">
+                  {[1, 2, 3, 4, 5, 6, 7].map(period => {
+                    const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                    const subjectVal = classTimetables[todayKey]?.[remoteDayOfWeek]?.[period]
+                      || classTimetables[todayKey]?.['1']?.[period];
+                    const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
                     
-                    <div className="flex items-center gap-1">
-                      <select 
-                        value={sch.startH}
-                        onChange={(e) => {
-                          const newSchedule = {...dailySchedule, [p]: {...sch, startH: e.target.value}};
-                          setDailySchedule(newSchedule);
-                        }}
-                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
-                      >
-                        {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
-                      </select>
-                      <span>:</span>
-                      <select 
-                        value={sch.startM}
-                        onChange={(e) => {
-                          const newSchedule = {...dailySchedule, [p]: {...sch, startM: e.target.value}};
-                          setDailySchedule(newSchedule);
-                        }}
-                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
-                      >
-                        {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
-                      </select>
-                    </div>
-                    <span className="text-xs text-blue-600">-</span>
-                    <div className="flex items-center gap-1">
-                      <select 
-                        value={sch.endH}
-                        onChange={(e) => {
-                          const newSchedule = {...dailySchedule, [p]: {...sch, endH: e.target.value}};
-                          setDailySchedule(newSchedule);
-                        }}
-                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
-                      >
-                        {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
-                      </select>
-                      <span>:</span>
-                      <select 
-                        value={sch.endM}
-                        onChange={(e) => {
-                          const newSchedule = {...dailySchedule, [p]: {...sch, endM: e.target.value}};
-                          setDailySchedule(newSchedule);
-                        }}
-                        className="bg-transparent text-white border-b border-blue-900/50 text-xs py-1 outline-none"
-                      >
-                        {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button 
-                onClick={() => {
-                  try { localStorage.setItem('daily_schedule', JSON.stringify(dailySchedule)); } catch(e) {}
-                  syncGlobalData({ dailySchedule });
-                  setMemoSuccessToast(true);
-                  setTimeout(() => setMemoSuccessToast(false), 3000);
-                }}
-                className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-bold shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
-              >
-                <Send size={18} />
-                일과시간 전체 반영 (저장)
-              </button>
-            </div>
-          </section>
-
-          <section className="bg-[#1a1a1a] border border-amber-900/40 rounded-3xl p-6 space-y-4 relative z-0">
-            <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
-              <div className="flex items-center gap-2 text-amber-400">
-                <Calendar size={18} />
-                <h2 className="font-bold text-sm">시간표 알림장 / 이동수업 장소 메모 입력</h2>
-              </div>
-              <div className="flex items-center gap-1.5 bg-[#111] p-1 rounded-xl border border-white/10">
-                {[
-                  { day: '1', label: '월' },
-                  { day: '2', label: '화' },
-                  { day: '3', label: '수' },
-                  { day: '4', label: '목' },
-                  { day: '5', label: '금' },
-                ].map(({ day, label }) => {
-                  const isSelected = remoteDayOfWeek === day;
-                  return (
-                    <button
-                      key={day}
-                      type="button"
-                      onClick={() => setRemoteDayOfWeek(day)}
-                      className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${isSelected ? 'bg-amber-500 text-black shadow font-black' : 'text-slate-400 hover:text-white'}`}
-                    >
-                      {label}요일
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <p className="text-xs text-slate-400 mb-4 break-keep">
-              선택한 요일의 각 교시별 장소와 알림 메모를 입력하면 전자칠판 시간표 카드에 실시간으로 표시됩니다.
-            </p>
-            
-            <div className="space-y-3">
-              {[1, 2, 3, 4, 5, 6, 7].map(period => {
-                const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-                const subjectVal = classTimetables[todayKey]?.[remoteDayOfWeek]?.[period]
-                  || classTimetables[todayKey]?.['1']?.[period];
-                const displaySubject = (subjectVal && subjectVal !== '-') ? subjectVal : '과목 미지정';
-                
-                const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
-                const rawDetail = timetableDetails[detailKey] || timetableDetails[`${todayKey}-${period}`];
-                const detail = rawDetail || { location: '', memo: '' };
-                
-                const handleUpdate = (newLoc: string, newMemo: string) => {
-                  // 💡 반 이동 버그 수정: 현재 상태를 참조하도록 수정 + 오늘 날짜(date) 기록으로 자정 자동 만료 보장
-                  const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-                  const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
-                  
-                  const newDetails = { 
-                    ...timetableDetails, 
-                    [detailKey]: { location: newLoc, memo: newMemo, date: getTodayDateKey() }
-                  };
-                  // delete newDetails[`${todayKey}-${period}`]; // 불필요한 삭제 방지
-                  setTimetableDetails(newDetails);
-                  try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
-                  syncGlobalData({ timetableDetails: newDetails });
-                };
-
-                return (
-                  <div key={period} className="flex flex-col md:flex-row gap-3 bg-[#111] p-3 rounded-xl border border-white/5 relative z-0">
-                    <div className="flex items-center gap-2 w-full md:w-36 shrink-0">
-                      <span className="text-amber-500 font-black text-sm">{period}교시</span>
-                      <span className={`text-xs font-bold truncate ${displaySubject === '과목 미지정' ? 'text-slate-500' : 'text-white'}`}>{displaySubject}</span>
-                    </div>
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 relative z-0">
-                      <TimetableInputItem
-                        initialValue={detail.location || ''}
-                        onSave={(loc) => handleUpdate(loc, detail.memo || '')}
-                        placeholder="장소 (예: 과학실, 체육관)"
-                        icon={MapPin}
-                      />
-                      <TimetableInputItem
-                        initialValue={detail.memo || ''}
-                        onSave={(memo) => handleUpdate(detail.location || '', memo)}
-                        placeholder="공지/메모 (예: 준비물 지참, 숙제 제출)"
-                        icon={FileText}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button 
-                onClick={() => {
-                  const newDetails = { ...timetableDetails };
-                  const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
-                  [1, 2, 3, 4, 5, 6, 7].forEach(period => {
                     const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
-                    delete newDetails[detailKey];
-                    delete newDetails[`${todayKey}-${period}`];
-                  });
-                  setTimetableDetails(newDetails);
-                  try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
-                  syncGlobalData({ timetableDetails: newDetails });
-                }}
-                className="bg-[#2a2a2a] hover:bg-[#333] text-slate-300 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                <Trash2 size={18} />
-                내용 초기화
-              </button>
-              <button 
-                onClick={() => {
-                  try { localStorage.setItem('timetable_details', JSON.stringify(timetableDetails)); } catch(e) {}
-                  syncGlobalData({ timetableDetails });
-                  setMemoSuccessToast(true);
-                  setTimeout(() => setMemoSuccessToast(false), 3000);
-                }}
-                className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-3 rounded-xl font-bold shadow-[0_0_15px_rgba(217,119,6,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
-              >
-                <Send size={18} />
-                전자칠판으로 일괄 전송 (저장)
-              </button>
+                    const rawDetail = timetableDetails[detailKey] || timetableDetails[`${todayKey}-${period}`];
+                    const detail = rawDetail || { location: '', memo: '' };
+                    
+                    const handleUpdate = (newLoc: string, newMemo: string) => {
+                      const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                      const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
+                      
+                      const newDetails = { 
+                        ...timetableDetails, 
+                        [detailKey]: { location: newLoc, memo: newMemo, date: getTodayDateKey() }
+                      };
+                      setTimetableDetails(newDetails);
+                      try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
+                      syncGlobalData({ timetableDetails: newDetails });
+                    };
+
+                    return (
+                      <div key={period} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 bg-[#111] p-2.5 px-3 rounded-xl border border-white/5 relative z-0">
+                        <div className="flex items-center gap-2 w-full sm:w-32 shrink-0">
+                          <span className="text-amber-500 font-black text-xs w-9">{period}교시</span>
+                          <span className={`text-xs font-bold truncate ${displaySubject === '과목 미지정' ? 'text-slate-500' : 'text-white'}`}>{displaySubject}</span>
+                        </div>
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 relative z-0">
+                          <TimetableInputItem
+                            initialValue={detail.location || ''}
+                            onSave={(loc) => handleUpdate(loc, detail.memo || '')}
+                            placeholder="장소 (예: 과학실, 체육관)"
+                            icon={MapPin}
+                          />
+                          <TimetableInputItem
+                            initialValue={detail.memo || ''}
+                            onSave={(memo) => handleUpdate(detail.location || '', memo)}
+                            placeholder="공지/메모 (예: 준비물 지참)"
+                            icon={FileText}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="pt-2 flex justify-end gap-3">
+                  <button 
+                    onClick={() => {
+                      const newDetails = { ...timetableDetails };
+                      const todayKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                      [1, 2, 3, 4, 5, 6, 7].forEach(period => {
+                        const detailKey = `${todayKey}-${remoteDayOfWeek}-${period}`;
+                        delete newDetails[detailKey];
+                        delete newDetails[`${todayKey}-${period}`];
+                      });
+                      setTimetableDetails(newDetails);
+                      try { localStorage.setItem('timetable_details', JSON.stringify(newDetails)); } catch(e) {}
+                      syncGlobalData({ timetableDetails: newDetails });
+                    }}
+                    className="bg-[#2a2a2a] hover:bg-[#333] text-slate-300 px-5 py-3 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Trash2 size={16} />
+                    내용 초기화
+                  </button>
+                  <button 
+                    onClick={() => {
+                      try { localStorage.setItem('timetable_details', JSON.stringify(timetableDetails)); } catch(e) {}
+                      syncGlobalData({ timetableDetails });
+                      setMemoSuccessToast(true);
+                      setTimeout(() => setMemoSuccessToast(false), 3000);
+                    }}
+                    className="bg-amber-600 hover:bg-amber-500 text-white px-6 py-3 rounded-xl text-xs font-bold shadow-[0_0_15px_rgba(217,119,6,0.4)] flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Send size={16} />
+                    전자칠판으로 일괄 전송 (저장)
+                  </button>
+                </div>
+              </section>
+
+              <section className="bg-[#1a1a1a] border border-blue-900/40 rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 text-blue-400">
+                    <Clock size={18} />
+                    <h2 className="font-bold text-sm">교시별 일과시간 설정 (전체 공통 적용)</h2>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      try { localStorage.setItem('daily_schedule', JSON.stringify(dailySchedule)); } catch(e) {}
+                      syncGlobalData({ dailySchedule });
+                      setMemoSuccessToast(true);
+                      setTimeout(() => setMemoSuccessToast(false), 3000);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-[0_0_15px_rgba(37,99,235,0.4)] flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Send size={14} />
+                    일과시간 전체 반영 (저장)
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 break-keep">
+                  단축수업 등 오늘 하루 특별한 일과가 있다면 여기서 시간을 변경할 수 있습니다. 변경 시 즉시 모든 전자칠판에 반영됩니다.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {[1, 2, 3, 4, 5, 6, 7].map((p) => {
+                    const sch = dailySchedule?.[p] || { startH: '09', startM: '00', endH: '10', endM: '00' };
+                    return (
+                      <div key={p} className="bg-[#111] px-3 py-2.5 rounded-xl border border-white/5 flex items-center justify-between gap-1.5">
+                        <span className="text-xs font-bold text-blue-400 shrink-0">{p}교시</span>
+                        <div className="flex items-center gap-0.5 text-xs">
+                          <select 
+                            value={sch.startH}
+                            onChange={(e) => {
+                              const newSchedule = {...dailySchedule, [p]: {...sch, startH: e.target.value}};
+                              setDailySchedule(newSchedule);
+                            }}
+                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                          >
+                            {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
+                          </select>
+                          <span>:</span>
+                          <select 
+                            value={sch.startM}
+                            onChange={(e) => {
+                              const newSchedule = {...dailySchedule, [p]: {...sch, startM: e.target.value}};
+                              setDailySchedule(newSchedule);
+                            }}
+                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                          >
+                            {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
+                          </select>
+                          <span className="text-blue-600 mx-0.5">~</span>
+                          <select 
+                            value={sch.endH}
+                            onChange={(e) => {
+                              const newSchedule = {...dailySchedule, [p]: {...sch, endH: e.target.value}};
+                              setDailySchedule(newSchedule);
+                            }}
+                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                          >
+                            {hoursList.map(h => <option key={h} value={h} className="bg-[#111]">{h}</option>)}
+                          </select>
+                          <span>:</span>
+                          <select 
+                            value={sch.endM}
+                            onChange={(e) => {
+                              const newSchedule = {...dailySchedule, [p]: {...sch, endM: e.target.value}};
+                              setDailySchedule(newSchedule);
+                            }}
+                            className="bg-transparent text-white border-b border-blue-900/50 py-0.5 outline-none"
+                          >
+                            {minutesList.map(m => <option key={m} value={m} className="bg-[#111]">{m}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
             </div>
-          </section>
+          </div>
 
         </main>
 
