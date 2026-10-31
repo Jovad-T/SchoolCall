@@ -32,7 +32,7 @@ try {
   console.warn("Firebase 연결 실패:", e);
 }
 
-export const APP_VERSION = 'v1.3.5';
+export const APP_VERSION = 'v1.3.6';
 
 export const getTodayDateKey = (d: Date = new Date()) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -287,7 +287,7 @@ export default function App() {
   useEffect(() => {
     const checkForUpdates = async () => {
       try {
-        const response = await fetch('https://school-call-five.vercel.app/version.json?t=' + new Date().getTime());
+        const response = await fetch('https://schoolcall.pages.dev/version.json?t=' + new Date().getTime());
         const data = await response.json();
         
         const currentParts = APP_VERSION.replace('v', '').split('.').map(Number);

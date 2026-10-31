@@ -35,7 +35,7 @@ function createWindow() {
     }
   });
 
-  const REMOTE_APP_URL = 'https://school-call-five.vercel.app/#/office';
+  const REMOTE_APP_URL = 'https://schoolcall.pages.dev/#/office';
   const distIndexPath = path.join(__dirname, 'dist', 'index.html');
 
   if (process.env.NODE_ENV === 'development') {

@@ -1,8 +1,7 @@
 {
-  "latestVersion": "v1.3.5",
-  "downloadUrlClass": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.5/SchoolCallApp_Class_Setup_v1.3.5.exe",
-  "downloadUrlOffice": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.5/SchoolCallApp_Office_Setup_v1.3.5.exe",
+  "latestVersion": "v1.3.6",
+  "downloadUrlClass": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.6/SchoolCallApp_Class_Setup_v1.3.6.exe",
+  "downloadUrlOffice": "https://github.com/Jovad-T/SchoolCall/releases/download/v1.3.6/SchoolCallApp_Office_Setup_v1.3.6.exe",
   "downloadUrl": "https://github.com/Jovad-T/SchoolCall/releases/latest",
-  "releaseNotes": "전자칠판 직접 메모 입력 비활성화(학생 장난 방지), 원격 전체 교실 강제 새로고침 기능 및 실시간 동기화 안정화"
+  "releaseNotes": "배포 서버 도메인 이전(Cloudflare Pages), 원격 제어 및 전자칠판 안정화 업데이트"
 }
-

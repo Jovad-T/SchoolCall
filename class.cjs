@@ -62,7 +62,7 @@ function createWindow() {
   });
 
   const isDev = !app.isPackaged;
-  const REMOTE_APP_URL = 'https://school-call-five.vercel.app/#tv-setup';
+  const REMOTE_APP_URL = 'https://schoolcall.pages.dev/#tv-setup';
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:3000/#tv-setup');
