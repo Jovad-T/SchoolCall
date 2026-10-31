@@ -480,20 +480,27 @@ export default function App() {
     }
 
     const calculateAutoZoom = () => {
-      // 980px height is our ideal baseline target height for high-fidelity dashboards
-      const targetHeight = 980;
+      // 1920x1080 (Full HD) baseline so fullscreen and windowed modes never clip vertically or horizontally
+      const targetWidth = 1920;
+      const targetHeight = 1080;
+      const currentWidth = window.innerWidth;
       const currentHeight = window.innerHeight;
       
-      // Calculate zoom to fit viewport height perfectly, clamped between 0.6 and 1.5
-      let zoom = currentHeight / targetHeight;
-      zoom = Math.max(0.6, Math.min(1.5, zoom));
+      let zoom = Math.min(currentWidth / targetWidth, currentHeight / targetHeight);
+      zoom = Math.max(0.5, Math.min(1.5, zoom));
       setCalculatedZoom(zoom);
     };
 
     calculateAutoZoom();
+    const timer = setTimeout(calculateAutoZoom, 150);
     window.addEventListener('resize', calculateAutoZoom);
-    return () => window.removeEventListener('resize', calculateAutoZoom);
-  }, [classroomZoom]);
+    document.addEventListener('fullscreenchange', calculateAutoZoom);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', calculateAutoZoom);
+      document.removeEventListener('fullscreenchange', calculateAutoZoom);
+    };
+  }, [classroomZoom, isFullscreen]);
 
   const [timetableDetails, setTimetableDetails] = useState<Record<string, { location: string, memo: string, date?: string }>>(() => {
     try {
@@ -1294,7 +1301,7 @@ export default function App() {
     }
 
     return (
-      <div className="w-full px-8 py-3 bg-[#0d1511]/90 border-b border-white/10 flex flex-col gap-2 shrink-0 shadow-lg backdrop-blur-sm" style={{ WebkitAppRegion: 'no-drag' } as any}>
+      <div className="w-full px-6 py-2 bg-[#0d1511]/90 border-b border-white/10 flex flex-col gap-1.5 shrink-0 shadow-lg backdrop-blur-sm" style={{ WebkitAppRegion: 'no-drag' } as any}>
         <div className="flex items-center justify-between flex-wrap gap-2">
           {/* 좌측: 현재 상태 배지 및 다음 교시 안내 */}
           <div className="flex items-center gap-3">
@@ -4495,16 +4502,17 @@ ${htmlText.substring(0, 30000)}
 
   return (
     <div 
-      className={`font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
+      className={`font-sans flex flex-col select-none overflow-hidden relative shadow-2xl border-4 box-border transition-colors duration-1000 ${th.mainBg} ${th.textMain} ${th.mainBorder}`}
       style={{ 
         WebkitAppRegion: 'drag',
-        zoom: calculatedZoom,
-        height: `${100 / calculatedZoom}vh`,
-        width: `${100 / calculatedZoom}vw`
+        width: `${100 / calculatedZoom}%`,
+        height: `${100 / calculatedZoom}%`,
+        transform: `scale(${calculatedZoom})`,
+        transformOrigin: 'top left',
       } as any}
     >
       
-      <header className={`h-20 px-8 flex items-center justify-between border-b shrink-0 transition-colors duration-1000 ${th.headerBg} ${th.headerBorder}`}>
+      <header className={`h-16 px-6 flex items-center justify-between border-b shrink-0 transition-colors duration-1000 ${th.headerBg} ${th.headerBorder}`}>
         <div className="flex items-center gap-4">
           {appEnvMode !== 'class' && (
           <button 
@@ -4650,10 +4658,10 @@ ${htmlText.substring(0, 30000)}
       </header>
       {renderScheduleProgressBar()}
 
-      <main className="flex-1 p-8 grid grid-cols-12 gap-8 overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
+      <main className="flex-1 min-h-0 p-5 grid grid-cols-12 grid-rows-1 gap-6 overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
         
-        <section className={`col-span-7 flex flex-col rounded-3xl p-6 border h-full transition-colors duration-1000 ${th.sectionBg} ${th.sectionBorder}`}>
-          <div className="flex items-center justify-between mb-4 shrink-0">
+        <section className={`col-span-7 flex flex-col rounded-3xl p-5 border h-full min-h-0 overflow-hidden transition-colors duration-1000 ${th.sectionBg} ${th.sectionBorder}`}>
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <div className="flex items-center gap-2">
               <BookOpen size={20} className={th.sectionIcon} />
               <h2 className={`text-base font-bold ${th.sectionTitle}`}>오늘의 시간표</h2>
@@ -4661,7 +4669,7 @@ ${htmlText.substring(0, 30000)}
             <span className={`text-xs font-mono font-bold ${th.schoolName}`}>{getCurrentPeriodText()}</span>
           </div>
           
-          <div className="grid grid-cols-4 gap-4 flex-1 min-h-0 pb-2">
+          <div className="grid grid-cols-4 grid-rows-2 gap-3.5 flex-1 min-h-0 pt-1">
             {[
               { period: '1교시', time: formatScheduleString(getScheduleForPeriod(1)), subject: todayTimetableObj[1] },
               { period: '2교시', time: formatScheduleString(getScheduleForPeriod(2)), subject: todayTimetableObj[2] },
@@ -4698,92 +4706,108 @@ ${htmlText.substring(0, 30000)}
                 || timetableDetails[`${currentKey}-${idx + 1}`];
               const detail = rawDetail || { location: '', memo: '' };
               const hasDetail = Boolean(detail.location || detail.memo);
+              const hasMemo = Boolean(detail.memo);
+              const subjLen = item.subject.trim().length;
+              const subjectSizeClass = subjLen <= 5
+                ? 'text-[34px] whitespace-nowrap'
+                : subjLen <= 7
+                ? 'text-[29px] whitespace-nowrap'
+                : subjLen <= 8
+                ? 'text-[26px] whitespace-nowrap'
+                : 'text-[25px] break-keep [text-wrap:balance] line-clamp-2';
+
               return (
                 <div 
                   key={idx} 
-                  className={`${colors[idx % colors.length]} rounded-3xl p-4 flex flex-col shadow-xl font-handwriting relative border border-black/5 h-full select-none`}
+                  className={`${colors[idx % colors.length]} rounded-3xl px-3 py-3.5 flex flex-col justify-between shadow-xl font-handwriting relative border border-black/5 h-full min-h-0 select-none`}
                 >
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-12 h-6 bg-amber-400/40 rotate-2 shadow-sm border border-amber-200/20 backdrop-blur-sm z-10"></div>
+                  <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-14 h-5 bg-amber-400/40 rotate-2 shadow-sm border border-amber-200/20 backdrop-blur-sm z-10"></div>
                   
-                  <div className="flex justify-between items-start font-sans px-1 relative z-0">
-                    <span className="text-sm font-bold opacity-70 mt-1">{item.period}</span>
+                  <div className="flex justify-between items-center font-sans px-1.5 relative z-0 shrink-0">
+                    <span className="text-lg font-extrabold opacity-80 tracking-tight">{item.period}</span>
                     <div className="flex items-center gap-1.5">
-                      {hasDetail && <FileText size={15} className="text-amber-700 opacity-90" />}
+                      {hasDetail && <FileText size={18} className="text-amber-700 opacity-90" />}
                       {isCurrent && (
-                        <span className="flex items-center gap-1 bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full shadow">
-                          <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping"></span>
+                        <span className="flex items-center gap-1.5 bg-rose-500 text-white text-xs font-black px-2.5 py-1 rounded-full shadow">
+                          <span className="h-2 w-2 rounded-full bg-white animate-ping"></span>
                           수업중
                         </span>
                       )}
                     </div>
                   </div>
-                  <div className="flex-1 flex flex-col items-center justify-center py-2 px-1 relative z-0">
-                    <div className="text-5xl mb-3 opacity-90 drop-shadow-sm">{getSubjectIcon(item.subject)}</div>
-                    <div className="text-2xl font-black tracking-tight break-keep leading-snug text-center">{item.subject}</div>
+                  <div className="flex-1 min-h-0 flex flex-col items-center justify-center py-1 px-1 relative z-0 overflow-hidden">
+                    <div className={`${hasMemo ? 'text-5xl mb-2' : 'text-[76px] leading-none mb-4'} opacity-95 drop-shadow-md shrink-0 transition-transform`}>
+                      {getSubjectIcon(item.subject)}
+                    </div>
+                    <div className={`${subjectSizeClass} font-black tracking-tight leading-tight text-center w-full px-0.5`}>
+                      {item.subject}
+                    </div>
                     {detail?.location && (
-                      <div className="mt-2 text-xs font-sans font-black text-emerald-950 bg-emerald-100/90 border border-emerald-400/60 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
-                        <MapPin size={13} className="text-emerald-700"/>
-                        <span>{detail.location}</span>
+                      <div className="mt-2.5 text-sm font-sans font-black text-emerald-950 bg-emerald-100/95 border border-emerald-400/70 px-3 py-1 rounded-xl flex items-center gap-1.5 shadow-sm shrink-0">
+                        <MapPin size={15} className="text-emerald-700 shrink-0"/>
+                        <span className="break-keep">{detail.location}</span>
                       </div>
                     )}
                     {detail?.memo && (
-                      <div className="mt-2 w-full animate-fade-in relative z-20">
+                      <div className="mt-2 w-full animate-fade-in relative z-20 shrink-0">
                         <div className="text-xs font-sans font-bold text-rose-950 bg-rose-50 border border-rose-300 p-2 rounded-xl leading-snug w-full break-keep shadow-sm">
-                          <div className="flex items-center gap-1 mb-1 text-rose-600 font-black text-[10px]">
+                          <div className="flex items-center gap-1 mb-0.5 text-rose-600 font-black text-[11px]">
                             <Bell size={12} className="animate-pulse shrink-0" />
                             <span>공지사항</span>
                           </div>
-                          <div className="text-slate-800 text-[11px] leading-tight font-medium">
+                          <div className="text-slate-800 text-xs leading-snug font-bold line-clamp-2">
                             {detail.memo}
                           </div>
                         </div>
                       </div>
                     )}
                   </div>
-                  <div className="text-[11px] text-center font-sans font-bold opacity-50 bg-black/5 rounded-full py-1.5 mt-auto w-full relative z-0">{item.time}</div>
+                  <div className="text-sm text-center font-sans font-extrabold opacity-75 bg-black/[0.06] rounded-2xl py-2 mt-1 w-full relative z-0 shrink-0 tracking-wide">
+                    {item.time}
+                  </div>
                 </div>
               );
             })}
           </div>
         </section>
 
-        <section className="col-span-5 flex flex-col h-full">
-          <div className="flex items-center gap-2 mb-4 shrink-0 px-2">
+        <section className="col-span-5 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="flex items-center gap-2 mb-3 shrink-0 px-2">
             <Utensils size={20} className={th.sectionIcon} />
             <h2 className={`text-base font-bold ${th.sectionTitle}`}>오늘의 급식</h2>
           </div>
           
-          <div className="flex-1 grid grid-cols-2 gap-5 min-h-0">
+          <div className="flex-1 grid grid-cols-2 grid-rows-1 gap-5 min-h-0">
             {/* Lunch Card */}
-            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
-              <div className="flex justify-center mb-8">
+            <div className={`rounded-3xl p-5 border shadow-xl flex flex-col h-full min-h-0 relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
+              <div className="flex justify-center mb-4 shrink-0">
                 <div className="bg-amber-900/40 border border-amber-800/50 text-amber-500 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Utensils size={14} /> 점심 식단
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-start text-center">
-                <div className={`text-xl md:text-2xl font-bold leading-[2.2] break-keep w-full flex flex-col gap-1 transition-colors duration-1000 ${th.textMain}`}>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center text-center">
+                <div className={`text-lg xl:text-2xl font-bold leading-[1.8] break-keep w-full flex flex-col gap-0.5 transition-colors duration-1000 ${th.textMain}`}>
                   {todayMealsObj?.lunch ? renderMealList(todayMealsObj.lunch) : <span className="text-emerald-600/60 italic text-sm">급식 정보가 없습니다.</span>}
                 </div>
               </div>
-              <div className="mt-6 text-center shrink-0">
+              <div className="mt-3 text-center shrink-0">
                 <span className={`text-[10px] font-bold tracking-[0.2em] transition-colors duration-1000 ${th.periodText}`}>LUNCH MENU</span>
               </div>
             </div>
 
             {/* Dinner Card */}
-            <div className={`rounded-3xl p-6 border shadow-xl flex flex-col relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
-              <div className="flex justify-center mb-8">
+            <div className={`rounded-3xl p-5 border shadow-xl flex flex-col h-full min-h-0 relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
+              <div className="flex justify-center mb-4 shrink-0">
                 <div className="bg-indigo-900/30 border border-indigo-800/50 text-indigo-400 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Moon size={14} /> 저녁 식단
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-start text-center">
-                <div className={`text-xl md:text-2xl font-bold leading-[2.2] break-keep w-full flex flex-col gap-1 transition-colors duration-1000 ${th.textMain}`}>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center text-center">
+                <div className={`text-lg xl:text-2xl font-bold leading-[1.8] break-keep w-full flex flex-col gap-0.5 transition-colors duration-1000 ${th.textMain}`}>
                   {todayMealsObj?.dinner ? renderMealList(todayMealsObj.dinner) : <span className="text-emerald-600/60 italic text-sm">해당 없음</span>}
                 </div>
               </div>
-              <div className="mt-6 text-center shrink-0">
+              <div className="mt-3 text-center shrink-0">
                 <span className={`text-[10px] font-bold tracking-[0.2em] transition-colors duration-1000 ${th.periodText}`}>DINNER MENU</span>
               </div>
             </div>
