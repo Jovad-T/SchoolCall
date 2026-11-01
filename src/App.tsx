@@ -654,6 +654,7 @@ export default function App() {
   const [adminRiroPw, setAdminRiroPw] = useState<string>((schoolConfig as any).riroPw || '');
   const [riroPasteText, setRiroPasteText] = useState<string>('');
   const [showRiroPasteBox, setShowRiroPasteBox] = useState<boolean>(false);
+  const [riroStatus, setRiroStatus] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
   const [editTargetClass, setEditTargetClass] = useState(schoolConfig.currentClass);
@@ -1988,54 +1989,277 @@ export default function App() {
             else if (row.MMEAL_SC_CODE === '3') monthMeals[ymd].dinner = cleanedMenu; 
           });
           
-          setTempMeals(prev => ({ ...prev, ...monthMeals }));
-          alert(`📡 [NEIS 연동 완료] ${yearMonth.substring(0, 4)}년 ${Number(yearMonth.substring(4, 6))}월 한 달 치(${Object.keys(monthMeals).length}일) 급식을 일괄 추출했습니다!`);
+          setTempMeals(prev => {
+            const merged = { ...prev, ...monthMeals };
+            setMeals(merged);
+            try { localStorage.setItem('meal_data', JSON.stringify(merged)); } catch (e) {}
+            syncGlobalData({ meals: merged });
+            return merged;
+          });
+          setRiroStatus({
+            type: 'success',
+            message: `📡 [NEIS 연동 완료] ${yearMonth.substring(0, 4)}년 ${Number(yearMonth.substring(4, 6))}월 한 달 치(${Object.keys(monthMeals).length}일) 급식을 일괄 추출 및 저장했습니다!`
+          });
         } else {
-          alert(`⚠ 해당 월의 급식 데이터가 NEIS에 없습니다.`);
+          setRiroStatus({
+            type: 'warning',
+            message: `⚠️ 해당 월의 급식 데이터가 NEIS 공공데이터에 등록되어 있지 않습니다.`
+          });
         }
       }
     } catch (err: any) {
       console.log("Fetch error:", err.message);
-      alert('❌ NEIS 연동 오류 발생');
+      setRiroStatus({ type: 'error', message: `❌ NEIS 연동 오류 발생: ${err?.message || ''}` });
     } finally {
       setIsNeisLoading(false);
     }
   };
 
+  // 💡 URL에서 연도(year), 월(month), 식단구분(meal_code: 중식/석식) 자동 추출 헬퍼
+  const getRiroUrlMeta = (rawUrl: string) => {
+    let targetYear = adminDate.split('-')[0];
+    let targetMonth = adminDate.split('-')[1];
+    let defaultMealType: 'lunch' | 'dinner' | 'both' = 'both';
+    try {
+      let u = rawUrl.trim();
+      if (u && !u.startsWith('http://') && !u.startsWith('https://')) u = 'https://' + u;
+      if (u) {
+        const parsed = new URL(u);
+        const yParam = parsed.searchParams.get('year');
+        const mParam = parsed.searchParams.get('month');
+        const codeParam = parsed.searchParams.get('meal_code') || '';
+        if (yParam && /^\d{4}$/.test(yParam)) targetYear = yParam;
+        if (mParam && /^\d{1,2}$/.test(mParam)) targetMonth = mParam.padStart(2, '0');
+        const decodedCode = decodeURIComponent(codeParam);
+        if (decodedCode.includes('석식') || decodedCode.includes('저녁') || rawUrl.includes('%EC%84%9D%EC%8B%9D')) {
+          defaultMealType = 'dinner';
+        } else if (decodedCode.includes('중식') || decodedCode.includes('점심') || rawUrl.includes('%EC%A4%91%EC%8B%9D')) {
+          defaultMealType = 'lunch';
+        }
+      }
+    } catch (e) {}
+    return { targetYear, targetMonth, defaultMealType };
+  };
+
+  // 💡 [API 키 불필요] 리로스쿨 월간 식단표(meal_schedule.php HTML 또는 Ctrl+A 복사 텍스트) 자체 정밀 파서
+  const parseRiroMealDeterministic = (
+    rawInput: string,
+    targetYear: string,
+    targetMonth: string,
+    defaultMealType: 'lunch' | 'dinner' | 'both',
+    fallbackDateKey: string
+  ): Record<string, { lunch?: string[]; dinner?: string[] }> => {
+    const result: Record<string, { lunch?: string[]; dinner?: string[] }> = {};
+    if (!rawInput || !rawInput.trim()) return result;
+
+    let text = rawInput
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '\n')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '\n')
+      .replace(/<(br|p|div|li|tr|td|th)\b[^>]*>/gi, '\n')
+      .replace(/<\/(p|div|li|tr|td|th)>/gi, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
+
+    const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    const ignoreKeywords = [
+      '리로스쿨', '로그아웃', '마이페이지', '급식일정', '오늘의 식단', '월간', '주간', '일간',
+      '이전달', '다음달', '목록', '인쇄', '글쓰기', '등록', '수정', '삭제', '검색', 'Copyright',
+      '개인정보', '이용약관', '고객센터', '원산지', '알레르기', '영양량', '칼로리', '탄수화물', '단백질', '지방'
+    ];
+
+    const cleanFoodItem = (line: string): string => {
+      let s = line
+        .replace(/\([0-9.,\s]+\)/g, '')
+        .replace(/[①-⑳]/g, '')
+        .replace(/\d+(\.\d+)?\s*(kcal|Kcal|KCAL)/gi, '')
+        .replace(/^[-•·*▪▫]\s*/, '')
+        .trim();
+      if (!s || s.length < 2 || s.length > 28) return '';
+      if (/^\d+$/.test(s)) return '';
+      if (/^\d{4}년|\d{1,2}월/.test(s)) return '';
+      if (/^(일|월|화|수|목|금|토)(\s+(일|월|화|수|목|금|토))*$/.test(s)) return '';
+      if (ignoreKeywords.some(k => s.includes(k))) return '';
+      if (!/[가-힣]/.test(s)) return '';
+      return s;
+    };
+
+    // 달력 요일 헤더("일 월 화 수 목 금 토" 또는 연속 요일) 이후부터 탐색 시작
+    let startIdx = 0;
+    for (let i = 0; i < rawLines.length; i++) {
+      if (/^일\s+월\s+화|^월\s+화\s+수/.test(rawLines[i])) {
+        startIdx = i + 1;
+        break;
+      }
+      if (rawLines[i] === '금' && rawLines[i + 1] === '토') {
+        startIdx = i + 2;
+        break;
+      }
+    }
+
+    let currentDay = 0;
+    let activeSubType: 'lunch' | 'dinner' = defaultMealType === 'dinner' ? 'dinner' : 'lunch';
+
+    for (let i = startIdx; i < rawLines.length; i++) {
+      const line = rawLines[i];
+
+      // 날짜 숫자 감지 (예: "1", "2", "03", "15일", "2 (월)")
+      const dayMatch = line.match(/^0?([1-9]|[12][0-9]|3[01])(?:\s*일|\s*\([월화수목금토일]\))?$/);
+      if (dayMatch) {
+        const dNum = parseInt(dayMatch[1], 10);
+        // 달력 순서상 이전 날짜보다 크거나(1~31 오름차순), 아직 시작 안 했을 때 날짜 전환
+        if (dNum >= currentDay && dNum <= 31 && (dNum - currentDay <= 7 || currentDay === 0)) {
+          currentDay = dNum;
+          activeSubType = defaultMealType === 'dinner' ? 'dinner' : 'lunch';
+          continue;
+        }
+      }
+
+      if (/^\[?중식\]?$|^점심(\s*식단)?$/.test(line)) {
+        activeSubType = 'lunch';
+        continue;
+      }
+      if (/^\[?석식\]?$|^저녁(\s*식단)?$/.test(line)) {
+        activeSubType = 'dinner';
+        continue;
+      }
+      if (/^\[?조식\]?$|^아침(\s*식단)?$/.test(line)) {
+        continue;
+      }
+
+      if (currentDay >= 1 && currentDay <= 31) {
+        const dateKey = `${targetYear}${targetMonth.padStart(2, '0')}${String(currentDay).padStart(2, '0')}`;
+        const food = cleanFoodItem(line);
+        if (food) {
+          if (!result[dateKey]) result[dateKey] = {};
+          const list = result[dateKey][activeSubType] || [];
+          if (!list.includes(food)) {
+            result[dateKey][activeSubType] = [...list, food];
+          }
+        }
+      }
+    }
+
+    // 만약 월간 달력 형태가 아니라 특정 하루 식단만 복사한 경우
+    if (Object.keys(result).length === 0) {
+      let singleType: 'lunch' | 'dinner' = defaultMealType === 'dinner' ? 'dinner' : 'lunch';
+      for (const line of rawLines) {
+        if (/^\[?중식\]?$|^점심/.test(line)) { singleType = 'lunch'; continue; }
+        if (/^\[?석식\]?$|^저녁/.test(line)) { singleType = 'dinner'; continue; }
+        const food = cleanFoodItem(line);
+        if (food) {
+          if (!result[fallbackDateKey]) result[fallbackDateKey] = {};
+          const list = result[fallbackDateKey][singleType] || [];
+          if (!list.includes(food)) {
+            result[fallbackDateKey][singleType] = [...list, food];
+          }
+        }
+      }
+    }
+
+    return result;
+  };
+
+  // 💡 추출된 식단 데이터를 기존 중식/석식을 보존하면서 병합 및 즉시 동기화
+  const applyExtractedRiroMeals = (
+    extractedMap: Record<string, { lunch?: string[]; dinner?: string[] }>,
+    defaultMealType: 'lunch' | 'dinner' | 'both',
+    sourceLabel: string
+  ) => {
+    const dateKeys = Object.keys(extractedMap);
+    if (dateKeys.length === 0) return false;
+
+    const newMeals: Record<string, { lunch: string[]; dinner: string[] }> = { ...tempMeals };
+    let count = 0;
+
+    for (const dKey of dateKeys) {
+      const existing = newMeals[dKey] || { lunch: ['급식 없음'], dinner: ['급식 없음'] };
+      const extLunch = extractedMap[dKey]?.lunch?.filter(Boolean) || [];
+      const extDinner = extractedMap[dKey]?.dinner?.filter(Boolean) || [];
+
+      if (extLunch.length === 0 && extDinner.length === 0) continue;
+
+      newMeals[dKey] = {
+        lunch: extLunch.length > 0
+          ? extLunch
+          : (defaultMealType === 'dinner' ? existing.lunch : ['급식 없음']),
+        dinner: extDinner.length > 0
+          ? extDinner
+          : (defaultMealType === 'lunch' ? existing.dinner : ['급식 없음'])
+      };
+      count++;
+    }
+
+    if (count === 0) return false;
+
+    setTempMeals(newMeals);
+    setMeals(newMeals);
+    try { localStorage.setItem('meal_data', JSON.stringify(newMeals)); } catch (e) {}
+    syncGlobalData({ meals: newMeals });
+
+    const firstKey = dateKeys.sort()[0];
+    if (firstKey && firstKey.length === 8) {
+      const formattedDate = `${firstKey.substring(0, 4)}-${firstKey.substring(4, 6)}-${firstKey.substring(6, 8)}`;
+      if (!newMeals[adminDateKey]) {
+        setAdminDate(formattedDate);
+      }
+    }
+
+    const typeDesc = defaultMealType === 'dinner' ? '석식(저녁)' : defaultMealType === 'lunch' ? '중식(점심)' : '중식·석식';
+    setRiroStatus({
+      type: 'success',
+      message: `✅ [${sourceLabel} 완료] 총 ${count}일 치 ${typeDesc} 메뉴를 자동으로 추출하여 저장 및 동기화했습니다!`
+    });
+    return true;
+  };
+
   const handleFetchRiroMeal = async () => {
     if (!adminRiroUrl.trim()) {
-      alert('리로스쿨 주소(예: 학교아이디.riroschool.kr)를 입력해주세요.');
-      return;
-    }
-    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
-    const apiKey = isGemini ? (adminGeminiApiKey.trim() || schoolConfig.geminiApiKey) : (adminGroqApiKey.trim() || (schoolConfig as any).groqApiKey);
-    if (!apiKey) {
-      alert(`❌ [API 키 필요] 리로스쿨 식단 페이지 자동 분석을 위해 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
+      setRiroStatus({ type: 'warning', message: '⚠️ 리로스쿨 주소(예: sajikg.riroschool.kr 또는 식단 페이지 URL)를 입력해주세요.' });
       return;
     }
 
     setIsNeisLoading(true);
-    try {
-      const targetYear = adminDate.split('-')[0];
-      const targetMonth = adminDate.split('-')[1];
-      let htmlContent = '';
+    setRiroStatus({ type: 'info', message: '⏳ 리로스쿨 페이지에 접속하여 식단 데이터를 확인하는 중입니다...' });
 
-      // 1. Electron 환경이면 IPC로 직접 접속 (로그인 세션 포함)
+    try {
+      const { targetYear, targetMonth, defaultMealType } = getRiroUrlMeta(adminRiroUrl);
+      let htmlContent = '';
+      let isGeoBlocked = false;
+
+      // 1. Electron(.exe) 환경이면 PC 국내 IP로 직접 접속 (구버전 .exe의 fetch-local-url 자동 호환 포함)
       if ((window as any).electron?.ipcRenderer) {
-        const res = await (window as any).electron.ipcRenderer.invoke('fetch-riro-meal', {
-          url: adminRiroUrl.trim(),
-          riroId: adminRiroId.trim(),
-          riroPw: adminRiroPw.trim(),
-          year: targetYear,
-          month: targetMonth
-        });
-        if (res?.success && res?.data) {
-          htmlContent = res.data;
-        } else {
-          throw new Error(res?.error || '리로스쿨 접속에 실패했습니다.');
+        let normalizedUrl = adminRiroUrl.trim();
+        if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+          normalizedUrl = 'https://' + normalizedUrl;
+        }
+        try {
+          const res = await (window as any).electron.ipcRenderer.invoke('fetch-riro-meal', {
+            url: normalizedUrl,
+            riroId: adminRiroId.trim(),
+            riroPw: adminRiroPw.trim(),
+            year: targetYear,
+            month: targetMonth
+          });
+          if (res?.success && res?.data) {
+            htmlContent = res.data;
+          }
+        } catch (ipcErr: any) {
+          // 구버전 .exe(v1.3.6 등)에는 fetch-riro-meal 대신 fetch-local-url 핸들러가 내장되어 있으므로 자동 폴백
+          try {
+            const fallbackRes = await (window as any).electron.ipcRenderer.invoke('fetch-local-url', {
+              url: normalizedUrl
+            });
+            if (fallbackRes?.success && fallbackRes?.data) {
+              htmlContent = fallbackRes.data;
+            }
+          } catch (e2) {}
         }
       } else {
-        // 2. 웹 서버(/api/riro-meal) 호출 시도 후 실패 시 공개 CORS 프록시 우회
+        // 2. 웹 서버(/api/riro-meal) 호출
         try {
           const res = await fetch('/api/riro-meal', {
             method: 'POST',
@@ -2049,126 +2273,124 @@ export default function App() {
             })
           });
           const json = await res.json();
-          if (json?.success && json?.data) {
+          if (json?.isGeoBlocked || res.status === 403) {
+            isGeoBlocked = true;
+          } else if (json?.success && json?.data) {
             htmlContent = json.data;
           }
         } catch (e) {}
+      }
 
-        if (!htmlContent) {
-          let targetUrl = adminRiroUrl.trim();
-          if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-            targetUrl = 'https://' + targetUrl;
-          }
-          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
-          const proxyRes = await fetch(proxyUrl);
-          htmlContent = await proxyRes.text();
-        }
+      if (isGeoBlocked || htmlContent.includes('해외 IP') || htmlContent.includes('접속이 제한되었습니다')) {
+        setShowRiroPasteBox(true);
+        setRiroStatus({
+          type: 'warning',
+          message: '🔒 리로스쿨 보안 정책(CloudFront)상 해외 클라우드 서버 IP를 통한 직접 접속이 차단(403)되어 있습니다. (PC용 .exe 앱에서는 국내 IP로 작동하며, 웹에서는 아래 [1단계: 식단 페이지 열기] → 전체복사(Ctrl+A, Ctrl+C) → 붙여넣기를 하시면 API 키 없이도 1초 만에 한 달 치가 등록됩니다!)'
+        });
+        return;
       }
 
       if (!htmlContent || htmlContent.length < 50) {
-        throw new Error('리로스쿨 페이지에서 식단 내용을 불러오지 못했습니다. 로그인이 필요한 학교라면 ID/PW를 입력하거나 아래 [식단 텍스트 붙여넣기]를 이용해주세요.');
+        setShowRiroPasteBox(true);
+        setRiroStatus({
+          type: 'warning',
+          message: '⚠️ 리로스쿨 페이지가 로그인 전용이거나 데이터를 바로 가져오지 못했습니다. 아래 [1단계: 식단 페이지 열기] 후 화면을 복사(Ctrl+A → Ctrl+C)하여 붙여넣어 주세요!'
+        });
+        return;
       }
 
-      const promptText = `
-너는 대한민국 학교 리로스쿨(RiroSchool) 및 학교 홈페이지 급식 식단 추출 AI야.
-기준 날짜는 ${adminDate} (연도: ${targetYear}년, 월: ${targetMonth}월, 선택일 키: "${adminDateKey}") 이야.
-아래 웹페이지 데이터에서 식단(중식/점심, 석식/저녁) 메뉴를 찾아서 날짜별 JSON으로 추출해줘.
+      // 1차: API 키 없이도 동작하는 자체 달력/식단 파서 실행
+      const detResult = parseRiroMealDeterministic(htmlContent, targetYear, targetMonth, defaultMealType, adminDateKey);
+      if (applyExtractedRiroMeals(detResult, defaultMealType, '리로스쿨 식단 연동')) {
+        return;
+      }
 
-[엄격한 추출 규칙]
-1. 날짜가 명시되어 있으면 해당 날짜를 "YYYYMMDD" (예: "${adminDateKey}") 키로 사용해. 만약 '오늘의 식단'처럼 날짜 없이 메뉴만 적혀 있다면 "${adminDateKey}" 키에 넣어줘.
-2. 알레르기 번호(예: (1.2.5.6.13)), 칼로리(kcal), 영양소 숫자, 원산지 표시는 모두 제거하고 오직 깔끔한 '음식 이름'만 배열로 담아줘.
-3. 중식(점심)은 "lunch", 석식(저녁)은 "dinner" 배열에 넣어줘. 석식이 없으면 "dinner": ["급식 없음"] 으로 표시해.
-4. 만약 웹페이지에 로그인 창만 있고 급식 메뉴가 전혀 없다면 빈 객체 {} 만 반환해.
-5. 마크다운 백틱 없이 순수 JSON 객체만 출력해.
+      // 2차: AI 파서 폴백
+      const promptText = `
+너는 대한민국 학교 리로스쿨(RiroSchool) 급식 식단 추출 AI야.
+기준 연월은 ${targetYear}년 ${targetMonth}월이고, 기본 식단 구분은 "${defaultMealType === 'dinner' ? '석식(dinner)' : defaultMealType === 'lunch' ? '중식(lunch)' : '중식 및 석식'}" 이야.
+아래 데이터에서 날짜별 식단 메뉴를 찾아서 JSON으로 추출해줘.
+날짜 키는 반드시 "${targetYear}${targetMonth}DD" 8자리(예: "${targetYear}${targetMonth}02") 형식으로 만들고, 값은 { "lunch": [...], "dinner": [...] } 형태로 반환해.
+마찬가지로 알레르기 숫자나 kcal는 제거해줘.
 
 데이터:
 ${htmlContent.substring(0, 28000)}
 `;
-
       const rawText = await callUnifiedAi(promptText, undefined, undefined, true);
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('식단 JSON 변환에 실패했습니다.');
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      const dateKeys = Object.keys(parsed);
-      if (dateKeys.length === 0) {
-        throw new Error('페이지에서 급식 식단을 찾지 못했습니다. (로그인이 필요한 리로스쿨 페이지일 수 있습니다. 리로스쿨 ID/PW를 입력하거나 [식단 텍스트 붙여넣기]를 사용해보세요.)');
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (applyExtractedRiroMeals(parsed, defaultMealType, '리로스쿨 AI 식단 연동')) {
+          return;
+        }
       }
 
-      const newMeals = { ...tempMeals };
-      let count = 0;
-      for (const dKey of dateKeys) {
-        const lArr = Array.isArray(parsed[dKey]?.lunch) && parsed[dKey].lunch.length > 0 ? parsed[dKey].lunch : ['급식 없음'];
-        const dArr = Array.isArray(parsed[dKey]?.dinner) && parsed[dKey].dinner.length > 0 ? parsed[dKey].dinner : ['급식 없음'];
-        newMeals[dKey] = {
-          lunch: lArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean),
-          dinner: dArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean)
-        };
-        count++;
-      }
-
-      setTempMeals(newMeals);
-      alert(`✅ [리로스쿨 식단 연동 완료]\n총 ${count}일 치 급식 메뉴를 성공적으로 가져왔습니다! 하단의 [설정 저장]을 누르면 모든 교실에 반영됩니다.`);
+      setShowRiroPasteBox(true);
+      setRiroStatus({
+        type: 'warning',
+        message: '⚠️ 리로스쿨 로그인이 필요한 페이지입니다. 아래 [1단계: 리로스쿨 식단 페이지 열기]를 눌러 화면 전체 선택(Ctrl+A) 후 복사(Ctrl+C)하여 아래 칸에 붙여넣어 주세요!'
+      });
     } catch (err: any) {
-      alert(`❌ 리로스쿨 식단 연동 안내:\n${err?.message || '연동 중 오류가 발생했습니다.'}`);
+      setShowRiroPasteBox(true);
+      setRiroStatus({
+        type: 'error',
+        message: `❌ 리로스쿨 직접 접속 안내: ${err?.message || '오류가 발생했습니다.'} (아래 복사·붙여넣기 기능을 이용하시면 즉시 등록됩니다.)`
+      });
     } finally {
       setIsNeisLoading(false);
     }
   };
 
-  const handleParseRiroText = async () => {
-    if (!riroPasteText.trim()) {
-      alert('리로스쿨에서 복사한 식단 텍스트를 붙여넣어 주세요.');
-      return;
-    }
-    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
-    const apiKey = isGemini ? (adminGeminiApiKey.trim() || schoolConfig.geminiApiKey) : (adminGroqApiKey.trim() || (schoolConfig as any).groqApiKey);
-    if (!apiKey) {
-      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
+  const handleParseRiroText = async (overrideText?: string) => {
+    const textToParse = (overrideText !== undefined ? overrideText : riroPasteText).trim();
+    if (!textToParse) {
+      setRiroStatus({ type: 'warning', message: '⚠️ 리로스쿨 식단 페이지에서 복사한 텍스트를 아래 칸에 붙여넣어 주세요.' });
       return;
     }
 
     setIsNeisLoading(true);
+    setRiroStatus({ type: 'info', message: '⏳ 붙여넣은 리로스쿨 식단 데이터를 날짜별로 자동 분석 중입니다...' });
+
     try {
-      const targetYear = adminDate.split('-')[0];
-      const targetMonth = adminDate.split('-')[1];
+      const { targetYear, targetMonth, defaultMealType } = getRiroUrlMeta(adminRiroUrl);
+
+      // 1차: API 키 없이 즉시 작동하는 자체 달력 파서로 추출
+      const detResult = parseRiroMealDeterministic(textToParse, targetYear, targetMonth, defaultMealType, adminDateKey);
+      if (applyExtractedRiroMeals(detResult, defaultMealType, '리로스쿨 텍스트 자동 분석')) {
+        setRiroPasteText('');
+        setShowRiroPasteBox(false);
+        return;
+      }
+
+      // 2차: 자체 파서로 날짜 매칭이 안 된 특수 형식일 경우 AI 파서 호출
       const promptText = `
 너는 학교 리로스쿨 급식 식단 분석기야.
 사용자가 리로스쿨 화면에서 복사해 붙여넣은 아래 텍스트에서 급식 메뉴(중식, 석식)를 추출해줘.
-현재 선택된 기준 날짜는 ${adminDate} ("${adminDateKey}") 이고, 기준 연월은 ${targetYear}년 ${targetMonth}월이야.
+기준 연월은 ${targetYear}년 ${targetMonth}월이고, 선택 기준일은 "${adminDateKey}", 기본 식단 구분은 "${defaultMealType}" 이야.
 
 [규칙]
-1. 텍스트에 여러 날짜(예: 1일, 2일 또는 11/1, 11/2 등)가 있으면 각각 "${targetYear}${targetMonth}DD" 형태의 8자리 "YYYYMMDD" 키로 만들어줘.
-2. 텍스트에 특정 날짜 언급 없이 오늘의 메뉴만 적혀 있다면 "${adminDateKey}" 키 하나에 넣어줘.
-3. 알레르기 번호, 칼로리, 영양 정보는 모두 제거하고 순수 음식 이름만 배열로 넣어줘.
-4. 중식/점심 구분이 없고 메뉴만 나열되어 있으면 기본적으로 "lunch"(중식)에 넣고, 석식/저녁이라고 명시된 메뉴는 "dinner"(석식)에 넣어줘.
+1. 텍스트에 여러 날짜(예: 1, 2, 3... 또는 1일, 2일)가 있으면 각각 "${targetYear}${targetMonth}DD" 형태의 8자리 "YYYYMMDD" 키로 만들어줘.
+2. 기본 식단 구분이 "dinner"(석식)이면 메뉴들을 "dinner" 배열에 넣고 "lunch"는 빈 배열 [] 로 둬.
+3. 기본 식단 구분이 "lunch"(중식)이면 메뉴들을 "lunch" 배열에 넣고 "dinner"는 빈 배열 [] 로 둬.
+4. 알레르기 번호, 칼로리(kcal), 영양 정보는 모두 제거하고 순수 음식 이름만 배열로 넣어줘.
 5. 마크다운 없이 순수 JSON으로만 응답해.
 
 복사한 텍스트:
-${riroPasteText}
+${textToParse}
 `;
       const rawText = await callUnifiedAi(promptText, undefined, undefined, true);
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('식단 텍스트 분석 실패');
+      if (!jsonMatch) throw new Error('식단 텍스트에서 메뉴를 찾지 못했습니다.');
 
       const parsed = JSON.parse(jsonMatch[0]);
-      const newMeals = { ...tempMeals };
-      let count = 0;
-      for (const dKey in parsed) {
-        const lArr = Array.isArray(parsed[dKey]?.lunch) && parsed[dKey].lunch.length > 0 ? parsed[dKey].lunch : ['급식 없음'];
-        const dArr = Array.isArray(parsed[dKey]?.dinner) && parsed[dKey].dinner.length > 0 ? parsed[dKey].dinner : ['급식 없음'];
-        newMeals[dKey] = {
-          lunch: lArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean),
-          dinner: dArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean)
-        };
-        count++;
+      if (applyExtractedRiroMeals(parsed, defaultMealType, '리로스쿨 AI 식단 분석')) {
+        setRiroPasteText('');
+        setShowRiroPasteBox(false);
+      } else {
+        throw new Error('추출된 식단 메뉴가 없습니다. 리로스쿨 식단표 화면에서 전체 선택(Ctrl+A) 후 복사(Ctrl+C)했는지 확인해주세요.');
       }
-      setTempMeals(newMeals);
-      setRiroPasteText('');
-      setShowRiroPasteBox(false);
-      alert(`✅ 복사한 리로스쿨 식단에서 총 ${count}일 치 메뉴를 자동 등록했습니다!`);
     } catch (err: any) {
-      alert(`❌ 식단 텍스트 분석 실패: ${err?.message}`);
+      setRiroStatus({ type: 'error', message: `❌ 식단 텍스트 분석 실패: ${err?.message || '오류가 발생했습니다.'}` });
     } finally {
       setIsNeisLoading(false);
     }
@@ -4502,10 +4724,15 @@ ${htmlText.substring(0, 30000)}
                   <div className="pt-3 border-t border-emerald-900/40 space-y-2.5">
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
-                        🌐 리로스쿨(RiroSchool) 오늘의 식단 연동
+                        🌐 리로스쿨(RiroSchool) 식단 연동
                       </span>
-                      <span className="text-[11px] text-slate-400">
-                        ※ 비로그인 공개 학교는 주소만 입력 / 로그인 필수 학교는 리로스쿨 ID·PW 입력
+                      <span className="text-[11px] text-amber-300/90 font-medium">
+                        {(() => {
+                          const meta = getRiroUrlMeta(adminRiroUrl);
+                          if (!adminRiroUrl.trim()) return '※ 리로스쿨 식단 URL 입력 또는 텍스트 복사·붙여넣기 지원';
+                          const mealLabel = meta.defaultMealType === 'dinner' ? '석식(저녁) 전용 URL 감지됨' : meta.defaultMealType === 'lunch' ? '중식(점심) 전용 URL 감지됨' : '중식·석식 통합';
+                          return `🎯 감지됨: ${meta.targetYear}년 ${Number(meta.targetMonth)}월 · ${mealLabel}`;
+                        })()}
                       </span>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
@@ -4513,7 +4740,7 @@ ${htmlText.substring(0, 30000)}
                         type="text"
                         value={adminRiroUrl}
                         onChange={e => setAdminRiroUrl(e.target.value)}
-                        placeholder="리로스쿨 주소 (예: sajikgirls.riroschool.kr)"
+                        placeholder="리로스쿨 식단 URL (예: https://sajikg.riroschool.kr/meal_schedule.php?...)"
                         className="md:col-span-5 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
                       />
                       <input
@@ -4542,26 +4769,64 @@ ${htmlText.substring(0, 30000)}
                     </div>
                   </div>
 
+                  {/* 상태 알림 배너 (iframe alert 차단 완벽 대응) */}
+                  {riroStatus && (
+                    <div className={`p-3.5 rounded-2xl border text-xs font-bold leading-relaxed flex items-start justify-between gap-3 animate-fade-in ${
+                      riroStatus.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200' :
+                      riroStatus.type === 'warning' ? 'bg-amber-950/80 border-amber-500/60 text-amber-200' :
+                      riroStatus.type === 'error' ? 'bg-rose-950/80 border-rose-500/60 text-rose-200' :
+                      'bg-indigo-950/80 border-indigo-500/60 text-indigo-200'
+                    }`}>
+                      <span className="break-keep">{riroStatus.message}</span>
+                      <button
+                        type="button"
+                        onClick={() => setRiroStatus(null)}
+                        className="text-white/60 hover:text-white shrink-0 cursor-pointer"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+
                   {/* 리로스쿨 식단 텍스트 복사 붙여넣기 박스 */}
                   {showRiroPasteBox && (
-                    <div className="p-3.5 bg-[#162d22]/80 border border-indigo-500/50 rounded-2xl space-y-2.5 animate-fade-in">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-indigo-200">📋 리로스쿨 화면의 식단 글자를 드래그 복사(Ctrl+C)해서 아래에 붙여넣으세요</span>
-                        <button
-                          type="button"
-                          onClick={handleParseRiroText}
-                          disabled={isNeisLoading || !riroPasteText.trim()}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow cursor-pointer flex items-center gap-1.5"
-                        >
-                          {isNeisLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                          AI 자동 분석 및 등록
-                        </button>
+                    <div className="p-4 bg-[#162d22]/90 border-2 border-indigo-500/60 rounded-2xl space-y-3 animate-fade-in">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="space-y-0.5">
+                          <span className="text-xs font-black text-indigo-200 block">
+                            ⚡ 리로스쿨 월간 식단표 3초 복사·붙여넣기 (API 키 불필요!)
+                          </span>
+                          <span className="text-[11px] text-slate-300 block">
+                            1) 리로스쿨 식단 페이지에서 <strong>Ctrl + A (전체선택)</strong> 후 <strong>Ctrl + C (복사)</strong> ➔ 2) 아래 칸에 <strong>Ctrl + V (붙여넣기)</strong> 후 등록 클릭!
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {adminRiroUrl.trim() && (
+                            <a
+                              href={adminRiroUrl.trim().startsWith('http') ? adminRiroUrl.trim() : `https://${adminRiroUrl.trim()}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold shadow cursor-pointer flex items-center gap-1"
+                            >
+                              🔗 1단계: 리로스쿨 식단 페이지 열기
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleParseRiroText()}
+                            disabled={isNeisLoading || !riroPasteText.trim()}
+                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
+                          >
+                            {isNeisLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                            ⚡ 2단계: 붙여넣은 식단 즉시 자동 등록
+                          </button>
+                        </div>
                       </div>
                       <textarea
                         value={riroPasteText}
                         onChange={e => setRiroPasteText(e.target.value)}
-                        placeholder="리로스쿨 [오늘의 식단] 또는 [월간 식단표] 페이지에서 텍스트를 드래그하여 복사한 뒤 여기에 붙여넣기(Ctrl+V) 하시면 중식·석식을 자동으로 분류하여 등록합니다."
-                        className="w-full h-24 p-2.5 bg-[#0d1813] border border-emerald-800 rounded-xl text-xs text-white resize-none outline-none focus:border-indigo-400"
+                        placeholder="여기를 클릭하고 Ctrl + V (붙여넣기) 하세요! 리로스쿨 월간 식단표(중식 또는 석식) 전체 화면 텍스트를 그대로 붙여넣으시면 1일~말일 날짜를 자동으로 인식해 달력에 일괄 입력됩니다."
+                        className="w-full h-28 p-3 bg-[#0d1813] border border-emerald-700 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
                       />
                     </div>
                   )}

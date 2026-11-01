@@ -215,16 +215,22 @@ async function startServer() {
       }
 
       let combinedHtml = "";
+      let isGeoBlocked = false;
       for (const u of urlsToTry) {
         try {
           const pageRes = await fetch(u, {
             headers: {
               "User-Agent": userAgent,
               "Referer": origin,
+              "Accept-Language": "ko-KR,ko;q=0.9",
               ...(cookieHeader ? { "Cookie": cookieHeader } : {})
             }
           });
           const html = await pageRes.text();
+          if (html && (html.includes("해외 IP") || html.includes("접속이 제한되었습니다") || (html.includes("<title>에러페이지</title>") && html.includes("403")))) {
+            isGeoBlocked = true;
+            continue;
+          }
           if (html && html.length > 100) {
             const cleaned = html
               .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
@@ -236,6 +242,14 @@ async function startServer() {
         } catch (e) {}
       }
 
+      if (isGeoBlocked && !combinedHtml) {
+        return res.status(403).json({
+          success: false,
+          isGeoBlocked: true,
+          error: "리로스쿨 보안 정책상 해외 클라우드 서버 IP에서의 직접 접속이 제한(403)되어 있습니다. PC 설치형(.exe) 앱에서 실행하시거나, 아래 [식단 페이지 열기 → 복사·붙여넣기]를 이용하시면 즉시 등록됩니다."
+        });
+      }
+
       if (!combinedHtml) {
         return res.status(500).json({ success: false, error: "리로스쿨 페이지에서 데이터를 가져오지 못했습니다." });
       }
@@ -243,6 +257,27 @@ async function startServer() {
       res.json({ success: true, data: combinedHtml });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || "리로스쿨 연동 오류" });
+    }
+  });
+
+  // 🤖 Server-side AI fallback endpoint when client API key is not set
+  app.post("/api/ai-parse", async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(400).json({ success: false, error: "서버 기본 API 키가 없습니다." });
+      }
+      const { prompt } = req.body || {};
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents: [{ text: String(prompt || "") }],
+        config: { responseMimeType: "application/json" }
+      });
+      res.json({ success: true, text: response.text || "{}" });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || "AI 분석 오류" });
     }
   });
 

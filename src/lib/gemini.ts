@@ -77,7 +77,26 @@ export async function callGroq(
 }
 
 async function callGemini(contents: any, responseSchema?: any, jsonMode: boolean = true): Promise<string> {
-  const { geminiModel, geminiThinkingLevel } = getAiConfig();
+  const { geminiApiKey, geminiModel, geminiThinkingLevel } = getAiConfig();
+  if (!geminiApiKey) {
+    // Fallback to server-side /api/ai-parse if available
+    const promptStr = Array.isArray(contents)
+      ? contents.map((c: any) => c?.text || "").filter(Boolean).join("\n")
+      : typeof contents === "string"
+      ? contents
+      : "";
+    if (promptStr) {
+      const srvRes = await fetch("/api/ai-parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: promptStr })
+      });
+      const srvJson = await srvRes.json();
+      if (srvJson?.success && srvJson?.text) {
+        return srvJson.text;
+      }
+    }
+  }
   const ai = getGeminiClient();
   const config: any = {};
   if (jsonMode) {
