@@ -649,6 +649,11 @@ export default function App() {
   const [adminPinInput, setAdminPinInput] = useState(schoolConfig.adminPin);
   const [adminClassroomTheme, setAdminClassroomTheme] = useState(schoolConfig.classroomTheme || 'default');
   const [adminAppinServerUrl, setAdminAppinServerUrl] = useState(schoolConfig.appinServerUrl || '');
+  const [adminRiroUrl, setAdminRiroUrl] = useState<string>((schoolConfig as any).riroUrl || '');
+  const [adminRiroId, setAdminRiroId] = useState<string>((schoolConfig as any).riroId || '');
+  const [adminRiroPw, setAdminRiroPw] = useState<string>((schoolConfig as any).riroPw || '');
+  const [riroPasteText, setRiroPasteText] = useState<string>('');
+  const [showRiroPasteBox, setShowRiroPasteBox] = useState<boolean>(false);
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
   const [editTargetClass, setEditTargetClass] = useState(schoolConfig.currentClass);
@@ -725,6 +730,54 @@ export default function App() {
       syncGlobalData({ timetableDetails: {} });
     }
   }, [currentTime, db]);
+
+  // 💡 [매일 급식 자동 연동] 오늘 날짜의 급식 데이터가 비어있고 NEIS API 키가 설정되어 있으면 이번 달 급식을 자동으로 가져옵니다.
+  const autoMealFetchedRef = useRef<string>('');
+  useEffect(() => {
+    const todayMeal = meals[todayStr];
+    const isEmptyMeal = !todayMeal || (
+      (!todayMeal.lunch || todayMeal.lunch.length === 0 || todayMeal.lunch[0] === '오늘의 급식 정보가 없습니다.') &&
+      (!todayMeal.dinner || todayMeal.dinner.length === 0 || todayMeal.dinner[0] === '오늘의 급식 정보가 없습니다.')
+    );
+    if (!isEmptyMeal) return;
+    if (autoMealFetchedRef.current === todayStr) return;
+
+    if (schoolConfig.neisApiKey && schoolConfig.eduCode && schoolConfig.schoolCode) {
+      autoMealFetchedRef.current = todayStr;
+      const yearMonth = todayStr.substring(0, 6);
+      const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${schoolConfig.neisApiKey}&Type=json&pSize=100&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&MLSV_FROM_YMD=${yearMonth}01&MLSV_TO_YMD=${yearMonth}31`;
+      fetch(url)
+        .then(r => r.json())
+        .then(data => {
+          if (data?.mealServiceDietInfo?.[1]?.row) {
+            const rows = data.mealServiceDietInfo[1].row;
+            const fetchedMeals: Record<string, { lunch: string[]; dinner: string[] }> = {};
+            rows.forEach((row: any) => {
+              const ymd = row.MLSV_YMD;
+              if (!ymd) return;
+              if (!fetchedMeals[ymd]) {
+                fetchedMeals[ymd] = { lunch: ['급식 없음'], dinner: ['급식 없음'] };
+              }
+              const cleanedMenu = String(row.DDISH_NM || '')
+                .split('<br/>')
+                .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').replace(/[\d\.]+\*?$/g, '').trim())
+                .filter(Boolean);
+              if (row.MMEAL_SC_CODE === '2') fetchedMeals[ymd].lunch = cleanedMenu;
+              else if (row.MMEAL_SC_CODE === '3') fetchedMeals[ymd].dinner = cleanedMenu;
+            });
+            if (Object.keys(fetchedMeals).length > 0) {
+              setMeals(prev => {
+                const merged = { ...prev, ...fetchedMeals };
+                try { localStorage.setItem('meal_data', JSON.stringify(merged)); } catch (e) {}
+                return merged;
+              });
+              setTempMeals(prev => ({ ...prev, ...fetchedMeals }));
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [todayStr, meals, schoolConfig.neisApiKey, schoolConfig.eduCode, schoolConfig.schoolCode]);
 
 
   useEffect(() => {
@@ -1808,6 +1861,9 @@ export default function App() {
       setAdminNeisApiKey(schoolConfig.neisApiKey);
       setAdminClassroomTheme(schoolConfig.classroomTheme || 'default');
       setAdminAppinServerUrl(schoolConfig.appinServerUrl || '');
+      setAdminRiroUrl((schoolConfig as any).riroUrl || '');
+      setAdminRiroId((schoolConfig as any).riroId || '');
+      setAdminRiroPw((schoolConfig as any).riroPw || '');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
       setAdminGeminiThinkingLevel((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
       setAdminGeminiModel((schoolConfig as any).geminiModel || 'gemini-3.8-flash');
@@ -1909,32 +1965,210 @@ export default function App() {
         }
 
       } else if (type === 'meal') {
-        const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${schoolConfig.neisApiKey}&Type=json&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&MLSV_YMD=${adminDateKey}`;
+        const yearMonth = adminDateKey.substring(0, 6);
+        const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${schoolConfig.neisApiKey}&Type=json&pSize=100&ATPT_OFCDC_SC_CODE=${schoolConfig.eduCode}&SD_SCHUL_CODE=${schoolConfig.schoolCode}&MLSV_FROM_YMD=${yearMonth}01&MLSV_TO_YMD=${yearMonth}31`;
         const res = await fetch(url);
         const data = await res.json();
 
         if (data.mealServiceDietInfo) {
           const rows = data.mealServiceDietInfo[1].row;
-          const newMeals = { lunch: ['급식 없음'], dinner: ['급식 없음'] };
+          const monthMeals: Record<string, { lunch: string[]; dinner: string[] }> = {};
           
           rows.forEach((row: any) => {
-            const cleanedMenu = row.DDISH_NM.split('<br/>')
+            const ymd = row.MLSV_YMD;
+            if (!ymd) return;
+            if (!monthMeals[ymd]) {
+              monthMeals[ymd] = { lunch: ['급식 없음'], dinner: ['급식 없음'] };
+            }
+            const cleanedMenu = String(row.DDISH_NM || '').split('<br/>')
               .map((item: string) => item.replace(/\s*\([\d\.,\s]+\)/g, '').replace(/[\d\.]+\*?$/g, '').trim())
               .filter(Boolean);
             
-            if (row.MMEAL_SC_CODE === '2') newMeals.lunch = cleanedMenu;     
-            else if (row.MMEAL_SC_CODE === '3') newMeals.dinner = cleanedMenu; 
+            if (row.MMEAL_SC_CODE === '2') monthMeals[ymd].lunch = cleanedMenu;     
+            else if (row.MMEAL_SC_CODE === '3') monthMeals[ymd].dinner = cleanedMenu; 
           });
           
-          setTempMeals(prev => ({ ...prev, [adminDateKey]: newMeals }));
-          alert(`📡 [NEIS 연동 완료] ${adminDate}의 급식을 가져왔습니다!`);
+          setTempMeals(prev => ({ ...prev, ...monthMeals }));
+          alert(`📡 [NEIS 연동 완료] ${yearMonth.substring(0, 4)}년 ${Number(yearMonth.substring(4, 6))}월 한 달 치(${Object.keys(monthMeals).length}일) 급식을 일괄 추출했습니다!`);
         } else {
-          alert(`⚠ 해당 날짜의 급식 데이터가 NEIS에 없습니다.`);
+          alert(`⚠ 해당 월의 급식 데이터가 NEIS에 없습니다.`);
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.log("Fetch error:", err.message);
       alert('❌ NEIS 연동 오류 발생');
+    } finally {
+      setIsNeisLoading(false);
+    }
+  };
+
+  const handleFetchRiroMeal = async () => {
+    if (!adminRiroUrl.trim()) {
+      alert('리로스쿨 주소(예: 학교아이디.riroschool.kr)를 입력해주세요.');
+      return;
+    }
+    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
+    const apiKey = isGemini ? (adminGeminiApiKey.trim() || schoolConfig.geminiApiKey) : (adminGroqApiKey.trim() || (schoolConfig as any).groqApiKey);
+    if (!apiKey) {
+      alert(`❌ [API 키 필요] 리로스쿨 식단 페이지 자동 분석을 위해 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
+      return;
+    }
+
+    setIsNeisLoading(true);
+    try {
+      const targetYear = adminDate.split('-')[0];
+      const targetMonth = adminDate.split('-')[1];
+      let htmlContent = '';
+
+      // 1. Electron 환경이면 IPC로 직접 접속 (로그인 세션 포함)
+      if ((window as any).electron?.ipcRenderer) {
+        const res = await (window as any).electron.ipcRenderer.invoke('fetch-riro-meal', {
+          url: adminRiroUrl.trim(),
+          riroId: adminRiroId.trim(),
+          riroPw: adminRiroPw.trim(),
+          year: targetYear,
+          month: targetMonth
+        });
+        if (res?.success && res?.data) {
+          htmlContent = res.data;
+        } else {
+          throw new Error(res?.error || '리로스쿨 접속에 실패했습니다.');
+        }
+      } else {
+        // 2. 웹 서버(/api/riro-meal) 호출 시도 후 실패 시 공개 CORS 프록시 우회
+        try {
+          const res = await fetch('/api/riro-meal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: adminRiroUrl.trim(),
+              riroId: adminRiroId.trim(),
+              riroPw: adminRiroPw.trim(),
+              year: targetYear,
+              month: targetMonth
+            })
+          });
+          const json = await res.json();
+          if (json?.success && json?.data) {
+            htmlContent = json.data;
+          }
+        } catch (e) {}
+
+        if (!htmlContent) {
+          let targetUrl = adminRiroUrl.trim();
+          if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+            targetUrl = 'https://' + targetUrl;
+          }
+          const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+          const proxyRes = await fetch(proxyUrl);
+          htmlContent = await proxyRes.text();
+        }
+      }
+
+      if (!htmlContent || htmlContent.length < 50) {
+        throw new Error('리로스쿨 페이지에서 식단 내용을 불러오지 못했습니다. 로그인이 필요한 학교라면 ID/PW를 입력하거나 아래 [식단 텍스트 붙여넣기]를 이용해주세요.');
+      }
+
+      const promptText = `
+너는 대한민국 학교 리로스쿨(RiroSchool) 및 학교 홈페이지 급식 식단 추출 AI야.
+기준 날짜는 ${adminDate} (연도: ${targetYear}년, 월: ${targetMonth}월, 선택일 키: "${adminDateKey}") 이야.
+아래 웹페이지 데이터에서 식단(중식/점심, 석식/저녁) 메뉴를 찾아서 날짜별 JSON으로 추출해줘.
+
+[엄격한 추출 규칙]
+1. 날짜가 명시되어 있으면 해당 날짜를 "YYYYMMDD" (예: "${adminDateKey}") 키로 사용해. 만약 '오늘의 식단'처럼 날짜 없이 메뉴만 적혀 있다면 "${adminDateKey}" 키에 넣어줘.
+2. 알레르기 번호(예: (1.2.5.6.13)), 칼로리(kcal), 영양소 숫자, 원산지 표시는 모두 제거하고 오직 깔끔한 '음식 이름'만 배열로 담아줘.
+3. 중식(점심)은 "lunch", 석식(저녁)은 "dinner" 배열에 넣어줘. 석식이 없으면 "dinner": ["급식 없음"] 으로 표시해.
+4. 만약 웹페이지에 로그인 창만 있고 급식 메뉴가 전혀 없다면 빈 객체 {} 만 반환해.
+5. 마크다운 백틱 없이 순수 JSON 객체만 출력해.
+
+데이터:
+${htmlContent.substring(0, 28000)}
+`;
+
+      const rawText = await callUnifiedAi(promptText, undefined, undefined, true);
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('식단 JSON 변환에 실패했습니다.');
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const dateKeys = Object.keys(parsed);
+      if (dateKeys.length === 0) {
+        throw new Error('페이지에서 급식 식단을 찾지 못했습니다. (로그인이 필요한 리로스쿨 페이지일 수 있습니다. 리로스쿨 ID/PW를 입력하거나 [식단 텍스트 붙여넣기]를 사용해보세요.)');
+      }
+
+      const newMeals = { ...tempMeals };
+      let count = 0;
+      for (const dKey of dateKeys) {
+        const lArr = Array.isArray(parsed[dKey]?.lunch) && parsed[dKey].lunch.length > 0 ? parsed[dKey].lunch : ['급식 없음'];
+        const dArr = Array.isArray(parsed[dKey]?.dinner) && parsed[dKey].dinner.length > 0 ? parsed[dKey].dinner : ['급식 없음'];
+        newMeals[dKey] = {
+          lunch: lArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean),
+          dinner: dArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean)
+        };
+        count++;
+      }
+
+      setTempMeals(newMeals);
+      alert(`✅ [리로스쿨 식단 연동 완료]\n총 ${count}일 치 급식 메뉴를 성공적으로 가져왔습니다! 하단의 [설정 저장]을 누르면 모든 교실에 반영됩니다.`);
+    } catch (err: any) {
+      alert(`❌ 리로스쿨 식단 연동 안내:\n${err?.message || '연동 중 오류가 발생했습니다.'}`);
+    } finally {
+      setIsNeisLoading(false);
+    }
+  };
+
+  const handleParseRiroText = async () => {
+    if (!riroPasteText.trim()) {
+      alert('리로스쿨에서 복사한 식단 텍스트를 붙여넣어 주세요.');
+      return;
+    }
+    const isGemini = (schoolConfig as any).aiProvider !== 'groq';
+    const apiKey = isGemini ? (adminGeminiApiKey.trim() || schoolConfig.geminiApiKey) : (adminGroqApiKey.trim() || (schoolConfig as any).groqApiKey);
+    if (!apiKey) {
+      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
+      return;
+    }
+
+    setIsNeisLoading(true);
+    try {
+      const targetYear = adminDate.split('-')[0];
+      const targetMonth = adminDate.split('-')[1];
+      const promptText = `
+너는 학교 리로스쿨 급식 식단 분석기야.
+사용자가 리로스쿨 화면에서 복사해 붙여넣은 아래 텍스트에서 급식 메뉴(중식, 석식)를 추출해줘.
+현재 선택된 기준 날짜는 ${adminDate} ("${adminDateKey}") 이고, 기준 연월은 ${targetYear}년 ${targetMonth}월이야.
+
+[규칙]
+1. 텍스트에 여러 날짜(예: 1일, 2일 또는 11/1, 11/2 등)가 있으면 각각 "${targetYear}${targetMonth}DD" 형태의 8자리 "YYYYMMDD" 키로 만들어줘.
+2. 텍스트에 특정 날짜 언급 없이 오늘의 메뉴만 적혀 있다면 "${adminDateKey}" 키 하나에 넣어줘.
+3. 알레르기 번호, 칼로리, 영양 정보는 모두 제거하고 순수 음식 이름만 배열로 넣어줘.
+4. 중식/점심 구분이 없고 메뉴만 나열되어 있으면 기본적으로 "lunch"(중식)에 넣고, 석식/저녁이라고 명시된 메뉴는 "dinner"(석식)에 넣어줘.
+5. 마크다운 없이 순수 JSON으로만 응답해.
+
+복사한 텍스트:
+${riroPasteText}
+`;
+      const rawText = await callUnifiedAi(promptText, undefined, undefined, true);
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('식단 텍스트 분석 실패');
+
+      const parsed = JSON.parse(jsonMatch[0]);
+      const newMeals = { ...tempMeals };
+      let count = 0;
+      for (const dKey in parsed) {
+        const lArr = Array.isArray(parsed[dKey]?.lunch) && parsed[dKey].lunch.length > 0 ? parsed[dKey].lunch : ['급식 없음'];
+        const dArr = Array.isArray(parsed[dKey]?.dinner) && parsed[dKey].dinner.length > 0 ? parsed[dKey].dinner : ['급식 없음'];
+        newMeals[dKey] = {
+          lunch: lArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean),
+          dinner: dArr.map((s: string) => String(s).replace(/\s*\([\d\.,\s]+\)/g, '').trim()).filter(Boolean)
+        };
+        count++;
+      }
+      setTempMeals(newMeals);
+      setRiroPasteText('');
+      setShowRiroPasteBox(false);
+      alert(`✅ 복사한 리로스쿨 식단에서 총 ${count}일 치 메뉴를 자동 등록했습니다!`);
+    } catch (err: any) {
+      alert(`❌ 식단 텍스트 분석 실패: ${err?.message}`);
     } finally {
       setIsNeisLoading(false);
     }
@@ -2418,7 +2652,10 @@ ${htmlText.substring(0, 30000)}
       popupTimeout: adminPopupTimeout,
       forcePopupDuringClass: adminForcePopupDuringClass,
       classroomTheme: adminClassroomTheme,
-      appinServerUrl: adminAppinServerUrl
+      appinServerUrl: adminAppinServerUrl,
+      riroUrl: adminRiroUrl.trim(),
+      riroId: adminRiroId.trim(),
+      riroPw: adminRiroPw.trim()
     };
     
     setSchoolConfig(newConfig);
@@ -4224,7 +4461,16 @@ ${htmlText.substring(0, 30000)}
 
               {/* 3. 급식 식단 관리 */}
               <section className="bg-[#1c2e25] border border-indigo-500/40 rounded-3xl p-6 shadow-xl space-y-4">
-                <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🍽️ 급식 식단 관리 ({adminDate})</h2>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <h2 className="text-base font-bold text-indigo-300 flex items-center gap-2">🍽️ 급식 식단 관리 ({adminDate})</h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowRiroPasteBox(prev => !prev)}
+                    className="px-3 py-1.5 bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-600/50 rounded-xl text-xs font-bold cursor-pointer transition-colors flex items-center gap-1.5"
+                  >
+                    <FileText size={13} /> {showRiroPasteBox ? '텍스트 붙여넣기 닫기' : '📋 리로스쿨 식단 텍스트 복사·붙여넣기'}
+                  </button>
+                </div>
                 
                 <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-3.5">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -4238,7 +4484,7 @@ ${htmlText.substring(0, 30000)}
                       />
                       <div className="px-3 py-2.5 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-colors w-full border border-emerald-600">
                         {isNeisLoading ? <Loader2 size={15} className="animate-spin" /> : <Utensils size={15} />}
-                        <span className="truncate">{mealFileName || '월간 급식표 이미지 업로드 (자동 채우기)'}</span>
+                        <span className="truncate">{mealFileName || '월간 급식표 이미지/PDF 업로드 (한달 자동 채우기)'}</span>
                       </div>
                     </div>
 
@@ -4248,30 +4494,98 @@ ${htmlText.substring(0, 30000)}
                       className="w-full px-3 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       {isNeisLoading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-                      나이스(NEIS) 서버에서 선택 날짜 급식 추출
+                      나이스(NEIS)에서 이번 달 급식 전체 추출
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 리로스쿨(RiroSchool) 식단 직접 연동 */}
+                  <div className="pt-3 border-t border-emerald-900/40 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+                        🌐 리로스쿨(RiroSchool) 오늘의 식단 연동
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        ※ 비로그인 공개 학교는 주소만 입력 / 로그인 필수 학교는 리로스쿨 ID·PW 입력
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                      <input
+                        type="text"
+                        value={adminRiroUrl}
+                        onChange={e => setAdminRiroUrl(e.target.value)}
+                        placeholder="리로스쿨 주소 (예: sajikgirls.riroschool.kr)"
+                        className="md:col-span-5 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
+                      />
+                      <input
+                        type="text"
+                        value={adminRiroId}
+                        onChange={e => setAdminRiroId(e.target.value)}
+                        placeholder="리로스쿨 ID (선택)"
+                        className="md:col-span-2 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
+                      />
+                      <input
+                        type="password"
+                        value={adminRiroPw}
+                        onChange={e => setAdminRiroPw(e.target.value)}
+                        placeholder="비밀번호 (선택)"
+                        className="md:col-span-2 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleFetchRiroMeal}
+                        disabled={isNeisLoading || !adminRiroUrl.trim()}
+                        className="md:col-span-3 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                      >
+                        {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                        리로스쿨 식단 가져오기
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 리로스쿨 식단 텍스트 복사 붙여넣기 박스 */}
+                  {showRiroPasteBox && (
+                    <div className="p-3.5 bg-[#162d22]/80 border border-indigo-500/50 rounded-2xl space-y-2.5 animate-fade-in">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-indigo-200">📋 리로스쿨 화면의 식단 글자를 드래그 복사(Ctrl+C)해서 아래에 붙여넣으세요</span>
+                        <button
+                          type="button"
+                          onClick={handleParseRiroText}
+                          disabled={isNeisLoading || !riroPasteText.trim()}
+                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow cursor-pointer flex items-center gap-1.5"
+                        >
+                          {isNeisLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                          AI 자동 분석 및 등록
+                        </button>
+                      </div>
+                      <textarea
+                        value={riroPasteText}
+                        onChange={e => setRiroPasteText(e.target.value)}
+                        placeholder="리로스쿨 [오늘의 식단] 또는 [월간 식단표] 페이지에서 텍스트를 드래그하여 복사한 뒤 여기에 붙여넣기(Ctrl+V) 하시면 중식·석식을 자동으로 분류하여 등록합니다."
+                        className="w-full h-24 p-2.5 bg-[#0d1813] border border-emerald-800 rounded-xl text-xs text-white resize-none outline-none focus:border-indigo-400"
+                      />
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-emerald-900/40">
                     <div className="space-y-1.5">
                       <label className="text-xs text-amber-300 font-bold block">{adminDate} 중식 (점심)</label>
                       <textarea 
-                        value={(tempMeals[adminDateKey] || {}).lunch || ''}
+                        value={Array.isArray((tempMeals[adminDateKey] || {}).lunch) ? (tempMeals[adminDateKey] || {}).lunch.join('\n') : ((tempMeals[adminDateKey] || {}).lunch || '')}
                         onChange={(e) => {
-                          const dayMeals = tempMeals[adminDateKey] || {};
-                          setTempMeals({ ...tempMeals, [adminDateKey]: { ...dayMeals, lunch: e.target.value } });
+                          const dayMeals = tempMeals[adminDateKey] || { lunch: [], dinner: [] };
+                          setTempMeals({ ...tempMeals, [adminDateKey]: { ...dayMeals, lunch: e.target.value.split('\n') } });
                         }}
                         className="w-full h-28 p-3 bg-[#162d22] border border-emerald-800 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
-                        placeholder="예: 기장밥\n미역국\n불고기\n배추김치"
+                        placeholder="예: 기장밥&#10;미역국&#10;불고기&#10;배추김치"
                       />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs text-amber-300 font-bold block">{adminDate} 석식 (저녁)</label>
                       <textarea 
-                        value={(tempMeals[adminDateKey] || {}).dinner || ''}
+                        value={Array.isArray((tempMeals[adminDateKey] || {}).dinner) ? (tempMeals[adminDateKey] || {}).dinner.join('\n') : ((tempMeals[adminDateKey] || {}).dinner || '')}
                         onChange={(e) => {
-                          const dayMeals = tempMeals[adminDateKey] || {};
-                          setTempMeals({ ...tempMeals, [adminDateKey]: { ...dayMeals, dinner: e.target.value } });
+                          const dayMeals = tempMeals[adminDateKey] || { lunch: [], dinner: [] };
+                          setTempMeals({ ...tempMeals, [adminDateKey]: { ...dayMeals, dinner: e.target.value.split('\n') } });
                         }}
                         className="w-full h-28 p-3 bg-[#162d22] border border-emerald-800 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
                         placeholder="해당 없음"

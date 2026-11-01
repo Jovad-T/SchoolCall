@@ -529,4 +529,85 @@ ipcMain.handle('fetch-local-url', async (event, { url }) => {
   }
 });
 
+ipcMain.handle('fetch-riro-meal', async (event, { url, riroId, riroPw, year, month }) => {
+  try {
+    let targetUrl = String(url || '').trim();
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = 'https://' + targetUrl;
+    }
+    const parsedUrl = new URL(targetUrl);
+    const origin = parsedUrl.origin;
+    const netFetch = require('electron').net.fetch || global.fetch;
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+    let cookieHeader = '';
+
+    if (riroId && riroPw) {
+      try {
+        const loginParams = new URLSearchParams();
+        loginParams.append('app', 'user');
+        loginParams.append('mode', 'login');
+        loginParams.append('userType', '1');
+        loginParams.append('id', String(riroId).trim());
+        loginParams.append('pw', String(riroPw).trim());
+
+        const loginRes = await netFetch(`${origin}/ajax.php`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'User-Agent': userAgent,
+            'Referer': `${origin}/user.php`,
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: loginParams.toString(),
+          redirect: 'manual'
+        });
+        const rawCookies = loginRes.headers.getSetCookie
+          ? loginRes.headers.getSetCookie()
+          : [loginRes.headers.get('set-cookie')].filter(Boolean);
+        if (rawCookies && rawCookies.length > 0) {
+          cookieHeader = rawCookies.map((c) => c.split(';')[0]).join('; ');
+        }
+      } catch (e) {}
+    }
+
+    const urlsToTry = [];
+    if (parsedUrl.pathname === '/' || parsedUrl.pathname === '') {
+      const ymQuery = year && month ? `?year=${year}&month=${String(month).padStart(2, '0')}` : '';
+      urlsToTry.push(`${origin}/meal.php${ymQuery}`);
+      urlsToTry.push(`${origin}/`);
+    } else {
+      urlsToTry.push(targetUrl);
+    }
+
+    let combinedHtml = '';
+    for (const u of urlsToTry) {
+      try {
+        const pageRes = await netFetch(u, {
+          headers: {
+            'User-Agent': userAgent,
+            'Referer': origin,
+            ...(cookieHeader ? { 'Cookie': cookieHeader } : {})
+          }
+        });
+        const html = await pageRes.text();
+        if (html && html.length > 100) {
+          const cleaned = html
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ')
+            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ')
+            .replace(/<!--[\s\S]*?-->/g, ' ')
+            .replace(/\s+/g, ' ');
+          combinedHtml += `\n[SOURCE: ${u}]\n` + cleaned.substring(0, 25000);
+        }
+      } catch (e) {}
+    }
+
+    if (!combinedHtml) {
+      return { success: false, error: '리로스쿨에서 데이터를 가져오지 못했습니다.' };
+    }
+    return { success: true, data: combinedHtml };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('get-app-mode', () => 'office');

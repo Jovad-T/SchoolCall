@@ -153,6 +153,99 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // 🍽️ Fetch RiroSchool Meal Page (supports optional ID/PW login session)
+  app.post("/api/riro-meal", async (req, res) => {
+    try {
+      const { url, riroId, riroPw, year, month } = req.body || {};
+      if (!url) {
+        return res.status(400).json({ success: false, error: "리로스쿨 주소를 입력해주세요." });
+      }
+
+      let targetUrl = String(url).trim();
+      if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+        targetUrl = "https://" + targetUrl;
+      }
+
+      const parsedUrl = new URL(targetUrl);
+      const origin = parsedUrl.origin;
+      const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+      let cookieHeader = "";
+
+      // Optional login if ID & PW provided
+      if (riroId && riroPw) {
+        try {
+          const loginParams = new URLSearchParams();
+          loginParams.append("app", "user");
+          loginParams.append("mode", "login");
+          loginParams.append("userType", "1");
+          loginParams.append("id", String(riroId).trim());
+          loginParams.append("pw", String(riroPw).trim());
+
+          const loginRes = await fetch(`${origin}/ajax.php`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+              "User-Agent": userAgent,
+              "Referer": `${origin}/user.php`,
+              "X-Requested-With": "XMLHttpRequest"
+            },
+            body: loginParams.toString(),
+            redirect: "manual"
+          });
+
+          const rawCookies = (loginRes.headers as any).getSetCookie
+            ? (loginRes.headers as any).getSetCookie()
+            : [loginRes.headers.get("set-cookie")].filter(Boolean);
+          if (rawCookies && rawCookies.length > 0) {
+            cookieHeader = rawCookies.map((c: string) => c.split(";")[0]).join("; ");
+          }
+        } catch (loginErr) {
+          console.warn("RiroSchool login attempt warning:", loginErr);
+        }
+      }
+
+      // Candidate URLs to fetch (the user's URL + /meal.php if user only entered the main domain)
+      const urlsToTry: string[] = [];
+      if (parsedUrl.pathname === "/" || parsedUrl.pathname === "") {
+        const ymQuery = year && month ? `?year=${year}&month=${String(month).padStart(2, "0")}` : "";
+        urlsToTry.push(`${origin}/meal.php${ymQuery}`);
+        urlsToTry.push(`${origin}/`);
+      } else {
+        urlsToTry.push(targetUrl);
+      }
+
+      let combinedHtml = "";
+      for (const u of urlsToTry) {
+        try {
+          const pageRes = await fetch(u, {
+            headers: {
+              "User-Agent": userAgent,
+              "Referer": origin,
+              ...(cookieHeader ? { "Cookie": cookieHeader } : {})
+            }
+          });
+          const html = await pageRes.text();
+          if (html && html.length > 100) {
+            const cleaned = html
+              .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, " ")
+              .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
+              .replace(/<!--[\s\S]*?-->/g, " ")
+              .replace(/\s+/g, " ");
+            combinedHtml += `\n[SOURCE: ${u}]\n` + cleaned.substring(0, 25000);
+          }
+        } catch (e) {}
+      }
+
+      if (!combinedHtml) {
+        return res.status(500).json({ success: false, error: "리로스쿨 페이지에서 데이터를 가져오지 못했습니다." });
+      }
+
+      res.json({ success: true, data: combinedHtml });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err?.message || "리로스쿨 연동 오류" });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
