@@ -654,6 +654,7 @@ export default function App() {
   const [adminRiroPw, setAdminRiroPw] = useState<string>((schoolConfig as any).riroPw || '');
   const [riroPasteText, setRiroPasteText] = useState<string>('');
   const [showRiroPasteBox, setShowRiroPasteBox] = useState<boolean>(false);
+  const [riroTargetMealType, setRiroTargetMealType] = useState<'lunch' | 'dinner'>('lunch');
   const [riroStatus, setRiroStatus] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
@@ -2063,6 +2064,11 @@ export default function App() {
       .replace(/&lt;/gi, '<')
       .replace(/&gt;/gi, '>');
 
+    // 복사한 텍스트 내부에 "2026년 11월" 등이 명시되어 있으면 해당 연/월을 우선 반영
+    const ymMatch = text.match(/(20\d{2})\s*[년.\-/]\s*(0?[1-9]|1[0-2])\s*월?/);
+    const effectiveYear = ymMatch ? ymMatch[1] : targetYear;
+    const effectiveMonth = ymMatch ? ymMatch[2].padStart(2, '0') : targetMonth.padStart(2, '0');
+
     // 크롬에서 표(table)를 Ctrl+A, Ctrl+C 복사할 때 셀(td) 사이가 탭(\t)으로 이어지므로 \r, \n, \t 모두 분리
     const rawLines = text.split(/[\r\n\t]+/).map(l => l.trim()).filter(Boolean);
 
@@ -2083,6 +2089,7 @@ export default function App() {
       if (/^\d+$/.test(s)) return '';
       if (/^\d{4}년|\d{1,2}월/.test(s)) return '';
       if (/^(일|월|화|수|목|금|토)(\s+(일|월|화|수|목|금|토))*$/.test(s)) return '';
+      if (/^\[?(조식|중식|석식|점심|저녁|아침)\]?$/.test(s)) return '';
       if (ignoreKeywords.some(k => s.includes(k))) return '';
       if (!/[가-힣]/.test(s)) return '';
       return s;
@@ -2102,7 +2109,9 @@ export default function App() {
     }
 
     let currentDay = 0;
-    let activeSubType: 'lunch' | 'dinner' = defaultMealType === 'dinner' ? 'dinner' : 'lunch';
+    const lockedSubType: 'lunch' | 'dinner' | null =
+      defaultMealType === 'lunch' ? 'lunch' : defaultMealType === 'dinner' ? 'dinner' : null;
+    let activeSubType: 'lunch' | 'dinner' = lockedSubType || 'lunch';
 
     for (let i = startIdx; i < rawLines.length; i++) {
       const line = rawLines[i];
@@ -2114,17 +2123,19 @@ export default function App() {
         // 달력 순서상 이전 날짜보다 크거나(1~31 오름차순), 아직 시작 안 했을 때 날짜 전환
         if (dNum >= currentDay && dNum <= 31 && (dNum - currentDay <= 7 || currentDay === 0)) {
           currentDay = dNum;
-          activeSubType = defaultMealType === 'dinner' ? 'dinner' : 'lunch';
+          activeSubType = lockedSubType || 'lunch';
           continue;
         }
       }
 
+      // 상단/하단 탭 메뉴('조식 | 중식 | 석식') 때문에 식단 종류가 석식으로 잘못 바뀌는 현상 방지:
+      // lockedSubType('lunch' 또는 'dinner')이 지정된 경우에는 절대 탭 글자로 바뀌지 않도록 고정
       if (/^\[?중식\]?$|^점심(\s*식단)?$/.test(line)) {
-        activeSubType = 'lunch';
+        if (!lockedSubType) activeSubType = 'lunch';
         continue;
       }
       if (/^\[?석식\]?$|^저녁(\s*식단)?$/.test(line)) {
-        activeSubType = 'dinner';
+        if (!lockedSubType) activeSubType = 'dinner';
         continue;
       }
       if (/^\[?조식\]?$|^아침(\s*식단)?$/.test(line)) {
@@ -2132,13 +2143,14 @@ export default function App() {
       }
 
       if (currentDay >= 1 && currentDay <= 31) {
-        const dateKey = `${targetYear}${targetMonth.padStart(2, '0')}${String(currentDay).padStart(2, '0')}`;
+        const dateKey = `${effectiveYear}${effectiveMonth}${String(currentDay).padStart(2, '0')}`;
         const food = cleanFoodItem(line);
         if (food) {
           if (!result[dateKey]) result[dateKey] = {};
-          const list = result[dateKey][activeSubType] || [];
+          const targetSlot = lockedSubType || activeSubType;
+          const list = result[dateKey][targetSlot] || [];
           if (!list.includes(food)) {
-            result[dateKey][activeSubType] = [...list, food];
+            result[dateKey][targetSlot] = [...list, food];
           }
         }
       }
@@ -2146,10 +2158,10 @@ export default function App() {
 
     // 만약 월간 달력 형태가 아니라 특정 하루 식단만 복사한 경우
     if (Object.keys(result).length === 0) {
-      let singleType: 'lunch' | 'dinner' = defaultMealType === 'dinner' ? 'dinner' : 'lunch';
+      let singleType: 'lunch' | 'dinner' = lockedSubType || 'lunch';
       for (const line of rawLines) {
-        if (/^\[?중식\]?$|^점심/.test(line)) { singleType = 'lunch'; continue; }
-        if (/^\[?석식\]?$|^저녁/.test(line)) { singleType = 'dinner'; continue; }
+        if (/^\[?중식\]?$|^점심/.test(line)) { if (!lockedSubType) singleType = 'lunch'; continue; }
+        if (/^\[?석식\]?$|^저녁/.test(line)) { if (!lockedSubType) singleType = 'dinner'; continue; }
         const food = cleanFoodItem(line);
         if (food) {
           if (!result[fallbackDateKey]) result[fallbackDateKey] = {};
@@ -2209,12 +2221,60 @@ export default function App() {
       setAdminDate(jumpedDateStr);
     }
 
-    const typeDesc = defaultMealType === 'dinner' ? '석식(저녁)' : defaultMealType === 'lunch' ? '중식(점심)' : '중식·석식';
+    const typeDesc = defaultMealType === 'dinner' ? '🌙 석식(저녁)' : defaultMealType === 'lunch' ? '☀️ 중식(점심)' : '중식·석식';
     setRiroStatus({
       type: 'success',
-      message: `✅ [${sourceLabel} 완료] 총 ${count}일 치 ${typeDesc} 메뉴가 달력에 일괄 저장·동기화되었습니다! (아래 ${jumpedDateStr} 식단 칸에서 바로 확인하실 수 있습니다.)`
+      message: `✅ [${sourceLabel} 완료] 총 ${count}일 치 ${typeDesc} 메뉴가 달력에 일괄 저장·동기화되었습니다! (아래 ${jumpedDateStr} 식단 칸에서 확인 가능 · 만약 중식/석식이 반대로 들어갔다면 우측 [중식↔석식 맞바꾸기] 버튼을 눌러주세요!)`
     });
     return true;
+  };
+
+  // 💡 실수로 중식을 석식 칸에(또는 석식을 중식 칸에) 넣었을 때 1초 만에 해당 월의 중식↔석식을 맞바꾸는 함수
+  const handleSwapMonthMeals = () => {
+    const adminYm = adminDateKey.substring(0, 6);
+    const { targetYear, targetMonth } = getRiroUrlMeta(adminRiroUrl);
+    const riroYm = `${targetYear}${targetMonth.padStart(2, '0')}`;
+
+    const allKeys = Object.keys(tempMeals);
+    // 현재 선택된 달(adminYm) 또는 리로스쿨 URL 달(riroYm)에 해당하는 날짜 키 찾기
+    let targetKeys = allKeys.filter(k => k.startsWith(adminYm));
+    if (targetKeys.length === 0 && riroYm !== adminYm) {
+      targetKeys = allKeys.filter(k => k.startsWith(riroYm));
+    }
+
+    if (targetKeys.length === 0) {
+      setRiroStatus({
+        type: 'warning',
+        message: `⚠️ 현재 선택된 달(${adminDate.substring(0, 7)})에 저장된 급식 데이터가 없습니다.`
+      });
+      return;
+    }
+
+    const newMeals: Record<string, { lunch: string[]; dinner: string[] }> = { ...tempMeals };
+    let swappedCount = 0;
+
+    for (const dKey of targetKeys) {
+      const item = newMeals[dKey];
+      if (!item) continue;
+      const oldLunch = item.lunch && item.lunch.length > 0 ? item.lunch : ['급식 없음'];
+      const oldDinner = item.dinner && item.dinner.length > 0 ? item.dinner : ['급식 없음'];
+      newMeals[dKey] = {
+        lunch: oldDinner,
+        dinner: oldLunch
+      };
+      swappedCount++;
+    }
+
+    setTempMeals(newMeals);
+    setMeals(newMeals);
+    try { localStorage.setItem('meal_data', JSON.stringify(newMeals)); } catch (e) {}
+    syncGlobalData({ meals: newMeals });
+
+    const ymStr = `${targetKeys[0].substring(0, 4)}년 ${Number(targetKeys[0].substring(4, 6))}월`;
+    setRiroStatus({
+      type: 'success',
+      message: `🔄 [${ymStr} 중식 ↔ 석식 맞바꾸기 완료] 총 ${swappedCount}일 치의 석식과 중식 위치를 즉시 맞바꾸어 저장했습니다! (방금 석식에 들어갔던 식단이 ☀️ 중식으로 모두 이동되었습니다.)`
+    });
   };
 
   const handleFetchRiroMeal = async () => {
@@ -2227,7 +2287,8 @@ export default function App() {
     setRiroStatus({ type: 'info', message: '⏳ 리로스쿨 페이지에 접속하여 식단 데이터를 확인하는 중입니다...' });
 
     try {
-      const { targetYear, targetMonth, defaultMealType } = getRiroUrlMeta(adminRiroUrl);
+      const { targetYear, targetMonth } = getRiroUrlMeta(adminRiroUrl);
+      const effectiveMealType: 'lunch' | 'dinner' = riroTargetMealType;
       let htmlContent = '';
       let isGeoBlocked = false;
 
@@ -2301,15 +2362,15 @@ export default function App() {
       }
 
       // 1차: API 키 없이도 동작하는 자체 달력/식단 파서 실행
-      const detResult = parseRiroMealDeterministic(htmlContent, targetYear, targetMonth, defaultMealType, adminDateKey);
-      if (applyExtractedRiroMeals(detResult, defaultMealType, '리로스쿨 식단 연동')) {
+      const detResult = parseRiroMealDeterministic(htmlContent, targetYear, targetMonth, effectiveMealType, adminDateKey);
+      if (applyExtractedRiroMeals(detResult, effectiveMealType, '리로스쿨 식단 연동')) {
         return;
       }
 
       // 2차: AI 파서 폴백
       const promptText = `
 너는 대한민국 학교 리로스쿨(RiroSchool) 급식 식단 추출 AI야.
-기준 연월은 ${targetYear}년 ${targetMonth}월이고, 기본 식단 구분은 "${defaultMealType === 'dinner' ? '석식(dinner)' : defaultMealType === 'lunch' ? '중식(lunch)' : '중식 및 석식'}" 이야.
+기준 연월은 ${targetYear}년 ${targetMonth}월이고, 기본 식단 구분은 "${effectiveMealType === 'dinner' ? '석식(dinner)' : '중식(lunch)'}" 이야.
 아래 데이터에서 날짜별 식단 메뉴를 찾아서 JSON으로 추출해줘.
 날짜 키는 반드시 "${targetYear}${targetMonth}DD" 8자리(예: "${targetYear}${targetMonth}02") 형식으로 만들고, 값은 { "lunch": [...], "dinner": [...] } 형태로 반환해.
 마찬가지로 알레르기 숫자나 kcal는 제거해줘.
@@ -2321,7 +2382,7 @@ ${htmlContent.substring(0, 28000)}
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
-        if (applyExtractedRiroMeals(parsed, defaultMealType, '리로스쿨 AI 식단 연동')) {
+        if (applyExtractedRiroMeals(parsed, effectiveMealType, '리로스쿨 AI 식단 연동')) {
           return;
         }
       }
@@ -2342,37 +2403,44 @@ ${htmlContent.substring(0, 28000)}
     }
   };
 
-  const handleParseRiroText = async (overrideText?: string) => {
+  const handleParseRiroText = async (overrideText?: string, forcedMealType?: 'lunch' | 'dinner') => {
     const textToParse = (overrideText !== undefined ? overrideText : riroPasteText).trim();
     if (!textToParse) {
       setRiroStatus({ type: 'warning', message: '⚠️ 리로스쿨 식단 페이지에서 복사한 텍스트를 아래 칸에 붙여넣어 주세요.' });
       return;
     }
 
+    const effectiveMealType: 'lunch' | 'dinner' = forcedMealType || riroTargetMealType || 'lunch';
+    if (forcedMealType) {
+      setRiroTargetMealType(forcedMealType);
+    }
+
     setIsNeisLoading(true);
-    setRiroStatus({ type: 'info', message: '⏳ 붙여넣은 리로스쿨 식단 데이터를 날짜별로 자동 분석 중입니다...' });
+    setRiroStatus({
+      type: 'info',
+      message: `⏳ 붙여넣은 리로스쿨 식단을 [${effectiveMealType === 'lunch' ? '☀️ 중식(점심)' : '🌙 석식(저녁)'}] 메뉴로 자동 분석 중입니다...`
+    });
 
     try {
-      const { targetYear, targetMonth, defaultMealType } = getRiroUrlMeta(adminRiroUrl);
+      const { targetYear, targetMonth } = getRiroUrlMeta(adminRiroUrl);
 
-      // 1차: API 키 없이 즉시 작동하는 자체 달력 파서로 추출
-      const detResult = parseRiroMealDeterministic(textToParse, targetYear, targetMonth, defaultMealType, adminDateKey);
-      if (applyExtractedRiroMeals(detResult, defaultMealType, '리로스쿨 텍스트 자동 분석')) {
+      // 1차: API 키 없이 즉시 작동하는 자체 달력 파서로 추출 (URL의 기존 meal_code에 끌려가지 않고 사용자가 선택한 중식/석식 기준 적용)
+      const detResult = parseRiroMealDeterministic(textToParse, targetYear, targetMonth, effectiveMealType, adminDateKey);
+      if (applyExtractedRiroMeals(detResult, effectiveMealType, '리로스쿨 식단 자동 등록')) {
         setRiroPasteText('');
-        setShowRiroPasteBox(false);
         return;
       }
 
       // 2차: 자체 파서로 날짜 매칭이 안 된 특수 형식일 경우 AI 파서 호출
       const promptText = `
 너는 학교 리로스쿨 급식 식단 분석기야.
-사용자가 리로스쿨 화면에서 복사해 붙여넣은 아래 텍스트에서 급식 메뉴(중식, 석식)를 추출해줘.
-기준 연월은 ${targetYear}년 ${targetMonth}월이고, 선택 기준일은 "${adminDateKey}", 기본 식단 구분은 "${defaultMealType}" 이야.
+사용자가 리로스쿨 화면에서 복사해 붙여넣은 아래 텍스트에서 급식 메뉴를 추출해줘.
+기준 연월은 ${targetYear}년 ${targetMonth}월이고, 선택 기준일은 "${adminDateKey}", 식단 구분은 "${effectiveMealType}" 이야.
 
 [규칙]
 1. 텍스트에 여러 날짜(예: 1, 2, 3... 또는 1일, 2일)가 있으면 각각 "${targetYear}${targetMonth}DD" 형태의 8자리 "YYYYMMDD" 키로 만들어줘.
-2. 기본 식단 구분이 "dinner"(석식)이면 메뉴들을 "dinner" 배열에 넣고 "lunch"는 빈 배열 [] 로 둬.
-3. 기본 식단 구분이 "lunch"(중식)이면 메뉴들을 "lunch" 배열에 넣고 "dinner"는 빈 배열 [] 로 둬.
+2. 식단 구분이 "dinner"(석식)이면 메뉴들을 "dinner" 배열에 넣고 "lunch"는 빈 배열 [] 로 둬.
+3. 식단 구분이 "lunch"(중식)이면 메뉴들을 "lunch" 배열에 넣고 "dinner"는 빈 배열 [] 로 둬.
 4. 알레르기 번호, 칼로리(kcal), 영양 정보는 모두 제거하고 순수 음식 이름만 배열로 넣어줘.
 5. 마크다운 없이 순수 JSON으로만 응답해.
 
@@ -2384,9 +2452,8 @@ ${textToParse}
       if (!jsonMatch) throw new Error('식단 텍스트에서 메뉴를 찾지 못했습니다.');
 
       const parsed = JSON.parse(jsonMatch[0]);
-      if (applyExtractedRiroMeals(parsed, defaultMealType, '리로스쿨 AI 식단 분석')) {
+      if (applyExtractedRiroMeals(parsed, effectiveMealType, '리로스쿨 AI 식단 분석')) {
         setRiroPasteText('');
-        setShowRiroPasteBox(false);
       } else {
         throw new Error('추출된 식단 메뉴가 없습니다. 리로스쿨 식단표 화면에서 전체 선택(Ctrl+A) 후 복사(Ctrl+C)했는지 확인해주세요.');
       }
@@ -4723,18 +4790,27 @@ ${htmlText.substring(0, 30000)}
 
                   {/* 리로스쿨(RiroSchool) 식단 직접 연동 */}
                   <div className="pt-3 border-t border-emerald-900/40 space-y-2.5">
-                    <div className="flex items-center justify-between flex-wrap gap-1">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
                         🌐 리로스쿨(RiroSchool) 월간 식단 연동
                       </span>
-                      <span className="text-[11px] text-amber-300/90 font-medium">
-                        {(() => {
-                          const meta = getRiroUrlMeta(adminRiroUrl);
-                          if (!adminRiroUrl.trim()) return '※ 리로스쿨 식단 URL 입력 후 [식단 페이지 열기] → 전체복사(Ctrl+A, Ctrl+C) → 붙여넣기(Ctrl+V)';
-                          const mealLabel = meta.defaultMealType === 'dinner' ? '🌙 석식(저녁) 모드' : meta.defaultMealType === 'lunch' ? '☀️ 중식(점심) 모드' : '중식·석식 통합';
-                          return `🎯 감지됨: ${meta.targetYear}년 ${Number(meta.targetMonth)}월 · ${mealLabel}`;
-                        })()}
-                      </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-amber-300 font-bold px-2.5 py-1 rounded-lg bg-black/40 border border-amber-500/30">
+                          {(() => {
+                            const meta = getRiroUrlMeta(adminRiroUrl);
+                            const modeLabel = riroTargetMealType === 'lunch' ? '☀️ 현재 저장 대상: 중식(점심)' : '🌙 현재 저장 대상: 석식(저녁)';
+                            return `🎯 기준월: ${meta.targetYear}년 ${Number(meta.targetMonth)}월 · ${modeLabel}`;
+                          })()}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleSwapMonthMeals}
+                          className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[11px] font-black shadow transition-colors cursor-pointer flex items-center gap-1"
+                          title="방금 붙여넣은 중식이 석식 칸에 들어갔을 때 클릭하면 이번 달 중식과 석식 위치를 1초 만에 맞바꿉니다"
+                        >
+                          🔄 이번 달 중식 ↔ 석식 위치 맞바꾸기
+                        </button>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
                       <input
@@ -4755,6 +4831,7 @@ ${htmlText.substring(0, 30000)}
                             base += (base.includes('?') ? '&' : '?') + 'meal_code=%EC%A4%91%EC%8B%9D';
                           }
                           setAdminRiroUrl(base);
+                          setRiroTargetMealType('lunch');
                           setShowRiroPasteBox(true);
                           window.open(base, '_blank', 'noopener,noreferrer');
                         }}
@@ -4773,6 +4850,7 @@ ${htmlText.substring(0, 30000)}
                             base += (base.includes('?') ? '&' : '?') + 'meal_code=%EC%84%9D%EC%8B%9D';
                           }
                           setAdminRiroUrl(base);
+                          setRiroTargetMealType('dinner');
                           setShowRiroPasteBox(true);
                           window.open(base, '_blank', 'noopener,noreferrer');
                         }}
@@ -4782,26 +4860,35 @@ ${htmlText.substring(0, 30000)}
                       </button>
                     </div>
                     <p className="text-[11px] text-slate-400">
-                      💡 리로스쿨은 학교 보안 정책(CloudFront 방화벽)상 외부 서버의 아이디/비번 대리 접속을 차단합니다. 위 버튼으로 페이지를 열어 <strong>Ctrl+A ➔ Ctrl+C</strong> 복사 후 아래 칸에 <strong>Ctrl+V</strong>만 하시면 한 달 치가 즉시 자동 입력됩니다!
+                      💡 주소창에 <code>meal_code=석식</code>이 적혀 있어도 걱정하지 마세요! 아래에서 <strong>[☀️ 중식(점심)으로 등록]</strong> 또는 <strong>[🌙 석식(저녁)으로 등록]</strong>을 직접 선택해 정확히 넣을 수 있습니다.
                     </p>
                   </div>
 
                   {/* 상태 알림 배너 (iframe alert 차단 완벽 대응) */}
                   {riroStatus && (
-                    <div className={`p-3.5 rounded-2xl border text-xs font-bold leading-relaxed flex items-start justify-between gap-3 animate-fade-in ${
+                    <div className={`p-3.5 rounded-2xl border text-xs font-bold leading-relaxed flex items-center justify-between gap-3 flex-wrap animate-fade-in ${
                       riroStatus.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200' :
                       riroStatus.type === 'warning' ? 'bg-amber-950/80 border-amber-500/60 text-amber-200' :
                       riroStatus.type === 'error' ? 'bg-rose-950/80 border-rose-500/60 text-rose-200' :
                       'bg-indigo-950/80 border-indigo-500/60 text-indigo-200'
                     }`}>
-                      <span className="break-keep">{riroStatus.message}</span>
-                      <button
-                        type="button"
-                        onClick={() => setRiroStatus(null)}
-                        className="text-white/60 hover:text-white shrink-0 cursor-pointer"
-                      >
-                        <X size={14} />
-                      </button>
+                      <span className="break-keep flex-1">{riroStatus.message}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleSwapMonthMeals}
+                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-[11px] font-black shadow cursor-pointer whitespace-nowrap"
+                        >
+                          🔄 중식↔석식 맞바꾸기
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRiroStatus(null)}
+                          className="text-white/60 hover:text-white shrink-0 cursor-pointer"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
                     </div>
                   )}
 
@@ -4809,43 +4896,54 @@ ${htmlText.substring(0, 30000)}
                   {(showRiroPasteBox || adminRiroUrl.trim()) && (
                     <div className="p-4 bg-[#162d22]/90 border-2 border-indigo-500/60 rounded-2xl space-y-3 animate-fade-in">
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           <span className="text-xs font-black text-indigo-200 block">
-                            ⚡ 2단계: 복사한 리로스쿨 식단표 붙여넣기 (붙여넣는 즉시 1달 치 자동 등록!)
+                            ⚡ 2단계: 복사한 리로스쿨 식단표 붙여넣기 (중식 / 석식 선택 가능!)
                           </span>
-                          <span className="text-[11px] text-slate-300 block">
-                            열린 리로스쿨 식단 탭에서 <strong>Ctrl + A (전체선택)</strong> 후 <strong>Ctrl + C (복사)</strong> ➔ 아래 입력창을 클릭하고 <strong>Ctrl + V (붙여넣기)</strong> 하세요!
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                            <span className="text-[11px] text-slate-300 font-bold">붙여넣기(Ctrl+V) 시 자동 저장할 위치:</span>
+                            <button
+                              type="button"
+                              onClick={() => setRiroTargetMealType('lunch')}
+                              className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                riroTargetMealType === 'lunch'
+                                  ? 'bg-amber-500 text-black ring-2 ring-amber-300 shadow-md'
+                                  : 'bg-black/40 text-slate-400 hover:text-white border border-white/10'
+                              }`}
+                            >
+                              ☀️ 중식(점심) 모드 {riroTargetMealType === 'lunch' ? '✓' : ''}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRiroTargetMealType('dinner')}
+                              className={`px-3 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                riroTargetMealType === 'dinner'
+                                  ? 'bg-indigo-500 text-white ring-2 ring-indigo-300 shadow-md'
+                                  : 'bg-black/40 text-slate-400 hover:text-white border border-white/10'
+                              }`}
+                            >
+                              🌙 석식(저녁) 모드 {riroTargetMealType === 'dinner' ? '✓' : ''}
+                            </button>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <button
                             type="button"
-                            onClick={async () => {
-                              try {
-                                const clipText = await navigator.clipboard.readText();
-                                if (clipText && clipText.trim()) {
-                                  setRiroPasteText(clipText);
-                                  handleParseRiroText(clipText);
-                                } else {
-                                  setRiroStatus({ type: 'warning', message: '⚠️ 클립보드가 비어 있습니다. 리로스쿨 화면에서 Ctrl+A 후 Ctrl+C를 먼저 눌러주세요.' });
-                                }
-                              } catch (e) {
-                                setRiroStatus({ type: 'warning', message: '⚠️ 브라우저 권한상 아래 입력칸을 직접 클릭하여 Ctrl+V (붙여넣기)를 눌러주세요!' });
-                              }
-                            }}
-                            disabled={isNeisLoading}
-                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
+                            onClick={() => handleParseRiroText(undefined, 'lunch')}
+                            disabled={isNeisLoading || !riroPasteText.trim()}
+                            className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
                           >
-                            📋 클립보드에서 바로 자동 적용
+                            {isNeisLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                            ☀️ 붙여넣은 식단 [중식]으로 등록
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleParseRiroText()}
+                            onClick={() => handleParseRiroText(undefined, 'dinner')}
                             disabled={isNeisLoading || !riroPasteText.trim()}
-                            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
                           >
                             {isNeisLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                            ⚡ 붙여넣은 식단 등록
+                            🌙 붙여넣은 식단 [석식]으로 등록
                           </button>
                         </div>
                       </div>
@@ -4857,16 +4955,29 @@ ${htmlText.substring(0, 30000)}
                           if (pasted && pasted.trim().length > 20) {
                             e.preventDefault();
                             setRiroPasteText(pasted);
-                            setTimeout(() => handleParseRiroText(pasted), 50);
+                            setTimeout(() => handleParseRiroText(pasted, riroTargetMealType), 50);
                           }
                         }}
-                        placeholder="여기를 클릭하고 Ctrl + V (붙여넣기) 하세요! 붙여넣는 즉시 1일~말일 날짜를 자동으로 인식해 달력에 일괄 입력됩니다."
+                        placeholder={`여기를 클릭하고 Ctrl + V (붙여넣기) 하세요! 현재 선택된 [${riroTargetMealType === 'lunch' ? '☀️ 중식(점심)' : '🌙 석식(저녁)'}] 칸으로 1일~말일 식단이 즉시 자동 입력됩니다.`}
                         className="w-full h-24 p-3 bg-[#0d1813] border border-emerald-700 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
                       />
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-emerald-900/40">
+                  <div className="flex items-center justify-between pt-2 border-t border-emerald-900/40">
+                    <span className="text-xs font-bold text-slate-300">
+                      📅 선택된 날짜({adminDate}) 식단 확인 및 직접 수정
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleSwapMonthMeals}
+                      className="px-3 py-1 bg-emerald-800/80 hover:bg-emerald-700 text-amber-200 border border-amber-500/40 rounded-lg text-[11px] font-bold cursor-pointer transition-colors"
+                    >
+                      🔄 방금 석식으로 들어간 이번 달 식단 ➔ 중식으로 일괄 이동 (중식↔석식 맞바꾸기)
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-xs text-amber-300 font-bold block">{adminDate} 중식 (점심)</label>
                       <textarea 
@@ -5394,34 +5505,34 @@ ${htmlText.substring(0, 30000)}
           <div className="flex-1 grid grid-cols-2 grid-rows-1 gap-5 min-h-0">
             {/* Lunch Card */}
             <div className={`rounded-3xl p-5 border shadow-xl flex flex-col h-full min-h-0 relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
-              <div className="flex justify-center mb-4 shrink-0">
+              <div className="flex justify-center mb-2 shrink-0">
                 <div className="bg-amber-900/40 border border-amber-800/50 text-amber-500 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Utensils size={14} /> 점심 식단
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center text-center">
-                <div className={`text-lg xl:text-2xl font-bold leading-[1.8] break-keep w-full flex flex-col gap-0.5 transition-colors duration-1000 ${th.textMain}`}>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-evenly text-center px-2 py-3">
+                <div className={`text-2xl xl:text-3xl font-black tracking-tight leading-relaxed break-keep w-full flex flex-col gap-3.5 transition-colors duration-1000 ${th.textMain}`}>
                   {todayMealsObj?.lunch ? renderMealList(todayMealsObj.lunch) : <span className="text-emerald-600/60 italic text-sm">급식 정보가 없습니다.</span>}
                 </div>
               </div>
-              <div className="mt-3 text-center shrink-0">
+              <div className="mt-2 text-center shrink-0">
                 <span className={`text-[10px] font-bold tracking-[0.2em] transition-colors duration-1000 ${th.periodText}`}>LUNCH MENU</span>
               </div>
             </div>
 
             {/* Dinner Card */}
             <div className={`rounded-3xl p-5 border shadow-xl flex flex-col h-full min-h-0 relative overflow-hidden group transition-colors duration-1000 ${th.tableHeader}`}>
-              <div className="flex justify-center mb-4 shrink-0">
+              <div className="flex justify-center mb-2 shrink-0">
                 <div className="bg-indigo-900/30 border border-indigo-800/50 text-indigo-400 px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 shadow-sm">
                   <Moon size={14} /> 저녁 식단
                 </div>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center text-center">
-                <div className={`text-lg xl:text-2xl font-bold leading-[1.8] break-keep w-full flex flex-col gap-0.5 transition-colors duration-1000 ${th.textMain}`}>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col items-center justify-evenly text-center px-2 py-3">
+                <div className={`text-2xl xl:text-3xl font-black tracking-tight leading-relaxed break-keep w-full flex flex-col gap-3.5 transition-colors duration-1000 ${th.textMain}`}>
                   {todayMealsObj?.dinner ? renderMealList(todayMealsObj.dinner) : <span className="text-emerald-600/60 italic text-sm">해당 없음</span>}
                 </div>
               </div>
-              <div className="mt-3 text-center shrink-0">
+              <div className="mt-2 text-center shrink-0">
                 <span className={`text-[10px] font-bold tracking-[0.2em] transition-colors duration-1000 ${th.periodText}`}>DINNER MENU</span>
               </div>
             </div>
