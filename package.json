@@ -47,7 +47,7 @@
     "build:class": "vite build && electron-builder --win nsis -c.extraMetadata.main=\"class.cjs\" -c.productName=\"SchoolCallApp\" -c.nsis.shortcutName=\"SchoolCallApp\" -c.nsis.artifactName=\"SchoolCallApp_Class_Setup_v${version}.${ext}\" -c.directories.output=\"dist_class\""
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
+    "@google/genai": "^2.32.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "chokidar": "^5.0.0",

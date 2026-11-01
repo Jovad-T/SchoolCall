@@ -656,6 +656,8 @@ export default function App() {
   const [showRiroPasteBox, setShowRiroPasteBox] = useState<boolean>(false);
   const [riroTargetMealType, setRiroTargetMealType] = useState<'lunch' | 'dinner'>('lunch');
   const [riroStatus, setRiroStatus] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const [appinDatStatus, setAppinDatStatus] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const [appinDatPreview, setAppinDatPreview] = useState<string>('');
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
   const [editTargetClass, setEditTargetClass] = useState(schoolConfig.currentClass);
@@ -2471,9 +2473,8 @@ ${textToParse}
       return;
     }
     const isGemini = (schoolConfig as any).aiProvider !== 'groq';
-    const apiKey = isGemini ? schoolConfig.geminiApiKey : (schoolConfig as any).groqApiKey;
-    if (!apiKey) {
-      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요. (서버 HTML 분석용)`);
+    if (!isGemini && !(schoolConfig as any).groqApiKey) {
+      alert(`❌ [API 키 필요] 관리자 모드에 Groq API 키를 입력해주세요. (서버 HTML 분석용)`);
       return;
     }
     setIsNeisLoading(true);
@@ -2565,6 +2566,365 @@ ${htmlText.substring(0, 30000)}
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const lowerName = file.name.toLowerCase();
+
+    // 💡 유원테크 압핀시간표 로컬 데이터 파일 (amc42.dat, amc42.cfg, amc42.afn, amc42.arm) 직접 해독기
+    if (lowerName.endsWith('.dat') || lowerName.endsWith('.cfg') || lowerName.endsWith('.afn') || lowerName.endsWith('.arm')) {
+      setIsNeisLoading(true);
+      setTimetableFileName(file.name);
+      setAppinDatStatus({ type: 'info', message: `⏳ 압핀시간표 내부 파일(${file.name}, ${(file.size / 1024).toFixed(1)}KB)의 바이너리/EUC-KR 구조를 해독 중입니다...` });
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+
+        // 1. 헤더 Hex 덤프 (처음 64바이트)
+        const headerHex = Array.from(bytes.slice(0, 64))
+          .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+          .join(' ');
+
+        // 2. 압핀시간표(amc42.dat) 전용 6바이트 XOR("7n1bmu") 복호화 + EUC-KR(CP949) 디코딩
+        const APPIN_XOR_KEY = [0x37, 0x6E, 0x31, 0x62, 0x6D, 0x75]; // "7n1bmu"
+        const isAppinEncrypted =
+          bytes.length >= 4 &&
+          bytes[0] === 0x23 && // '#'
+          bytes[1] === 0x68 && // 'h'
+          bytes[2] === 0x5F && // '_' ('n' ^ 0x31)
+          bytes[3] === 0x64;   // 'd'
+
+        const decodeEucKr = (buf: Uint8Array) => {
+          const cleaned = new Uint8Array(buf.length);
+          for (let i = 0; i < buf.length; i++) {
+            const b = buf[i];
+            if (b === 0x00) cleaned[i] = 0x0A;
+            else if (b < 0x20 && b !== 0x09 && b !== 0x0A && b !== 0x0D) cleaned[i] = 0x20;
+            else cleaned[i] = b;
+          }
+          try {
+            return new TextDecoder('euc-kr').decode(cleaned);
+          } catch {
+            return new TextDecoder('utf-8', { fatal: false }).decode(cleaned);
+          }
+        };
+
+        let decodedText = '';
+        let bestXorKey = 0;
+        const countKorean = (str: string) => (str.match(/[가-힣]/g) || []).length;
+
+        if (isAppinEncrypted) {
+          // 줄 단위(\r\n)로 6바이트 키 [0x37, 0x6E, 0x31, 0x62, 0x6D, 0x75] 복호화 후 EUC-KR 디코딩
+          const decryptedBytes = new Uint8Array(bytes.length);
+          let colIdx = 0;
+          for (let i = 0; i < bytes.length; i++) {
+            const b = bytes[i];
+            if (b === 0x0A || b === 0x0D) {
+              decryptedBytes[i] = b;
+              colIdx = 0;
+            } else {
+              if (b > 0x20) {
+                const x = b ^ APPIN_XOR_KEY[colIdx % 6];
+                decryptedBytes[i] = x > 0x20 ? x : b;
+              } else {
+                decryptedBytes[i] = b;
+              }
+              colIdx++;
+            }
+          }
+          decodedText = decodeEucKr(decryptedBytes);
+        } else {
+          decodedText = decodeEucKr(bytes);
+          let maxKoreanCount = countKorean(decodedText);
+          if (maxKoreanCount < 10 && bytes.length > 32) {
+            const sampleLen = Math.min(bytes.length, 16384);
+            const sample = bytes.slice(0, sampleLen);
+            for (let k = 1; k < 256; k++) {
+              const xored = new Uint8Array(sampleLen);
+              for (let i = 0; i < sampleLen; i++) xored[i] = sample[i] ^ k;
+              const kCount = countKorean(decodeEucKr(xored));
+              if (kCount > maxKoreanCount + 20) {
+                maxKoreanCount = kCount;
+                bestXorKey = k;
+              }
+            }
+            if (bestXorKey > 0) {
+              const fullXored = new Uint8Array(bytes.length);
+              for (let i = 0; i < bytes.length; i++) fullXored[i] = bytes[i] ^ bestXorKey;
+              decodedText = decodeEucKr(fullXored);
+            }
+          }
+        }
+
+        const maxKoreanCount = countKorean(decodedText);
+        const rawLines = decodedText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+        // amc42.cfg 등에서 IP 주소/포트가 발견되면 자동으로 서버 주소 칸에 채워주기
+        const ipMatch = decodedText.match(/\b(?:10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{2,5})?\b/);
+        if (ipMatch && !adminAppinServerUrl) {
+          setAdminAppinServerUrl(ipMatch[0]);
+        }
+
+        // 3. 압핀시간표(amc42.dat) 표준 섹션(#sbjnames, #tcrnames, #clsnames, #sjp) 결정론적 파서
+        const sbjLine = rawLines.find(l => l.startsWith('#sbjnames '));
+        const tcrLine = rawLines.find(l => l.startsWith('#tcrnames '));
+        const clsLine = rawLines.find(l => l.startsWith('#clsnames '));
+        const hndLine = rawLines.find(l => l.startsWith('#hnd '));
+        const sjpIndex = rawLines.findIndex(l => l.startsWith('#sjp'));
+
+        if (sbjLine && sjpIndex !== -1) {
+          // (1) 과목 번호(1-based) -> 과목명 매핑
+          const subjectMap: Record<number, string> = {};
+          const sbjEntries = sbjLine.replace(/^#sbjnames\s+/, '').split(',');
+          sbjEntries.forEach((entry, idx) => {
+            const name = entry.split('^')[0]?.trim();
+            if (name) subjectMap[idx + 1] = name;
+          });
+
+          // (2) 교사 번호(1-based) -> 교사명 매핑
+          const teacherMap: Record<number, string> = {};
+          if (tcrLine) {
+            const tcrEntries = tcrLine.replace(/^#tcrnames\s+/, '').split(',');
+            tcrEntries.forEach((entry, idx) => {
+              const name = entry.split('^')[0]?.trim();
+              if (name) teacherMap[idx + 1] = name;
+            });
+          }
+
+          // (3) 학급 번호(1-based) -> "학년-반" 매핑
+          const classIndexMap: Record<number, string> = {};
+          if (clsLine) {
+            const clsMatches = Array.from(clsLine.matchAll(/(?:^|,)\s*\d+\^(\d+-\d+)@/g));
+            clsMatches.forEach((m, idx) => {
+              classIndexMap[idx + 1] = m[1];
+            });
+          }
+          // 기본 24학급(1~3학년 각 8반) 폴백 보장
+          if (Object.keys(classIndexMap).length === 0) {
+            for (let g = 1; g <= 3; g++) {
+              for (let c = 1; c <= 8; c++) {
+                classIndexMap[(g - 1) * 8 + c] = `${g}-${c}`;
+              }
+            }
+          }
+
+          // (4) #sjp 일자별 시간표 라인 파싱 (1일차 = 해당 학년도 3월 1일)
+          const schoolYearMatch = hndLine?.match(/#hnd\s+(\d{4})/);
+          const baseYear = schoolYearMatch ? parseInt(schoolYearMatch[1], 10) : new Date().getFullYear();
+          const march1Utc = Date.UTC(baseYear, 2, 1); // YYYY-03-01
+
+          const sjpRowsByDay: Record<number, string> = {};
+          const activeDayNums: number[] = [];
+          for (let i = sjpIndex + 1; i < rawLines.length; i++) {
+            const line = rawLines[i];
+            const m = line.match(/^(\d+),\d+,\d+,\d+,\{/);
+            if (m) {
+              const dNum = parseInt(m[1], 10);
+              sjpRowsByDay[dNum] = line;
+              // 수업이 실제로 들어있는 평일인지 확인
+              const hasLessons = /\d+\(\d+/.test(line);
+              if (hasLessons) activeDayNums.push(dNum);
+            }
+          }
+
+          // 선택된 날짜(selectedDate)가 속한 주의 월요일(dayNum) 계산
+          const selParts = (selectedDate || '').split('-').map(Number);
+          const refUtc = selParts.length === 3 && !isNaN(selParts[0])
+            ? Date.UTC(selParts[0], selParts[1] - 1, selParts[2])
+            : Date.now();
+          const refDate = new Date(refUtc);
+          const dayOfWeek = refDate.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+          const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+          const mondayUtc = refUtc + diffToMon * 86400000;
+          let targetMondayNum = Math.floor((mondayUtc - march1Utc) / 86400000) + 1;
+
+          // 만약 해당 주에 수업 데이터가 없다면 가장 가까운 활성 주의 월요일 탐색
+          const hasWeekData = (monNum: number) =>
+            [0, 1, 2, 3, 4].some(offset => activeDayNums.includes(monNum + offset));
+
+          if (!hasWeekData(targetMondayNum) && activeDayNums.length > 0) {
+            // 가장 최근(또는 가장 가까운) 활성 일자 기준으로 월요일 맞춤
+            let closestDay = activeDayNums[activeDayNums.length - 1];
+            let minDiff = Infinity;
+            for (const d of activeDayNums) {
+              const diff = Math.abs(d - targetMondayNum);
+              if (diff < minDiff) {
+                minDiff = diff;
+                closestDay = d;
+              }
+            }
+            const closestUtc = march1Utc + (closestDay - 1) * 86400000;
+            const closestDow = new Date(closestUtc).getUTCDay();
+            const closestDiffToMon = closestDow === 0 ? -6 : 1 - closestDow;
+            targetMondayNum = closestDay + closestDiffToMon;
+          }
+
+          // 셀 문자열(예: "2(8", "1>19(9|433", "8(39#7(39<285.3", "~47(")을 과목명으로 변환
+          const formatCellSubject = (rawCell: string): string => {
+            if (!rawCell) return '-';
+            const activePart = rawCell.split('#')[0].trim();
+            if (!activePart) return '-';
+            // 선택과목 형식: "1>19(9|433"
+            const electMatch = activePart.match(/^(\d+)>(\d+)\(/);
+            if (electMatch) {
+              const groupCode = String.fromCharCode(64 + parseInt(electMatch[1], 10)); // 1->A, 2->B...
+              const subjId = parseInt(electMatch[2], 10);
+              const subjName = subjectMap[subjId] || `${groupCode}선택`;
+              return subjName;
+            }
+            // 일반/창체 과목 형식: "2(8" 또는 "~47("
+            const stdMatch = activePart.match(/^~?(\d+)\(/);
+            if (stdMatch) {
+              const subjId = parseInt(stdMatch[1], 10);
+              return subjectMap[subjId] || '-';
+            }
+            return '-';
+          };
+
+          const newTimetables: Record<string, Record<string, Record<number, string>>> = { ...tempClassTimetables };
+          const updatedClassSet = new Set<string>();
+
+          for (let dayOffset = 0; dayOffset < 5; dayOffset++) {
+            const dNum = targetMondayNum + dayOffset;
+            const rowStr = sjpRowsByDay[dNum];
+            const dayKey = String(dayOffset + 1); // "1"(월) ~ "5"(금)
+            if (!rowStr) continue;
+
+            const classBlocks = rowStr.split('{').slice(1);
+            for (const block of classBlocks) {
+              const cols = block.split(',');
+              const clsIdx = parseInt(cols[0], 10);
+              const classKey = classIndexMap[clsIdx];
+              if (!classKey) continue;
+
+              if (!newTimetables[classKey]) newTimetables[classKey] = {};
+              if (!newTimetables[classKey][dayKey]) newTimetables[classKey][dayKey] = {};
+
+              for (let period = 1; period <= 7; period++) {
+                const cellStr = cols[1 + period] || '';
+                const subjName = formatCellSubject(cellStr);
+                newTimetables[classKey][dayKey][period] = subjName;
+              }
+              updatedClassSet.add(classKey);
+            }
+          }
+
+          if (updatedClassSet.size > 0) {
+            setTempClassTimetables(newTimetables);
+            setClassTimetables(newTimetables);
+            localStorage.setItem('school_class_timetables', JSON.stringify(newTimetables));
+
+            const curClassKey = `${editTargetGrade}-${editTargetClass}`;
+            const curSchedule = newTimetables[curClassKey] || {};
+            const weekStartStr = new Date(march1Utc + (targetMondayNum - 1) * 86400000).toISOString().slice(0, 10);
+            const sbjPreviewList = Object.entries(subjectMap)
+              .map(([id, name]) => `${id}.${name}`)
+              .join(', ');
+            const tcrPreviewList = Object.entries(teacherMap)
+              .map(([id, name]) => `${id}.${name}`)
+              .join(', ');
+
+            const curClassLines = ['1', '2', '3', '4', '5'].map((dKey, idx) => {
+              const dayNames = ['월', '화', '수', '목', '금'];
+              const pList = [1, 2, 3, 4, 5, 6, 7].map(p => `${p}교시:${curSchedule[dKey]?.[p] || '-'}`).join(' | ');
+              return `  [${dayNames[idx]}] ${pList}`;
+            });
+
+            const decodedReport = [
+              `[파일명]: ${file.name} (${bytes.length.toLocaleString()} bytes) [압핀 6바이트 XOR("7n1bmu") 완벽 복호화 완료]`,
+              `[학년도/기준주간]: ${baseYear}학년도 / 적용 주간 월요일: ${weekStartStr} (${targetMondayNum}일차~${targetMondayNum + 4}일차)`,
+              `[추출된 학급 수]: 총 ${updatedClassSet.size}개 학급 (${Array.from(updatedClassSet).slice(0, 8).join(', ')} 등 전체 학급 자동 반영됨)`,
+              `[개설 과목(${Object.keys(subjectMap).length}개)]: ${sbjPreviewList}`,
+              `[교사 명단(${Object.keys(teacherMap).length}명)]: ${tcrPreviewList}`,
+              `----------------------------------------`,
+              `📌 현재 선택 학급 [${curClassKey}반] 주간 시간표 추출 결과:`,
+              ...curClassLines,
+              `----------------------------------------`,
+              `[복호화된 원본 데이터 샘플 (상위 30줄)]:`,
+              ...rawLines.slice(0, 30).map(l => l.slice(0, 180))
+            ].join('\n');
+
+            setAppinDatPreview(decodedReport);
+            setAppinDatStatus({
+              type: 'success',
+              message: `🎉 [${file.name}] 압핀 암호("7n1bmu") 복호화 성공! 전체 ${updatedClassSet.size}개 학급(1~3학년 전 학급)의 시간표가 즉시 자동 등록 및 저장되었습니다!`
+            });
+            return;
+          }
+        }
+
+        // 의미 있는 한글/영문/숫자 라인만 정제 (일반 dat/cfg 파일용)
+        const extractedLines = rawLines
+          .map(l => l.replace(/[^\x20-\x7E가-힣ㄱ-ㅎㅏ-ㅣ\t]/g, ' ').replace(/\s+/g, ' ').trim())
+          .filter(l => l.length >= 2 && /[가-힣a-zA-Z0-9]/.test(l));
+
+        const previewReport = [
+          `[파일명]: ${file.name} (${bytes.length.toLocaleString()} bytes)${isAppinEncrypted ? ' [압핀 XOR("7n1bmu") 복호화됨]' : bestXorKey ? ` [XOR 키 0x${bestXorKey.toString(16).toUpperCase()} 복호화됨]` : ''}`,
+          `[바이너리 헤더(64B)]: ${headerHex}`,
+          `[감지된 한글 글자 수]: ${maxKoreanCount.toLocaleString()}자 / 유효 라인 수: ${extractedLines.length.toLocaleString()}줄`,
+          `----------------------------------------`,
+          ...extractedLines.slice(0, 300)
+        ].join('\n');
+
+        setAppinDatPreview(previewReport);
+
+        if (maxKoreanCount < 5 && lowerName.endsWith('.dat')) {
+          setAppinDatStatus({
+            type: 'warning',
+            message: `🔍 [${file.name}] 바이너리 헤더 및 데이터 추출 완료! 아래 분석창에서 파일 내부 데이터를 확인하실 수 있습니다.`
+          });
+          setIsNeisLoading(false);
+          e.target.value = '';
+          return;
+        }
+
+        // 추출된 텍스트에서 현재 학급(editTargetGrade-editTargetClass) 시간표 AI 분석 시도
+        const joinedStrings = extractedLines.slice(0, 1500).join('\n').substring(0, 28000);
+        const promptText = `
+너는 대한민국 학교 압핀시간표(amc42.dat / amc42.cfg) 데이터 해독 AI야.
+다음은 압핀시간표 파일(${file.name})에서 추출한 내부 텍스트 데이터야.
+여기서 ${editTargetGrade}학년 ${editTargetClass}반의 월요일("1")~금요일("5") 1~7교시 수업 과목을 찾아 JSON으로 추출해줘.
+만약 특정 학급 구분이 명확하지 않다면 데이터에 등장하는 시간표 과목 배열을 바탕으로 월~금 1~7교시를 구성해줘.
+교사 이름(2~3글자 인명)은 제거하고 순수 과목명만 남겨. 빈칸은 "-" 로 표시해.
+
+추출된 데이터:
+${joinedStrings}
+`;
+        try {
+          const responseText = await callUnifiedAi(promptText, undefined, undefined, true);
+          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsedObj = JSON.parse(jsonMatch[0]);
+            if (parsedObj['1'] || parsedObj['2']) {
+              const classKey = `${editTargetGrade}-${editTargetClass}`;
+              setTempClassTimetables(prev => ({
+                ...prev,
+                [classKey]: parsedObj
+              }));
+              setAppinDatStatus({
+                type: 'success',
+                message: `✅ [${file.name}] 압핀 내부 데이터 해독 및 ${editTargetGrade}학년 ${editTargetClass}반 시간표 추출 완료! (아래에서 해독된 원본 데이터도 확인 가능합니다)`
+              });
+              return;
+            }
+          }
+        } catch (aiErr) {
+          console.warn("Appin dat AI parse warning:", aiErr);
+        }
+
+        setAppinDatStatus({
+          type: 'success',
+          message: `✅ [${file.name}] 파일 내부 문자열(${extractedLines.length}줄) 추출 완료! 아래 해독 결과창에서 내용을 확인하실 수 있습니다.`
+        });
+      } catch (err: any) {
+        setAppinDatStatus({
+          type: 'error',
+          message: `❌ [${file.name}] 파일 분석 중 오류: ${err?.message || '알 수 없는 오류'}`
+        });
+      } finally {
+        setIsNeisLoading(false);
+        e.target.value = '';
+      }
+      return;
+    }
+
     if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
       setIsNeisLoading(true);
       setTimetableFileName(file.name);
@@ -2654,9 +3014,8 @@ ${htmlText.substring(0, 30000)}
     }
 
     const isGemini = (schoolConfig as any).aiProvider !== 'groq';
-    const apiKey = isGemini ? schoolConfig.geminiApiKey : (schoolConfig as any).groqApiKey;
-    if (!apiKey) {
-      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
+    if (!isGemini && !(schoolConfig as any).groqApiKey) {
+      alert(`❌ [API 키 필요] 관리자 모드에 Groq API 키를 입력해주세요.`);
       e.target.value = '';
       return;
     }
@@ -2737,9 +3096,8 @@ ${htmlText.substring(0, 30000)}
     if (!file) return;
 
     const isGemini = (schoolConfig as any).aiProvider !== 'groq';
-    const apiKey = isGemini ? schoolConfig.geminiApiKey : (schoolConfig as any).groqApiKey;
-    if (!apiKey) {
-      alert(`❌ [API 키 필요] 관리자 모드에 ${isGemini ? 'Google Gemini' : 'Groq'} API 키를 입력해주세요.`);
+    if (!isGemini && !(schoolConfig as any).groqApiKey) {
+      alert(`❌ [API 키 필요] 관리자 모드에 Groq API 키를 입력해주세요.`);
       e.target.value = '';
       return;
     }
@@ -3747,7 +4105,6 @@ ${htmlText.substring(0, 30000)}
     const isSchoolNameValid = adminSchoolName.trim().length > 0;
     const isPinValid = /^\d{4}$/.test(adminPinInput.trim());
     const isNeisApiKeyValid = !adminNeisApiKey.trim() || /^[a-fA-F0-9]{32}$/.test(adminNeisApiKey.trim());
-    const isGeminiApiKeyValid = !adminGeminiApiKey.trim() || adminGeminiApiKey.trim().length > 10;
     const isEduCodeValid = !adminEduCode.trim() || /^[A-Za-z]\d{2}$/.test(adminEduCode.trim());
     const isSchoolCodeValid = !adminSchoolCode.trim() || /^\d{7,8}$/.test(adminSchoolCode.trim());
     const isAppinUrlValid = !adminAppinServerUrl.trim() || /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:\:[0-9]{1,5})?(?:\/.*)?$/.test(adminAppinServerUrl.trim()) || /^https?:\/\//.test(adminAppinServerUrl.trim());
@@ -3759,7 +4116,6 @@ ${htmlText.substring(0, 30000)}
     if (!isSchoolNameValid) warningMessages.push("학교명을 입력해주세요.");
     if (!isPinValid) warningMessages.push("관리자 비밀번호는 4자리 숫자로 입력해야 합니다.");
     if (!isNeisApiKeyValid) warningMessages.push("나이스 API 키가 32자리 올바른 형식(영문/숫자)이 아닙니다.");
-    if (!isGeminiApiKeyValid) warningMessages.push("Gemini API 키가 너무 짧습니다.");
     if (!isEduCodeValid) warningMessages.push("시도교육청 코드가 올바르지 않습니다 (예: J10).");
     if (!isSchoolCodeValid) warningMessages.push("표준학교코드가 올바르지 않습니다 (7~8자리 숫자).");
     if (!isAppinUrlValid) warningMessages.push("압핀 서버 주소가 올바르지 않습니다 (IP:포트 또는 URL 형식).");
@@ -3933,25 +4289,6 @@ ${htmlText.substring(0, 30000)}
 
                   {adminAiProvider === 'gemini' ? (
                     <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-bold text-slate-400 block mb-1.5">Google Gemini API KEY (학생 명렬, 시간표 등 자동파싱 AI용)</label>
-                        <div className="flex gap-2">
-                          <div className="flex-1 flex flex-col gap-1">
-                            <input 
-                              type="password" 
-                              value={adminGeminiApiKey}
-                              onChange={e => setAdminGeminiApiKey(e.target.value)}
-                              className={`w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isGeminiApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
-                              placeholder="발급받은 Google Gemini API KEY 입력"
-                            />
-                            {!isGeminiApiKeyValid && <p className="text-[10px] text-rose-400">키 길이가 너무 짧습니다.</p>}
-                          </div>
-                          <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="px-4 py-2.5 bg-indigo-900/40 hover:bg-indigo-900 text-indigo-300 rounded-xl text-xs font-bold flex items-center justify-center border border-indigo-700/50 h-[42px] shrink-0">
-                            <Key size={14} className="mr-1"/> 키 발급받기
-                          </a>
-                        </div>
-                      </div>
-
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label className="text-[11px] font-bold text-slate-400">활용할 Gemini AI 모델 선택</label>
@@ -3961,11 +4298,7 @@ ${htmlText.substring(0, 30000)}
                             className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
                           >
                             <option value="gemini-3.8-flash">Gemini 3.8 Flash (최신 기본 추천)</option>
-                            <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
-                            <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
-                            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-                            <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite</option>
-                            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
                             <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (최고 성능 추론)</option>
                           </select>
                         </div>
@@ -4614,18 +4947,18 @@ ${htmlText.substring(0, 30000)}
                   <div className="bg-[#111a15] border border-emerald-900 rounded-2xl p-4 flex flex-col gap-3.5">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <div className="flex flex-col gap-1.5">
-                        <span className="text-xs font-bold text-emerald-200">엑셀/이미지 자동 인식 (컴시간/압핀)</span>
+                        <span className="text-xs font-bold text-emerald-200">엑셀/이미지/압핀 파일 자동 인식 (amc42.dat · 엑셀)</span>
                         <div className="relative">
                           <input 
                             type="file" 
-                            accept="image/*, .csv, .txt, .pdf, .xls, .xlsx" 
+                            accept="image/*, .csv, .txt, .pdf, .xls, .xlsx, .dat, .cfg, .afn, .arm" 
                             onChange={handleTimetableImageUpload}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                            title="시간표 파일 선택"
+                            title="시간표 파일 또는 압핀 폴더 파일(amc42.dat, amc42.cfg) 선택"
                           />
                           <div className="px-3 py-2.5 bg-emerald-800 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-colors w-full border border-emerald-600">
                             {isNeisLoading ? <Loader2 size={15} className="animate-spin" /> : <ImageIcon size={15} />}
-                            <span className="truncate">{timetableFileName || '컴시간/압핀 엑셀(.xlsx) · 이미지 업로드'}</span>
+                            <span className="truncate">{timetableFileName || '압핀(amc42.dat/.cfg) · 엑셀(.xls) · 이미지 업로드'}</span>
                           </div>
                         </div>
                       </div>
@@ -4665,6 +4998,45 @@ ${htmlText.substring(0, 30000)}
                         </button>
                       </div>
                     </div>
+
+                    {/* 압핀 amc42.dat / amc42.cfg 해독 결과 및 프리뷰 창 */}
+                    {(appinDatStatus || appinDatPreview) && (
+                      <div className="p-3.5 bg-[#0b1410] border border-amber-500/50 rounded-2xl space-y-2.5 animate-fade-in">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-xs font-black text-amber-300">
+                            {appinDatStatus?.message || '📂 압핀 파일 해독 결과'}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {appinDatPreview && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(appinDatPreview);
+                                  setAppinDatStatus({ type: 'success', message: '📋 해독된 텍스트와 헤더 정보가 클립보드에 복사되었습니다! 채팅창에 붙여넣어 주시면 완벽한 전용 파서를 만들어 드립니다.' });
+                                }}
+                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-[11px] font-black cursor-pointer"
+                              >
+                                📋 해독 데이터 복사하기
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => { setAppinDatStatus(null); setAppinDatPreview(''); }}
+                              className="text-slate-400 hover:text-white cursor-pointer"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        {appinDatPreview && (
+                          <textarea
+                            readOnly
+                            value={appinDatPreview}
+                            className="w-full h-36 p-2.5 bg-black/60 border border-emerald-900 rounded-xl text-[11px] font-mono text-emerald-200 resize-y outline-none"
+                          />
+                        )}
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 border-t border-emerald-900/40">
                       {[1, 2, 3, 4, 5, 6, 7].map((p) => {

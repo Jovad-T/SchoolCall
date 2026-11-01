@@ -2,6 +2,15 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+
+function resolveGeminiModel(requestedModel?: string): string {
+  if (requestedModel === "gemini-3.1-pro-preview") return "gemini-3.1-pro-preview";
+  if (requestedModel === "gemini-3.1-flash-lite-preview" || requestedModel === "gemini-3.1-flash-lite") {
+    return "gemini-3.1-flash-lite-preview";
+  }
+  return "gemini-3.8-flash";
+}
 
 async function startServer() {
   const app = express();
@@ -260,26 +269,71 @@ async function startServer() {
     }
   });
 
-  // 🤖 Server-side AI fallback endpoint when client API key is not set
-  app.post("/api/ai-parse", async (req, res) => {
+  // 🤖 Server-side Gemini API handler
+  const handleGeminiRequest = async (req: express.Request, res: express.Response) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) {
-        return res.status(400).json({ success: false, error: "서버 기본 API 키가 없습니다." });
+        return res.status(400).json({ success: false, error: "서버에 GEMINI_API_KEY가 설정되어 있지 않습니다." });
       }
-      const { prompt } = req.body || {};
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
-        contents: [{ text: String(prompt || "") }],
-        config: { responseMimeType: "application/json" }
+
+      const {
+        prompt,
+        contents: rawContents,
+        base64Data,
+        mimeType,
+        responseSchema,
+        jsonMode = true,
+        model: requestedModel,
+        thinkingLevel
+      } = req.body || {};
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { "User-Agent": "aistudio-build" } }
       });
-      res.json({ success: true, text: response.text || "{}" });
+
+      let contents: any = rawContents;
+      if (!contents) {
+        const parts: any[] = [];
+        if (base64Data && mimeType) {
+          parts.push({ inlineData: { data: base64Data, mimeType } });
+        }
+        parts.push({ text: String(prompt || "") });
+        contents = parts;
+      }
+
+      const config: Record<string, any> = {};
+      if (jsonMode) {
+        config.responseMimeType = "application/json";
+      }
+      if (responseSchema) {
+        config.responseSchema = responseSchema;
+      }
+      if (thinkingLevel && thinkingLevel !== "DEFAULT") {
+        if (thinkingLevel === "HIGH") {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.HIGH };
+        } else if (thinkingLevel === "MEDIUM") {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.MEDIUM };
+        } else if (thinkingLevel === "LOW" || thinkingLevel === "MINIMAL") {
+          config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+        }
+      }
+
+      const response = await ai.models.generateContent({
+        model: resolveGeminiModel(requestedModel),
+        contents,
+        config
+      });
+
+      res.json({ success: true, text: response.text || "" });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err?.message || "AI 분석 오류" });
     }
-  });
+  };
+
+  app.post("/api/gemini", handleGeminiRequest);
+  app.post("/api/ai-parse", handleGeminiRequest);
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

@@ -1,11 +1,17 @@
-import { GoogleGenAI, Type } from "@google/genai";
+const Type = {
+  OBJECT: "OBJECT",
+  ARRAY: "ARRAY",
+  STRING: "STRING",
+  INTEGER: "INTEGER",
+  NUMBER: "NUMBER",
+  BOOLEAN: "BOOLEAN",
+} as const;
 
 export function getAiConfig() {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('school_config') : null;
   const parsed = saved ? JSON.parse(saved) : {};
   return {
     aiProvider: parsed.aiProvider || 'gemini',
-    geminiApiKey: parsed.geminiApiKey || import.meta.env.VITE_GEMINI_API_KEY || (typeof window !== "undefined" && (window as any).VITE_GEMINI_API_KEY) || "",
     geminiModel: parsed.geminiModel || "gemini-3.8-flash",
     geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
     groqApiKey: parsed.groqApiKey || "",
@@ -77,55 +83,27 @@ export async function callGroq(
 }
 
 async function callGemini(contents: any, responseSchema?: any, jsonMode: boolean = true): Promise<string> {
-  const { geminiApiKey, geminiModel, geminiThinkingLevel } = getAiConfig();
-  if (!geminiApiKey) {
-    // Fallback to server-side /api/ai-parse if available
-    const promptStr = Array.isArray(contents)
-      ? contents.map((c: any) => c?.text || "").filter(Boolean).join("\n")
-      : typeof contents === "string"
-      ? contents
-      : "";
-    if (promptStr) {
-      const srvRes = await fetch("/api/ai-parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptStr })
-      });
-      const srvJson = await srvRes.json();
-      if (srvJson?.success && srvJson?.text) {
-        return srvJson.text;
-      }
-    }
-  }
-  const ai = getGeminiClient();
-  const config: any = {};
-  if (jsonMode) {
-    config.responseMimeType = "application/json";
-  }
-  if (responseSchema) {
-    config.responseSchema = responseSchema;
-  }
-  if (geminiThinkingLevel && geminiThinkingLevel !== 'DEFAULT') {
-    if (geminiThinkingLevel === 'HIGH') {
-      config.thinkingConfig = { thinkingLevel: 2 };
-    } else if (geminiThinkingLevel === 'LOW') {
-      config.thinkingConfig = { thinkingLevel: 1 };
-    } else if (geminiThinkingLevel === 'MINIMAL') {
-      config.thinkingConfig = { thinkingLevel: 0 };
-    }
-  }
-
-  const response = await ai.models.generateContent({
-    model: geminiModel || "gemini-3.8-flash",
-    contents,
-    config
+  const { geminiModel, geminiThinkingLevel } = getAiConfig();
+  const response = await fetch("/api/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents,
+      responseSchema,
+      jsonMode,
+      model: geminiModel || "gemini-3.8-flash",
+      thinkingLevel: geminiThinkingLevel || "DEFAULT"
+    })
   });
 
-  const text = response.text;
-  if (!text) {
+  const data = await response.json();
+  if (!response.ok || !data?.success) {
+    throw new Error(data?.error || "Gemini AI 서버로부터 응답을 받지 못했습니다.");
+  }
+  if (!data.text) {
     throw new Error("Gemini AI로부터 응답을 받지 못했습니다.");
   }
-  return text;
+  return data.text;
 }
 
 export async function callUnifiedAi(
@@ -145,7 +123,7 @@ export async function callUnifiedAi(
     return callGroq(prompt, base64Data, mimeType, jsonMode);
   }
 
-  let contents: any[] = [];
+  const contents: any[] = [];
   if (base64Data && mimeType) {
     contents.push({
       inlineData: {
@@ -157,18 +135,6 @@ export async function callUnifiedAi(
   contents.push({ text: prompt });
 
   return callGemini(contents, undefined, jsonMode);
-}
-
-export function getGeminiClient(): GoogleGenAI {
-  const { geminiApiKey } = getAiConfig();
-
-  if (!geminiApiKey) {
-    throw new Error(
-      "Gemini API 키가 설정되지 않았습니다. .env 파일 또는 Vercel 환경 변수에 VITE_GEMINI_API_KEY를 등록해 주세요."
-    );
-  }
-
-  return new GoogleGenAI({ apiKey: geminiApiKey });
 }
 
 export function fileToBase64(
