@@ -243,20 +243,20 @@ async function startServer() {
       }
 
       if (isGeoBlocked && !combinedHtml) {
-        return res.status(403).json({
+        return res.status(200).json({
           success: false,
           isGeoBlocked: true,
-          error: "리로스쿨 보안 정책상 해외 클라우드 서버 IP에서의 직접 접속이 제한(403)되어 있습니다. PC 설치형(.exe) 앱에서 실행하시거나, 아래 [식단 페이지 열기 → 복사·붙여넣기]를 이용하시면 즉시 등록됩니다."
+          error: "리로스쿨 보안 정책상 클라우드 서버 IP에서의 직접 접속이 제한(403)되어 있습니다."
         });
       }
 
       if (!combinedHtml) {
-        return res.status(500).json({ success: false, error: "리로스쿨 페이지에서 데이터를 가져오지 못했습니다." });
+        return res.status(200).json({ success: false, error: "리로스쿨 페이지에서 데이터를 가져오지 못했습니다." });
       }
 
       res.json({ success: true, data: combinedHtml });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err?.message || "리로스쿨 연동 오류" });
+      res.status(200).json({ success: false, error: err?.message || "리로스쿨 연동 오류" });
     }
   });
 

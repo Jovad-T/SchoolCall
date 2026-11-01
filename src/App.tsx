@@ -2063,7 +2063,8 @@ export default function App() {
       .replace(/&lt;/gi, '<')
       .replace(/&gt;/gi, '>');
 
-    const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    // 크롬에서 표(table)를 Ctrl+A, Ctrl+C 복사할 때 셀(td) 사이가 탭(\t)으로 이어지므로 \r, \n, \t 모두 분리
+    const rawLines = text.split(/[\r\n\t]+/).map(l => l.trim()).filter(Boolean);
 
     const ignoreKeywords = [
       '리로스쿨', '로그아웃', '마이페이지', '급식일정', '오늘의 식단', '월간', '주간', '일간',
@@ -2200,18 +2201,18 @@ export default function App() {
     try { localStorage.setItem('meal_data', JSON.stringify(newMeals)); } catch (e) {}
     syncGlobalData({ meals: newMeals });
 
-    const firstKey = dateKeys.sort()[0];
-    if (firstKey && firstKey.length === 8) {
-      const formattedDate = `${firstKey.substring(0, 4)}-${firstKey.substring(4, 6)}-${firstKey.substring(6, 8)}`;
-      if (!newMeals[adminDateKey]) {
-        setAdminDate(formattedDate);
-      }
+    const sortedKeys = dateKeys.sort();
+    const firstKey = sortedKeys[0];
+    let jumpedDateStr = adminDate;
+    if (firstKey && firstKey.length === 8 && !extractedMap[adminDateKey]) {
+      jumpedDateStr = `${firstKey.substring(0, 4)}-${firstKey.substring(4, 6)}-${firstKey.substring(6, 8)}`;
+      setAdminDate(jumpedDateStr);
     }
 
     const typeDesc = defaultMealType === 'dinner' ? '석식(저녁)' : defaultMealType === 'lunch' ? '중식(점심)' : '중식·석식';
     setRiroStatus({
       type: 'success',
-      message: `✅ [${sourceLabel} 완료] 총 ${count}일 치 ${typeDesc} 메뉴를 자동으로 추출하여 저장 및 동기화했습니다!`
+      message: `✅ [${sourceLabel} 완료] 총 ${count}일 치 ${typeDesc} 메뉴가 달력에 일괄 저장·동기화되었습니다! (아래 ${jumpedDateStr} 식단 칸에서 바로 확인하실 수 있습니다.)`
     });
     return true;
   };
@@ -4724,13 +4725,13 @@ ${htmlText.substring(0, 30000)}
                   <div className="pt-3 border-t border-emerald-900/40 space-y-2.5">
                     <div className="flex items-center justify-between flex-wrap gap-1">
                       <span className="text-xs font-bold text-emerald-200 flex items-center gap-1.5">
-                        🌐 리로스쿨(RiroSchool) 식단 연동
+                        🌐 리로스쿨(RiroSchool) 월간 식단 연동
                       </span>
                       <span className="text-[11px] text-amber-300/90 font-medium">
                         {(() => {
                           const meta = getRiroUrlMeta(adminRiroUrl);
-                          if (!adminRiroUrl.trim()) return '※ 리로스쿨 식단 URL 입력 또는 텍스트 복사·붙여넣기 지원';
-                          const mealLabel = meta.defaultMealType === 'dinner' ? '석식(저녁) 전용 URL 감지됨' : meta.defaultMealType === 'lunch' ? '중식(점심) 전용 URL 감지됨' : '중식·석식 통합';
+                          if (!adminRiroUrl.trim()) return '※ 리로스쿨 식단 URL 입력 후 [식단 페이지 열기] → 전체복사(Ctrl+A, Ctrl+C) → 붙여넣기(Ctrl+V)';
+                          const mealLabel = meta.defaultMealType === 'dinner' ? '🌙 석식(저녁) 모드' : meta.defaultMealType === 'lunch' ? '☀️ 중식(점심) 모드' : '중식·석식 통합';
                           return `🎯 감지됨: ${meta.targetYear}년 ${Number(meta.targetMonth)}월 · ${mealLabel}`;
                         })()}
                       </span>
@@ -4740,33 +4741,49 @@ ${htmlText.substring(0, 30000)}
                         type="text"
                         value={adminRiroUrl}
                         onChange={e => setAdminRiroUrl(e.target.value)}
-                        placeholder="리로스쿨 식단 URL (예: https://sajikg.riroschool.kr/meal_schedule.php?...)"
-                        className="md:col-span-5 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
-                      />
-                      <input
-                        type="text"
-                        value={adminRiroId}
-                        onChange={e => setAdminRiroId(e.target.value)}
-                        placeholder="리로스쿨 ID (선택)"
-                        className="md:col-span-2 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
-                      />
-                      <input
-                        type="password"
-                        value={adminRiroPw}
-                        onChange={e => setAdminRiroPw(e.target.value)}
-                        placeholder="비밀번호 (선택)"
-                        className="md:col-span-2 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
+                        placeholder="리로스쿨 식단 URL (예: https://sajikg.riroschool.kr/meal_schedule.php?db=2303&action=month...)"
+                        className="md:col-span-6 px-3 py-2 bg-black/40 text-white rounded-xl border border-emerald-800 focus:border-emerald-500 text-xs outline-none"
                       />
                       <button
                         type="button"
-                        onClick={handleFetchRiroMeal}
-                        disabled={isNeisLoading || !adminRiroUrl.trim()}
-                        className="md:col-span-3 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        onClick={() => {
+                          let base = adminRiroUrl.trim() || 'https://sajikg.riroschool.kr/meal_schedule.php?db=2303&action=month';
+                          if (!base.startsWith('http')) base = 'https://' + base;
+                          if (base.includes('meal_code=')) {
+                            base = base.replace(/meal_code=[^&]+/, 'meal_code=%EC%A4%91%EC%8B%9D');
+                          } else {
+                            base += (base.includes('?') ? '&' : '?') + 'meal_code=%EC%A4%91%EC%8B%9D';
+                          }
+                          setAdminRiroUrl(base);
+                          setShowRiroPasteBox(true);
+                          window.open(base, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="md:col-span-3 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
                       >
-                        {isNeisLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                        리로스쿨 식단 가져오기
+                        ☀️ 1단계: 중식(점심) 열기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          let base = adminRiroUrl.trim() || 'https://sajikg.riroschool.kr/meal_schedule.php?db=2303&action=month';
+                          if (!base.startsWith('http')) base = 'https://' + base;
+                          if (base.includes('meal_code=')) {
+                            base = base.replace(/meal_code=[^&]+/, 'meal_code=%EC%84%9D%EC%8B%9D');
+                          } else {
+                            base += (base.includes('?') ? '&' : '?') + 'meal_code=%EC%84%9D%EC%8B%9D';
+                          }
+                          setAdminRiroUrl(base);
+                          setShowRiroPasteBox(true);
+                          window.open(base, '_blank', 'noopener,noreferrer');
+                        }}
+                        className="md:col-span-3 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center justify-center gap-1 cursor-pointer whitespace-nowrap"
+                      >
+                        🌙 1단계: 석식(저녁) 열기
                       </button>
                     </div>
+                    <p className="text-[11px] text-slate-400">
+                      💡 리로스쿨은 학교 보안 정책(CloudFront 방화벽)상 외부 서버의 아이디/비번 대리 접속을 차단합니다. 위 버튼으로 페이지를 열어 <strong>Ctrl+A ➔ Ctrl+C</strong> 복사 후 아래 칸에 <strong>Ctrl+V</strong>만 하시면 한 달 치가 즉시 자동 입력됩니다!
+                    </p>
                   </div>
 
                   {/* 상태 알림 배너 (iframe alert 차단 완벽 대응) */}
@@ -4789,28 +4806,38 @@ ${htmlText.substring(0, 30000)}
                   )}
 
                   {/* 리로스쿨 식단 텍스트 복사 붙여넣기 박스 */}
-                  {showRiroPasteBox && (
+                  {(showRiroPasteBox || adminRiroUrl.trim()) && (
                     <div className="p-4 bg-[#162d22]/90 border-2 border-indigo-500/60 rounded-2xl space-y-3 animate-fade-in">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <div className="space-y-0.5">
                           <span className="text-xs font-black text-indigo-200 block">
-                            ⚡ 리로스쿨 월간 식단표 3초 복사·붙여넣기 (API 키 불필요!)
+                            ⚡ 2단계: 복사한 리로스쿨 식단표 붙여넣기 (붙여넣는 즉시 1달 치 자동 등록!)
                           </span>
                           <span className="text-[11px] text-slate-300 block">
-                            1) 리로스쿨 식단 페이지에서 <strong>Ctrl + A (전체선택)</strong> 후 <strong>Ctrl + C (복사)</strong> ➔ 2) 아래 칸에 <strong>Ctrl + V (붙여넣기)</strong> 후 등록 클릭!
+                            열린 리로스쿨 식단 탭에서 <strong>Ctrl + A (전체선택)</strong> 후 <strong>Ctrl + C (복사)</strong> ➔ 아래 입력창을 클릭하고 <strong>Ctrl + V (붙여넣기)</strong> 하세요!
                           </span>
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          {adminRiroUrl.trim() && (
-                            <a
-                              href={adminRiroUrl.trim().startsWith('http') ? adminRiroUrl.trim() : `https://${adminRiroUrl.trim()}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold shadow cursor-pointer flex items-center gap-1"
-                            >
-                              🔗 1단계: 리로스쿨 식단 페이지 열기
-                            </a>
-                          )}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const clipText = await navigator.clipboard.readText();
+                                if (clipText && clipText.trim()) {
+                                  setRiroPasteText(clipText);
+                                  handleParseRiroText(clipText);
+                                } else {
+                                  setRiroStatus({ type: 'warning', message: '⚠️ 클립보드가 비어 있습니다. 리로스쿨 화면에서 Ctrl+A 후 Ctrl+C를 먼저 눌러주세요.' });
+                                }
+                              } catch (e) {
+                                setRiroStatus({ type: 'warning', message: '⚠️ 브라우저 권한상 아래 입력칸을 직접 클릭하여 Ctrl+V (붙여넣기)를 눌러주세요!' });
+                              }
+                            }}
+                            disabled={isNeisLoading}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
+                          >
+                            📋 클립보드에서 바로 자동 적용
+                          </button>
                           <button
                             type="button"
                             onClick={() => handleParseRiroText()}
@@ -4818,15 +4845,23 @@ ${htmlText.substring(0, 30000)}
                             className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow cursor-pointer flex items-center gap-1.5"
                           >
                             {isNeisLoading ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                            ⚡ 2단계: 붙여넣은 식단 즉시 자동 등록
+                            ⚡ 붙여넣은 식단 등록
                           </button>
                         </div>
                       </div>
                       <textarea
                         value={riroPasteText}
                         onChange={e => setRiroPasteText(e.target.value)}
-                        placeholder="여기를 클릭하고 Ctrl + V (붙여넣기) 하세요! 리로스쿨 월간 식단표(중식 또는 석식) 전체 화면 텍스트를 그대로 붙여넣으시면 1일~말일 날짜를 자동으로 인식해 달력에 일괄 입력됩니다."
-                        className="w-full h-28 p-3 bg-[#0d1813] border border-emerald-700 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
+                        onPaste={e => {
+                          const pasted = e.clipboardData?.getData('text');
+                          if (pasted && pasted.trim().length > 20) {
+                            e.preventDefault();
+                            setRiroPasteText(pasted);
+                            setTimeout(() => handleParseRiroText(pasted), 50);
+                          }
+                        }}
+                        placeholder="여기를 클릭하고 Ctrl + V (붙여넣기) 하세요! 붙여넣는 즉시 1일~말일 날짜를 자동으로 인식해 달력에 일괄 입력됩니다."
+                        className="w-full h-24 p-3 bg-[#0d1813] border border-emerald-700 rounded-xl text-xs text-white resize-none outline-none focus:border-amber-400"
                       />
                     </div>
                   )}
