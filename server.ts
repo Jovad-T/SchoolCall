@@ -74,6 +74,42 @@ async function startServer() {
     }
   }
 
+  function getKstDateKey(ts: number = Date.now()): string {
+    // Use KST (UTC+9) date boundary so daily reset aligns with Korean school midnight (00:00 KST)
+    const kstDate = new Date(ts + 9 * 60 * 60 * 1000);
+    return kstDate.toISOString().slice(0, 10);
+  }
+
+  function pruneExpiredAnnouncements() {
+    if (!storeData.announcements || typeof storeData.announcements !== "object") {
+      storeData.announcements = {};
+      return;
+    }
+    const now = Date.now();
+    const todayKey = getKstDateKey(now);
+    let changed = false;
+    for (const [key, ann] of Object.entries(storeData.announcements)) {
+      if (!ann || typeof ann !== "object") {
+        delete storeData.announcements[key];
+        changed = true;
+        continue;
+      }
+      const msgTime = Number(ann.time || 0);
+      const isExpired =
+        !msgTime ||
+        now - msgTime > 12 * 60 * 60 * 1000 ||
+        getKstDateKey(msgTime) !== todayKey ||
+        ann.expired === true;
+      if (isExpired) {
+        delete storeData.announcements[key];
+        changed = true;
+      }
+    }
+    if (changed) {
+      persistStore();
+    }
+  }
+
   // 🔗 SSE Stream endpoint
   app.get("/api/sync/stream", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -82,6 +118,7 @@ async function startServer() {
     res.flushHeaders?.();
 
     sseClients.add(res);
+    pruneExpiredAnnouncements();
 
     // Send initial snapshot on connect
     if (Object.keys(storeData.globalData).length > 0) {
@@ -90,7 +127,7 @@ async function startServer() {
     // Send active announcements on connect
     if (storeData.announcements) {
       for (const [target, announcement] of Object.entries(storeData.announcements)) {
-        if (announcement) {
+        if (announcement && announcement.text && String(announcement.text).trim().length > 0) {
           res.write(`event: announcement\ndata: ${JSON.stringify({ target, announcement })}\n\n`);
         }
       }
@@ -113,6 +150,7 @@ async function startServer() {
 
   // 📥 Get sync snapshot
   app.get("/api/sync/data", (req, res) => {
+    pruneExpiredAnnouncements();
     res.json({
       success: true,
       globalData: storeData.globalData,
@@ -122,6 +160,7 @@ async function startServer() {
 
   // 📥 Get current announcements
   app.get("/api/sync/announce", (req, res) => {
+    pruneExpiredAnnouncements();
     res.json({
       success: true,
       announcements: storeData.announcements
@@ -159,9 +198,20 @@ async function startServer() {
   app.post("/api/sync/announce", (req, res) => {
     const { target, announcement } = req.body || {};
     if (target && announcement) {
-      storeData.announcements[target] = announcement;
-      persistStore();
-      broadcastSSE("announcement", { target, announcement });
+      const normalizedTarget = String(target).replace(/^announcements\//, "");
+      if (announcement.expired === true || !announcement.text || String(announcement.text).trim() === "") {
+        delete storeData.announcements[target];
+        delete storeData.announcements[normalizedTarget];
+        delete storeData.announcements[`announcements/${normalizedTarget}`];
+        persistStore();
+        if (!announcement.expired) {
+          broadcastSSE("announcement", { target, announcement });
+        }
+      } else {
+        storeData.announcements[target] = announcement;
+        persistStore();
+        broadcastSSE("announcement", { target, announcement });
+      }
     }
     res.json({ success: true });
   });

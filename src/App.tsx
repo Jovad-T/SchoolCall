@@ -569,7 +569,14 @@ export default function App() {
   });
   const [tempCustomCallPresets, setTempCustomCallPresets] = useState<string[]>(customCallPresets);
 
-  const [announcement, setAnnouncement] = useState('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
+  const DEFAULT_EMPTY_ANNOUNCEMENT = '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~';
+  const hasActiveAnnouncement = (text?: string | null): boolean => {
+    if (!text) return false;
+    const trimmed = String(text).trim();
+    return trimmed.length > 0 && trimmed !== DEFAULT_EMPTY_ANNOUNCEMENT;
+  };
+
+  const [announcement, setAnnouncement] = useState('');
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [pendingAnnouncements, setPendingAnnouncements] = useState<{id: string, text: string, time: number, duration?: number}[]>(() => {
     try {
@@ -851,7 +858,8 @@ export default function App() {
       try { localStorage.setItem('last_active_date', today); } catch(e) {}
 
       // 1. 어제 보낸 호출/전달사항 및 알림 대기열 초기화
-      setAnnouncement('조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~');
+      lastSyncTimeRef.current = 0;
+      setAnnouncement('');
       setIsPopupOpen(false);
       setPendingAnnouncements([]);
       try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
@@ -1753,23 +1761,57 @@ export default function App() {
   useEffect(() => {
     if (viewMode !== 'classroom') return;
 
-    // 학급 전환 시 해당 학급의 최신 호출을 즉시 불러올 수 있도록 초기화
+    // 학급 전환 또는 진입 시 이전 학급/과거 전달사항 잔상이 남지 않도록 즉시 초기화
     lastSyncTimeRef.current = 0;
+    setAnnouncement('');
+    setIsPopupOpen(false);
 
     const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
     const announceRef = db ? ref(db, `announcements/${classKey}`) : null;
     const globalAnnounceRef = db ? ref(db, 'announcements/global') : null;
 
-    let isLocalInitial = true;
-    let isGlobalInitial = true;
+    let isPollLocalInitial = true;
+    let isPollGlobalInitial = true;
+    let isFbLocalInitial = true;
+    let isFbGlobalInitial = true;
 
-    const createHandler = (getIsInitial: () => boolean, setNotInitial: () => void) => (snapshot: any) => {
+    const createHandler = (
+      getIsInitial: () => boolean,
+      setNotInitial: () => void,
+      sourcePath?: string
+    ) => (snapshot: any) => {
       const data = snapshot.val();
-      const DEFAULT_MSG = '';
       
       if (data) {
-        const rawIncomingText = data.text ? data.text.trim() : '';
-        
+        const rawIncomingText = data.text ? String(data.text).trim() : '';
+        const now = Date.now();
+        const msgTime = Number(data.time || 0);
+        const msgDateStr = msgTime ? getTodayDateKey(new Date(msgTime)) : '';
+        const isExpired =
+          !msgTime ||
+          (now - msgTime > 12 * 60 * 60 * 1000) ||
+          (msgDateStr !== getTodayDateKey());
+
+        // 💡 [핵심 수정] 어제(또는 이전 날짜) 보낸 전달사항이거나 12시간이 지난 만료 메시지는
+        // 초기 로드뿐만 아니라 폴링/SSE/Firebase 실시간 콜백에서도 무조건 무시하고 DB에서 자동 청소합니다.
+        if (isExpired) {
+          if (sourcePath) {
+            fetch('/api/sync/announce', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ target: sourcePath, announcement: { text: '', time: 0, expired: true } })
+            }).catch(() => {});
+            if (db) {
+              import("firebase/database").then(({ ref: dbRef, remove: dbRemove }) => {
+                const cleanPath = sourcePath.startsWith('announcements/') ? sourcePath : `announcements/${sourcePath}`;
+                dbRemove(dbRef(db, cleanPath)).catch(() => {});
+              }).catch(() => {});
+            }
+          }
+          setNotInitial();
+          return;
+        }
+
         // 학년별 전송 필터링 로직 추가
         if (data.targetGrades && Array.isArray(data.targetGrades)) {
           if (!data.targetGrades.includes(schoolConfig.currentGrade)) {
@@ -1786,25 +1828,32 @@ export default function App() {
           setNotInitial();
           return;
         }
-        const incomingText = filteredText || '';
+        const incomingText = (filteredText || '').trim();
         
-        const now = Date.now();
-        const msgTime = data.time || now;
         const msgDuration = Number(data.duration) || 60;
         const isRecent = (now - msgTime) < (msgDuration * 1000);
 
+        // 명시적 초기화(빈 문자열 전송) 처리
+        if (!incomingText || incomingText === DEFAULT_EMPTY_ANNOUNCEMENT) {
+          if (msgTime >= (lastSyncTimeRef.current || 0)) {
+            lastSyncTimeRef.current = msgTime;
+            setAnnouncement('');
+            setIsPopupOpen(false);
+            setPendingAnnouncements([]);
+            try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
+          }
+          setNotInitial();
+          return;
+        }
+
         if (getIsInitial()) {
-          // 최초 로드 시 12시간이 지났거나 날짜가 다른 어제 메시지면 빈 문자열로 무시
-          const msgDateStr = data.time ? getTodayDateKey(new Date(data.time)) : '';
-          const isExpired = !data.time || (now - data.time > 12 * 60 * 60 * 1000) || (msgDateStr !== getTodayDateKey());
-          
-          // 여러 초기 동기화 중 가장 최신 메시지만 표시되도록 시간 비교
-          if (data.time >= (lastSyncTimeRef.current || 0)) {
-            setAnnouncement(isExpired ? DEFAULT_MSG : incomingText);
-            lastSyncTimeRef.current = data.time;
+          // 여러 초기 동기화 중 오늘 날짜의 가장 최신 메시지만 표시되도록 시간 비교
+          if (msgTime >= (lastSyncTimeRef.current || 0)) {
+            setAnnouncement(incomingText);
+            lastSyncTimeRef.current = msgTime;
 
             // 유효 시간 내의 최근 메시지인 경우 팝업 활성화
-            if (!isExpired && incomingText && isRecent) {
+            if (isRecent) {
               if (data.color) setCurrentAnnouncementColor(data.color);
               setCurrentAnnouncementDuration(msgDuration);
               setIsPopupOpen(true);
@@ -1812,16 +1861,8 @@ export default function App() {
               playNeonAlertSound();
             }
           }
-        } else if (data.time > (lastSyncTimeRef.current || 0) || (!isPopupOpen && incomingText && isRecent)) {
-          lastSyncTimeRef.current = data.time;
-          
-          if (!incomingText) {
-             setAnnouncement('');
-             setIsPopupOpen(false);
-             setPendingAnnouncements([]);
-             try { localStorage.removeItem('pending_announcements_queue'); } catch(e) {}
-             return;
-          }
+        } else if (msgTime > (lastSyncTimeRef.current || 0) || (!isPopupOpen && incomingText && isRecent && msgTime > (lastSyncTimeRef.current || 0))) {
+          lastSyncTimeRef.current = msgTime;
 
           if (data.duration) {
             setCurrentAnnouncementDuration(Number(data.duration));
@@ -1841,13 +1882,14 @@ export default function App() {
           if (isClassTime() && !isForced && !schoolConfig.forcePopupDuringClass) {
             console.log("현재 수업 시간이므로 알림이 예약 대기열에 저장되었습니다. 쉬는 시간에 자동 표시됩니다.");
             setPendingAnnouncements(prev => {
-              if (!prev.some(a => a.id === data.time.toString())) {
-                const updated = [...prev, { id: data.time.toString(), text: incomingText, time: data.time, duration: data.duration, color: data.color || 'rose' }];
+              if (!prev.some(a => a.id === msgTime.toString())) {
+                const updated = [...prev, { id: msgTime.toString(), text: incomingText, time: msgTime, duration: data.duration, color: data.color || 'rose' }];
                 try { localStorage.setItem('pending_announcements_queue', JSON.stringify(updated)); } catch(e) {}
                 return updated;
               }
               return prev;
             });
+            setNotInitial();
             return;
           }
 
@@ -1876,8 +1918,10 @@ export default function App() {
       sse.addEventListener('announcement', (e) => {
         try {
           const { target, announcement: ann } = JSON.parse(e.data);
-          if (target === 'announcements/global' || target === 'global' || target === `announcements/${classKey}` || target === classKey) {
-            createHandler(() => false, () => {})({ val: () => ann });
+          if (target === 'announcements/global' || target === 'global') {
+            createHandler(() => false, () => {}, 'announcements/global')({ val: () => ann });
+          } else if (target === `announcements/${classKey}` || target === classKey) {
+            createHandler(() => false, () => {}, `announcements/${classKey}`)({ val: () => ann });
           }
         } catch(err) {}
       });
@@ -1892,8 +1936,10 @@ export default function App() {
       bc.onmessage = (e) => {
         if (e.data?.type === 'announcement') {
           const { target, announcement: ann } = e.data.payload || {};
-          if (target === 'announcements/global' || target === 'global' || target === `announcements/${classKey}` || target === classKey) {
-            createHandler(() => false, () => {})({ val: () => ann });
+          if (target === 'announcements/global' || target === 'global') {
+            createHandler(() => false, () => {}, 'announcements/global')({ val: () => ann });
+          } else if (target === `announcements/${classKey}` || target === classKey) {
+            createHandler(() => false, () => {}, `announcements/${classKey}`)({ val: () => ann });
           }
         }
       };
@@ -1908,10 +1954,14 @@ export default function App() {
             const globalAnn = res.announcements['announcements/global'] || res.announcements['global'];
             const classAnn = res.announcements[`announcements/${classKey}`] || res.announcements[classKey];
             if (globalAnn) {
-              createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; })({ val: () => globalAnn });
+              createHandler(() => isPollGlobalInitial, () => { isPollGlobalInitial = false; }, 'announcements/global')({ val: () => globalAnn });
+            } else {
+              isPollGlobalInitial = false;
             }
             if (classAnn) {
-              createHandler(() => isLocalInitial, () => { isLocalInitial = false; })({ val: () => classAnn });
+              createHandler(() => isPollLocalInitial, () => { isPollLocalInitial = false; }, `announcements/${classKey}`)({ val: () => classAnn });
+            } else {
+              isPollLocalInitial = false;
             }
           }
         })
@@ -1926,7 +1976,7 @@ export default function App() {
       try {
         unsubscribeLocal = onValue(
           announceRef, 
-          createHandler(() => isLocalInitial, () => { isLocalInitial = false; }),
+          createHandler(() => isFbLocalInitial, () => { isFbLocalInitial = false; }, `announcements/${classKey}`),
           (err) => {
             console.warn("Firebase local announce listener warning:", err?.message);
           }
@@ -1941,7 +1991,7 @@ export default function App() {
       try {
         unsubscribeGlobal = onValue(
           globalAnnounceRef, 
-          createHandler(() => isGlobalInitial, () => { isGlobalInitial = false; }),
+          createHandler(() => isFbGlobalInitial, () => { isFbGlobalInitial = false; }, 'announcements/global'),
           (err) => {
             console.warn("Firebase global announce listener warning:", err?.message);
           }
@@ -6571,14 +6621,28 @@ ${joinedStrings}
               {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />} 
               {isFullscreen ? '원래화면' : '전체화면'}
             </button>
-            {announcement !== '조례사항 없습니다.\n오늘 하루도 즐겁게 열심히 공부합시다~' && (
-              <button 
-                onClick={() => setIsPopupOpen(true)}
-                className="px-3 py-2.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-bold border border-amber-700/60 shadow-inner cursor-pointer flex items-center gap-1 animate-fade-in"
-                title="현재 전달사항 다시 보기"
-              >
-                <Bell size={16} /> 전달사항 보기
-              </button>
+            {hasActiveAnnouncement(announcement) && (
+              <div className="flex items-center gap-1 animate-fade-in">
+                <button 
+                  onClick={() => setIsPopupOpen(true)}
+                  className="px-3 py-2.5 rounded-l-xl bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-bold border border-amber-700/60 shadow-inner cursor-pointer flex items-center gap-1"
+                  title="현재 전달사항 다시 보기"
+                >
+                  <Bell size={16} /> 전달사항 보기
+                </button>
+                <button
+                  onClick={() => {
+                    setAnnouncement('');
+                    setIsPopupOpen(false);
+                    const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                    syncAnnouncement(classKey, { text: '', time: Date.now() });
+                  }}
+                  className="px-2 py-2.5 rounded-r-xl bg-amber-950/80 hover:bg-rose-900 text-amber-300 hover:text-white text-xs font-bold border border-l-0 border-amber-700/60 shadow-inner cursor-pointer flex items-center"
+                  title="현재 전달사항 지우기"
+                >
+                  <X size={14} />
+                </button>
+              </div>
             )}
             <button 
               onClick={handleExitApp}
