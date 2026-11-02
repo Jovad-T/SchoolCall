@@ -12,19 +12,30 @@ export type AiProviderType = 'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'g
 export function getAiConfig() {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('school_config') : null;
   const parsed = saved ? JSON.parse(saved) : {};
+  const getSafe = (prop: string, dedicatedKey: string, fallback: string = "") => {
+    if (parsed[prop] && typeof parsed[prop] === 'string' && parsed[prop].trim().length > 0) {
+      return parsed[prop].trim();
+    }
+    if (typeof localStorage !== 'undefined') {
+      const val = localStorage.getItem(dedicatedKey);
+      if (val && val.trim().length > 0) return val.trim();
+    }
+    return fallback;
+  };
+
   return {
-    aiProvider: (parsed.aiProvider || 'gemini') as AiProviderType,
-    geminiApiKey: parsed.geminiApiKey || "",
-    geminiModel: parsed.geminiModel || "gemini-3.8-flash",
-    geminiThinkingLevel: parsed.geminiThinkingLevel || 'HIGH',
-    openrouterApiKey: parsed.openrouterApiKey || "",
-    openrouterModel: parsed.openrouterModel || "openai/o3",
-    chatgptApiKey: parsed.chatgptApiKey || "",
-    chatgptModel: parsed.chatgptModel || "o3",
-    claudeApiKey: parsed.claudeApiKey || "",
-    claudeModel: parsed.claudeModel || "claude-opus-4-6",
-    groqApiKey: parsed.groqApiKey || "",
-    groqModel: parsed.groqModel || "deepseek-r1-distill-llama-70b"
+    aiProvider: (getSafe('aiProvider', 'school_ai_provider', 'gemini')) as AiProviderType,
+    geminiApiKey: getSafe('geminiApiKey', 'school_ai_gemini_api_key'),
+    geminiModel: getSafe('geminiModel', 'school_ai_gemini_model', 'gemini-3.8-flash'),
+    geminiThinkingLevel: getSafe('geminiThinkingLevel', 'school_ai_thinking_level', 'HIGH'),
+    openrouterApiKey: getSafe('openrouterApiKey', 'school_ai_openrouter_api_key'),
+    openrouterModel: getSafe('openrouterModel', 'school_ai_openrouter_model', 'openai/o3'),
+    chatgptApiKey: getSafe('chatgptApiKey', 'school_ai_chatgpt_api_key'),
+    chatgptModel: getSafe('chatgptModel', 'school_ai_chatgpt_model', 'o3'),
+    claudeApiKey: getSafe('claudeApiKey', 'school_ai_claude_api_key'),
+    claudeModel: getSafe('claudeModel', 'school_ai_claude_model', 'claude-opus-4-6'),
+    groqApiKey: getSafe('groqApiKey', 'school_ai_groq_api_key'),
+    groqModel: getSafe('groqModel', 'school_ai_groq_model', 'deepseek-r1-distill-llama-70b')
   };
 }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { callUnifiedAi } from './lib/gemini';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon, RefreshCw, Save, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Bell, Clock, Settings, X, Calendar, Utensils, BookOpen, Volume2, ShieldAlert, LogOut, Send, Monitor, Smartphone, Wrench, ArrowLeft, CheckCircle2, User, MapPin, Layers, Plus, Trash2, Edit3, Upload, FileText, Image as ImageIcon, Database, Key, Lock, Loader2, Maximize, Minimize, Moon, RefreshCw, Save, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 
 // 🔥 Firebase 실시간 통신 모듈 불러오기
 import { initializeApp } from 'firebase/app';
@@ -399,8 +399,23 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(new Date());
 
   const [schoolConfig, setSchoolConfig] = useState(() => {
-    const saved = localStorage.getItem('school_config');
-    const parsed = saved ? JSON.parse(saved) : {};
+    let parsed: any = {};
+    try {
+      const saved = localStorage.getItem('school_config');
+      if (saved) parsed = JSON.parse(saved);
+    } catch (e) {}
+
+    const getStoredKey = (prop: string, dedicatedKey: string, fallback: string = '') => {
+      if (parsed[prop] && typeof parsed[prop] === 'string' && parsed[prop].trim().length > 0) {
+        return parsed[prop].trim();
+      }
+      try {
+        const val = localStorage.getItem(dedicatedKey);
+        if (val && val.trim().length > 0) return val.trim();
+      } catch (e) {}
+      return fallback;
+    };
+
     return { 
       schoolName: parsed.schoolName || '사직여자고등학교', 
       schoolLevel: parsed.schoolLevel || 'high',
@@ -409,19 +424,19 @@ export default function App() {
       currentClass: parsed.currentClass || Number(urlC) || 0,
       classroomTheme: parsed.classroomTheme || 'default',
       appinServerUrl: parsed.appinServerUrl || '',
-      neisApiKey: parsed.neisApiKey || '',
-      geminiApiKey: parsed.geminiApiKey || '',
-      aiProvider: parsed.aiProvider || 'gemini',
-      geminiThinkingLevel: parsed.geminiThinkingLevel || 'HIGH',
-      geminiModel: parsed.geminiModel || 'gemini-3.8-flash',
-      openrouterApiKey: parsed.openrouterApiKey || '',
-      openrouterModel: parsed.openrouterModel || 'openai/o3',
-      chatgptApiKey: parsed.chatgptApiKey || '',
-      chatgptModel: parsed.chatgptModel || 'o3',
-      claudeApiKey: parsed.claudeApiKey || '',
-      claudeModel: parsed.claudeModel || 'claude-opus-4-6',
-      groqApiKey: parsed.groqApiKey || '',
-      groqModel: parsed.groqModel || 'deepseek-r1-distill-llama-70b',
+      neisApiKey: getStoredKey('neisApiKey', 'school_neis_api_key'),
+      geminiApiKey: getStoredKey('geminiApiKey', 'school_ai_gemini_api_key'),
+      aiProvider: getStoredKey('aiProvider', 'school_ai_provider', 'gemini') as any,
+      geminiThinkingLevel: getStoredKey('geminiThinkingLevel', 'school_ai_thinking_level', 'HIGH'),
+      geminiModel: getStoredKey('geminiModel', 'school_ai_gemini_model', 'gemini-3.8-flash'),
+      openrouterApiKey: getStoredKey('openrouterApiKey', 'school_ai_openrouter_api_key'),
+      openrouterModel: getStoredKey('openrouterModel', 'school_ai_openrouter_model', 'openai/o3'),
+      chatgptApiKey: getStoredKey('chatgptApiKey', 'school_ai_chatgpt_api_key'),
+      chatgptModel: getStoredKey('chatgptModel', 'school_ai_chatgpt_model', 'o3'),
+      claudeApiKey: getStoredKey('claudeApiKey', 'school_ai_claude_api_key'),
+      claudeModel: getStoredKey('claudeModel', 'school_ai_claude_model', 'claude-opus-4-6'),
+      groqApiKey: getStoredKey('groqApiKey', 'school_ai_groq_api_key'),
+      groqModel: getStoredKey('groqModel', 'school_ai_groq_model', 'deepseek-r1-distill-llama-70b'),
       eduCode: parsed.eduCode || 'C10',
       schoolCode: parsed.schoolCode || '7150144',
       adminPin: parsed.adminPin || '0000',
@@ -647,22 +662,23 @@ export default function App() {
   const [adminSchoolName, setAdminSchoolName] = useState(schoolConfig.schoolName);
   const [adminSchoolLevel, setAdminSchoolLevel] = useState<'elementary' | 'middle' | 'high'>(schoolConfig.schoolLevel || 'high');
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
-  const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
-  const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
-  const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || 'HIGH');
-  const [adminGeminiModel, setAdminGeminiModel] = useState<string>((schoolConfig as any).geminiModel || 'gemini-3.8-flash');
-  const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
-  const [adminOpenrouterApiKey, setAdminOpenrouterApiKey] = useState<string>((schoolConfig as any).openrouterApiKey || '');
-  const [adminOpenrouterModel, setAdminOpenrouterModel] = useState<string>((schoolConfig as any).openrouterModel || 'openai/o3');
-  const [adminChatgptApiKey, setAdminChatgptApiKey] = useState<string>((schoolConfig as any).chatgptApiKey || '');
-  const [adminChatgptModel, setAdminChatgptModel] = useState<string>((schoolConfig as any).chatgptModel || 'o3');
-  const [adminClaudeApiKey, setAdminClaudeApiKey] = useState<string>((schoolConfig as any).claudeApiKey || '');
-  const [adminClaudeModel, setAdminClaudeModel] = useState<string>((schoolConfig as any).claudeModel || 'claude-opus-4-6');
-  const [adminGroqApiKey, setAdminGroqApiKey] = useState((schoolConfig as any).groqApiKey || '');
-  const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'deepseek-r1-distill-llama-70b');
+  const [adminNeisApiKey, setAdminNeisApiKey] = useState(() => (typeof localStorage !== 'undefined' ? localStorage.getItem('school_neis_api_key') : null) || schoolConfig.neisApiKey || '');
+  const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(() => (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_gemini_api_key') : null) || schoolConfig.geminiApiKey || '');
+  const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_thinking_level') || 'HIGH' : 'HIGH'));
+  const [adminGeminiModel, setAdminGeminiModel] = useState<string>((schoolConfig as any).geminiModel || (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_gemini_model') || 'gemini-3.8-flash' : 'gemini-3.8-flash'));
+  const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq'>((schoolConfig as any).aiProvider || (typeof localStorage !== 'undefined' ? (localStorage.getItem('school_ai_provider') as any) || 'gemini' : 'gemini'));
+  const [adminOpenrouterApiKey, setAdminOpenrouterApiKey] = useState<string>(() => (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_openrouter_api_key') : null) || (schoolConfig as any).openrouterApiKey || '');
+  const [adminOpenrouterModel, setAdminOpenrouterModel] = useState<string>((schoolConfig as any).openrouterModel || (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_openrouter_model') || 'openai/o3' : 'openai/o3'));
+  const [adminChatgptApiKey, setAdminChatgptApiKey] = useState<string>(() => (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_chatgpt_api_key') : null) || (schoolConfig as any).chatgptApiKey || '');
+  const [adminChatgptModel, setAdminChatgptModel] = useState<string>((schoolConfig as any).chatgptModel || (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_chatgpt_model') || 'o3' : 'o3'));
+  const [adminClaudeApiKey, setAdminClaudeApiKey] = useState<string>(() => (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_claude_api_key') : null) || (schoolConfig as any).claudeApiKey || '');
+  const [adminClaudeModel, setAdminClaudeModel] = useState<string>((schoolConfig as any).claudeModel || (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_claude_model') || 'claude-opus-4-6' : 'claude-opus-4-6'));
+  const [adminGroqApiKey, setAdminGroqApiKey] = useState(() => (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_groq_api_key') : null) || (schoolConfig as any).groqApiKey || '');
+  const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || (typeof localStorage !== 'undefined' ? localStorage.getItem('school_ai_groq_model') || 'deepseek-r1-distill-llama-70b' : 'deepseek-r1-distill-llama-70b'));
   const [discoveredModelsMap, setDiscoveredModelsMap] = useState<Record<string, Array<{ id: string; label: string }>>>({});
   const [aiModelAutoNotice, setAiModelAutoNotice] = useState<string>('');
   const [isDiscoveringModels, setIsDiscoveringModels] = useState<boolean>(false);
+  const [showAiApiKey, setShowAiApiKey] = useState<boolean>(false);
   const discoverDebounceRef = useRef<any>(null);
 
   const DEFAULT_REASONING_MODELS: Record<'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq', Array<{ id: string; label: string }>> = {
@@ -710,17 +726,40 @@ export default function App() {
   ) => {
     const trimmedKey = rawNewKey.trim();
     const defaultTopModel = DEFAULT_REASONING_MODELS[targetProvider][0].id;
+    const initialModel = targetProvider === 'gemini' ? (trimmedKey ? 'gemini-4-argon' : 'gemini-3.8-flash') : defaultTopModel;
 
     // 1. 즉시 기본 최상위 사고 모델 및 최고 사고 수준(HIGH)으로 선반영
     setAdminGeminiThinkingLevel('HIGH');
-    if (targetProvider === 'gemini') setAdminGeminiModel(trimmedKey ? 'gemini-4-argon' : 'gemini-3.8-flash');
-    if (targetProvider === 'openrouter') setAdminOpenrouterModel(defaultTopModel);
-    if (targetProvider === 'chatgpt') setAdminChatgptModel(defaultTopModel);
-    if (targetProvider === 'claude') setAdminClaudeModel(defaultTopModel);
-    if (targetProvider === 'groq') setAdminGroqModel(defaultTopModel);
+    if (targetProvider === 'gemini') { setAdminGeminiApiKey(trimmedKey); setAdminGeminiModel(initialModel); }
+    if (targetProvider === 'openrouter') { setAdminOpenrouterApiKey(trimmedKey); setAdminOpenrouterModel(defaultTopModel); }
+    if (targetProvider === 'chatgpt') { setAdminChatgptApiKey(trimmedKey); setAdminChatgptModel(defaultTopModel); }
+    if (targetProvider === 'claude') { setAdminClaudeApiKey(trimmedKey); setAdminClaudeModel(defaultTopModel); }
+    if (targetProvider === 'groq') { setAdminGroqApiKey(trimmedKey); setAdminGroqModel(defaultTopModel); }
+
+    // 💡 [핵심] 키 입력 즉시 전용 로컬스토리지 및 school_config에 영구 보존하여 새로고침 시에도 절대 유실되지 않도록 보장
+    try {
+      localStorage.setItem(`school_ai_${targetProvider}_api_key`, trimmedKey);
+      localStorage.setItem('school_ai_provider', targetProvider);
+      localStorage.setItem(`school_ai_${targetProvider}_model`, initialModel);
+      localStorage.setItem('school_ai_thinking_level', 'HIGH');
+
+      const saved = JSON.parse(localStorage.getItem('school_config') || '{}');
+      const updatedConfig = {
+        ...saved,
+        aiProvider: targetProvider,
+        geminiThinkingLevel: 'HIGH',
+        ...(targetProvider === 'gemini' ? { geminiApiKey: trimmedKey, geminiModel: initialModel } : {}),
+        ...(targetProvider === 'openrouter' ? { openrouterApiKey: trimmedKey, openrouterModel: initialModel } : {}),
+        ...(targetProvider === 'chatgpt' ? { chatgptApiKey: trimmedKey, chatgptModel: initialModel } : {}),
+        ...(targetProvider === 'claude' ? { claudeApiKey: trimmedKey, claudeModel: initialModel } : {}),
+        ...(targetProvider === 'groq' ? { groqApiKey: trimmedKey, groqModel: initialModel } : {})
+      };
+      localStorage.setItem('school_config', JSON.stringify(updatedConfig));
+      setSchoolConfig(updatedConfig);
+    } catch (e) {}
 
     if (isNewKeyInput && trimmedKey.length >= 8) {
-      setAiModelAutoNotice(`⚡ 새 API 키 감지: [${targetProvider.toUpperCase()}] 최신 사고 모델(${targetProvider === 'gemini' ? 'gemini-4-argon' : defaultTopModel}) 및 최고 사고 수준(HIGH)으로 자동 설정 중...`);
+      setAiModelAutoNotice(`⚡ 새 API 키 저장 완료: [${targetProvider.toUpperCase()}] 최신 사고 모델(${initialModel}) 및 최고 사고 수준(HIGH) 자동 적용 중...`);
     }
 
     if (discoverDebounceRef.current) clearTimeout(discoverDebounceRef.current);
@@ -743,7 +782,12 @@ export default function App() {
           if (targetProvider === 'claude') setAdminClaudeModel(bestModel);
           if (targetProvider === 'groq') setAdminGroqModel(bestModel);
 
-          // 로컬 설정에도 즉시 반영하여 저장 버튼 누르기 전에도 바로 최신 모델로 작동하도록 보장
+          // 최신 모델 ID도 영구 저장
+          try {
+            localStorage.setItem(`school_ai_${targetProvider}_model`, bestModel);
+            localStorage.setItem(`school_ai_${targetProvider}_api_key`, trimmedKey);
+          } catch(e) {}
+
           setSchoolConfig(prev => {
             const updated: any = {
               ...prev,
@@ -760,7 +804,7 @@ export default function App() {
           });
 
           setAiModelAutoNotice(
-            `✅ 최신 사고 모델 자동 업데이트 완료! [${targetProvider.toUpperCase()}] ➔ "${bestModel}" (사고 수준: HIGH 최고 추론)`
+            `✅ [${targetProvider.toUpperCase()}] API 키 저장 및 최신 사고 모델("${bestModel}" · HIGH) 자동 업데이트 완료!`
           );
         }
       } catch (e) {
@@ -948,12 +992,31 @@ export default function App() {
     if (data.schoolConfig) {
       setSchoolConfig(prev => {
         const isProtectedMode = viewModeRef.current === 'remote' || viewModeRef.current === 'admin' || viewModeRef.current === 'classroom';
+        const pickKey = (incoming?: string, fallback?: string, dedicatedKey?: string) => {
+          if (incoming && typeof incoming === 'string' && incoming.trim().length > 0) return incoming.trim();
+          if (fallback && typeof fallback === 'string' && fallback.trim().length > 0) return fallback.trim();
+          if (dedicatedKey) {
+            try {
+              const local = localStorage.getItem(dedicatedKey);
+              if (local && local.trim().length > 0) return local.trim();
+            } catch (e) {}
+          }
+          return '';
+        };
+
         const merged = { 
           ...prev, 
           ...data.schoolConfig, 
           // 💡 원격/교실 모드에서는 외부 데이터에 의해 반이 변경되지 않도록 현재 값 유지
           currentGrade: (isProtectedMode && prev.currentGrade) ? prev.currentGrade : (data.schoolConfig.currentGrade || prev.currentGrade || 1), 
-          currentClass: (isProtectedMode && prev.currentClass) ? prev.currentClass : (data.schoolConfig.currentClass || prev.currentClass || 1)
+          currentClass: (isProtectedMode && prev.currentClass) ? prev.currentClass : (data.schoolConfig.currentClass || prev.currentClass || 1),
+          // 🔒 개인 API 키 보호: 외부 동기화 데이터가 빈값('')이더라도 사용자가 설정한 로컬 API 키가 지워지지 않도록 철저히 보존
+          geminiApiKey: pickKey(data.schoolConfig.geminiApiKey, prev.geminiApiKey, 'school_ai_gemini_api_key'),
+          openrouterApiKey: pickKey(data.schoolConfig.openrouterApiKey, (prev as any).openrouterApiKey, 'school_ai_openrouter_api_key'),
+          chatgptApiKey: pickKey(data.schoolConfig.chatgptApiKey, (prev as any).chatgptApiKey, 'school_ai_chatgpt_api_key'),
+          claudeApiKey: pickKey(data.schoolConfig.claudeApiKey, (prev as any).claudeApiKey, 'school_ai_claude_api_key'),
+          groqApiKey: pickKey(data.schoolConfig.groqApiKey, (prev as any).groqApiKey, 'school_ai_groq_api_key'),
+          neisApiKey: pickKey(data.schoolConfig.neisApiKey, prev.neisApiKey, 'school_neis_api_key')
         };
         try { localStorage.setItem('school_config', JSON.stringify(merged)); } catch(e) {}
         return merged;
@@ -3302,7 +3365,7 @@ ${htmlText.substring(0, 30000)}
           .filter(l => l.length >= 2 && /[가-힣a-zA-Z0-9]/.test(l));
 
         const previewReport = [
-          `[파일명]: ${file.name} (${bytes.length.toLocaleString()} bytes)${isAppinEncrypted ? ' [압핀 XOR("7n1bmu") 복호화됨]' : bestXorKey ? ` [XOR 키 0x${bestXorKey.toString(16).toUpperCase()} 복호화됨]` : ''}`,
+          `[파일명]: ${file.name} (${bytes.length.toLocaleString()} bytes)${isAppinEncrypted ? ' [압핀 XOR("7n1bmu") 복호화됨]' : (bestXorKey as number) ? ` [XOR 키 0x${(bestXorKey as number).toString(16).toUpperCase()} 복호화됨]` : ''}`,
           `[바이너리 헤더(64B)]: ${headerHex}`,
           `[감지된 한글 글자 수]: ${maxKoreanCount.toLocaleString()}자 / 유효 라인 수: ${extractedLines.length.toLocaleString()}줄`,
           `----------------------------------------`,
@@ -3817,6 +3880,15 @@ ${joinedStrings}
     setClassPopupTimeouts(tempClassPopupTimeouts);
     setCustomCallPresets(tempCustomCallPresets);
     try { localStorage.setItem('custom_call_presets', JSON.stringify(tempCustomCallPresets)); } catch(e) {}
+    try {
+      localStorage.setItem('school_ai_gemini_api_key', adminGeminiApiKey.trim());
+      localStorage.setItem('school_ai_provider', adminAiProvider);
+      localStorage.setItem('school_ai_openrouter_api_key', adminOpenrouterApiKey.trim());
+      localStorage.setItem('school_ai_chatgpt_api_key', adminChatgptApiKey.trim());
+      localStorage.setItem('school_ai_claude_api_key', adminClaudeApiKey.trim());
+      localStorage.setItem('school_ai_groq_api_key', adminGroqApiKey.trim());
+      localStorage.setItem('school_neis_api_key', adminNeisApiKey.trim());
+    } catch(e) {}
 
     const cleanData = JSON.parse(JSON.stringify({
       schoolConfig: newConfig,
@@ -4947,7 +5019,17 @@ ${joinedStrings}
                     <input 
                       type="password" 
                       value={adminNeisApiKey}
-                      onChange={e => setAdminNeisApiKey(e.target.value)}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setAdminNeisApiKey(val);
+                        try {
+                          localStorage.setItem('school_neis_api_key', val.trim());
+                          const saved = JSON.parse(localStorage.getItem('school_config') || '{}');
+                          saved.neisApiKey = val.trim();
+                          localStorage.setItem('school_config', JSON.stringify(saved));
+                          setSchoolConfig(saved);
+                        } catch(err) {}
+                      }}
                       className={`w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors ${!isNeisApiKeyValid ? 'border-rose-500 focus:border-rose-400' : 'border-emerald-900 focus:border-emerald-500'}`}
                       placeholder="발급받은 NEIS API KEY"
                     />
@@ -5097,53 +5179,159 @@ ${joinedStrings}
                     return (
                       <div className="space-y-3 bg-[#0d1612] p-3.5 rounded-2xl border border-emerald-900/50">
                         <div>
-                          <label className="text-xs font-bold text-emerald-300 block mb-1.5">{cur.title}</label>
+                          <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                            <label className="text-xs font-bold text-emerald-300">{cur.title}</label>
+                            {cur.keyValue.trim() ? (
+                              <span className="text-[11px] font-bold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-600/50 flex items-center gap-1">
+                                <CheckCircle2 size={12} className="text-emerald-400" /> 저장됨 (새로고침 유지)
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">
+                                ℹ️ 미입력 시 서버 기본 내장 키 자동 사용
+                              </span>
+                            )}
+                          </div>
+                          
                           <div className="flex gap-2">
-                            <input
-                              type="password"
-                              value={cur.keyValue}
-                              onChange={e => {
-                                const val = e.target.value;
-                                cur.setKey(val);
-                                // 키 접두사로 타사 키 붙여넣기까지 스마트 감지
-                                let detectedProv = adminAiProvider;
-                                const trimmed = val.trim();
-                                if (trimmed.startsWith('sk-or-')) {
-                                  detectedProv = 'openrouter';
-                                  setAdminAiProvider('openrouter');
-                                  setAdminOpenrouterApiKey(val);
-                                } else if (trimmed.startsWith('sk-ant-')) {
-                                  detectedProv = 'claude';
-                                  setAdminAiProvider('claude');
-                                  setAdminClaudeApiKey(val);
-                                } else if (trimmed.startsWith('gsk_')) {
-                                  detectedProv = 'groq';
-                                  setAdminAiProvider('groq');
-                                  setAdminGroqApiKey(val);
-                                } else if (trimmed.startsWith('AIza')) {
-                                  detectedProv = 'gemini';
-                                  setAdminAiProvider('gemini');
-                                  setAdminGeminiApiKey(val);
-                                } else if (trimmed.startsWith('sk-') && adminAiProvider !== 'openrouter') {
-                                  detectedProv = 'chatgpt';
-                                  setAdminAiProvider('chatgpt');
-                                  setAdminChatgptApiKey(val);
-                                }
-                                if (trimmed.length >= 8 || trimmed.length === 0) {
-                                  autoUpgradeToLatestReasoningModel(detectedProv, trimmed, true);
-                                }
+                            <div className="relative flex-1 flex items-center">
+                              <input
+                                type={showAiApiKey ? "text" : "password"}
+                                value={cur.keyValue}
+                                onChange={e => {
+                                  const val = e.target.value;
+                                  cur.setKey(val);
+                                  // 키 접두사로 타사 키 붙여넣기까지 스마트 감지
+                                  let detectedProv = adminAiProvider;
+                                  const trimmed = val.trim();
+                                  if (trimmed.startsWith('sk-or-')) {
+                                    detectedProv = 'openrouter';
+                                    setAdminAiProvider('openrouter');
+                                    setAdminOpenrouterApiKey(val);
+                                  } else if (trimmed.startsWith('sk-ant-')) {
+                                    detectedProv = 'claude';
+                                    setAdminAiProvider('claude');
+                                    setAdminClaudeApiKey(val);
+                                  } else if (trimmed.startsWith('gsk_')) {
+                                    detectedProv = 'groq';
+                                    setAdminAiProvider('groq');
+                                    setAdminGroqApiKey(val);
+                                  } else if (trimmed.startsWith('AIza')) {
+                                    detectedProv = 'gemini';
+                                    setAdminAiProvider('gemini');
+                                    setAdminGeminiApiKey(val);
+                                  } else if (trimmed.startsWith('sk-') && adminAiProvider !== 'openrouter') {
+                                    detectedProv = 'chatgpt';
+                                    setAdminAiProvider('chatgpt');
+                                    setAdminChatgptApiKey(val);
+                                  }
+
+                                  // 💡 [핵심] 타이핑/붙여넣기 즉시 localStorage에 보존 (새로고침 시 소실 완벽 차단)
+                                  try {
+                                    localStorage.setItem(`school_ai_${detectedProv}_api_key`, trimmed);
+                                    localStorage.setItem('school_ai_provider', detectedProv);
+                                    const cfg = JSON.parse(localStorage.getItem('school_config') || '{}');
+                                    cfg.aiProvider = detectedProv;
+                                    if (detectedProv === 'gemini') cfg.geminiApiKey = trimmed;
+                                    if (detectedProv === 'openrouter') cfg.openrouterApiKey = trimmed;
+                                    if (detectedProv === 'chatgpt') cfg.chatgptApiKey = trimmed;
+                                    if (detectedProv === 'claude') cfg.claudeApiKey = trimmed;
+                                    if (detectedProv === 'groq') cfg.groqApiKey = trimmed;
+                                    localStorage.setItem('school_config', JSON.stringify(cfg));
+                                    setSchoolConfig(cfg);
+                                  } catch (err) {}
+
+                                  if (trimmed.length >= 8 || trimmed.length === 0) {
+                                    autoUpgradeToLatestReasoningModel(detectedProv, trimmed, true);
+                                  }
+                                }}
+                                className="w-full pl-4 pr-10 py-2.5 bg-[#111a15] text-white rounded-xl border text-xs outline-none transition-colors border-emerald-800 focus:border-emerald-400 font-mono tracking-wider"
+                                placeholder={cur.keyPlaceholder}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowAiApiKey(!showAiApiKey)}
+                                className="absolute right-3 text-slate-400 hover:text-white transition-colors cursor-pointer p-1"
+                                title={showAiApiKey ? "API 키 숨기기" : "API 키 보기"}
+                              >
+                                {showAiApiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                              </button>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const trimmed = cur.keyValue.trim();
+                                autoUpgradeToLatestReasoningModel(adminAiProvider, trimmed, true);
+                                try {
+                                  localStorage.setItem(`school_ai_${adminAiProvider}_api_key`, trimmed);
+                                  localStorage.setItem('school_ai_provider', adminAiProvider);
+                                  const cfg = JSON.parse(localStorage.getItem('school_config') || '{}');
+                                  cfg.aiProvider = adminAiProvider;
+                                  if (adminAiProvider === 'gemini') cfg.geminiApiKey = trimmed;
+                                  if (adminAiProvider === 'openrouter') cfg.openrouterApiKey = trimmed;
+                                  if (adminAiProvider === 'chatgpt') cfg.chatgptApiKey = trimmed;
+                                  if (adminAiProvider === 'claude') cfg.claudeApiKey = trimmed;
+                                  if (adminAiProvider === 'groq') cfg.groqApiKey = trimmed;
+                                  localStorage.setItem('school_config', JSON.stringify(cfg));
+                                  setSchoolConfig(cfg);
+                                } catch (e) {}
+                                setAiModelAutoNotice(`✅ [${adminAiProvider.toUpperCase()}] API 키가 브라우저에 안전하게 저장되었습니다! 새로고침해도 영구 유지됩니다.`);
                               }}
-                              className="flex-1 px-4 py-2.5 bg-[#111a15] text-white rounded-xl border text-xs outline-none transition-colors border-emerald-800 focus:border-emerald-400"
-                              placeholder={cur.keyPlaceholder}
-                            />
+                              className="px-3 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 shadow-md cursor-pointer shrink-0 transition-all active:scale-95 border border-emerald-500/50"
+                              title="새로고침해도 유지되도록 브라우저에 즉시 저장"
+                            >
+                              <Save size={14} />
+                              <span>즉시 저장</span>
+                            </button>
+
+                            {cur.keyValue && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  cur.setKey('');
+                                  try {
+                                    localStorage.removeItem(`school_ai_${adminAiProvider}_api_key`);
+                                    const cfg = JSON.parse(localStorage.getItem('school_config') || '{}');
+                                    if (adminAiProvider === 'gemini') cfg.geminiApiKey = '';
+                                    if (adminAiProvider === 'openrouter') cfg.openrouterApiKey = '';
+                                    if (adminAiProvider === 'chatgpt') cfg.chatgptApiKey = '';
+                                    if (adminAiProvider === 'claude') cfg.claudeApiKey = '';
+                                    if (adminAiProvider === 'groq') cfg.groqApiKey = '';
+                                    localStorage.setItem('school_config', JSON.stringify(cfg));
+                                    setSchoolConfig(cfg);
+                                  } catch (e) {}
+                                  setAiModelAutoNotice(`🗑️ [${adminAiProvider.toUpperCase()}] API 키가 초기화되었습니다. (서버 기본 내장 키로 전환)`);
+                                }}
+                                className="px-2.5 py-2.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-xl text-xs font-bold flex items-center justify-center border border-rose-800 shrink-0 cursor-pointer transition-colors"
+                                title="등록된 API 키 삭제"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+
                             <a
                               href={cur.keyUrl}
                               target="_blank"
                               rel="noreferrer"
                               className="px-3.5 py-2.5 bg-amber-950/50 hover:bg-amber-900/70 text-amber-300 rounded-xl text-xs font-bold flex items-center justify-center border border-amber-700/50 shrink-0"
                             >
-                              <Key size={14} className="mr-1" /> 키 발급받기
+                              <Key size={14} className="mr-1" /> 키 발급
                             </a>
+                          </div>
+
+                          <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                            {cur.keyValue.trim() ? (
+                              <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <span>
+                                  현재 브라우저에 저장됨: <code className="font-mono text-amber-300 bg-black/40 px-1.5 py-0.5 rounded border border-white/10">{cur.keyValue.slice(0, 4)}••••••••{cur.keyValue.slice(-4)}</code>
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-slate-400">
+                                💡 API 키를 입력하면 브라우저에 자동 저장되며 새로고침해도 영구 유지됩니다.
+                              </div>
+                            )}
                           </div>
                         </div>
 
