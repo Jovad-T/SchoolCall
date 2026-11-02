@@ -412,10 +412,16 @@ export default function App() {
       neisApiKey: parsed.neisApiKey || '',
       geminiApiKey: parsed.geminiApiKey || '',
       aiProvider: parsed.aiProvider || 'gemini',
-      geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
+      geminiThinkingLevel: parsed.geminiThinkingLevel || 'HIGH',
       geminiModel: parsed.geminiModel || 'gemini-3.8-flash',
+      openrouterApiKey: parsed.openrouterApiKey || '',
+      openrouterModel: parsed.openrouterModel || 'openai/o3',
+      chatgptApiKey: parsed.chatgptApiKey || '',
+      chatgptModel: parsed.chatgptModel || 'o3',
+      claudeApiKey: parsed.claudeApiKey || '',
+      claudeModel: parsed.claudeModel || 'claude-opus-4-6',
       groqApiKey: parsed.groqApiKey || '',
-      groqModel: parsed.groqModel || 'llama-3.3-70b-versatile',
+      groqModel: parsed.groqModel || 'deepseek-r1-distill-llama-70b',
       eduCode: parsed.eduCode || 'C10',
       schoolCode: parsed.schoolCode || '7150144',
       adminPin: parsed.adminPin || '0000',
@@ -592,11 +598,13 @@ export default function App() {
   const [currentAnnouncementColor, setCurrentAnnouncementColor] = useState<string>('rose');
   const [popupCountdown, setPopupCountdown] = useState<number | null>(null);
   const [sendSuccessToast, setSendSuccessToast] = useState(false);
+  const [sendSuccessMessage, setSendSuccessMessage] = useState<string>('전송 완료! 교실 알림판에 팝업이 표시됩니다.');
   const [memoSuccessToast, setMemoSuccessToast] = useState(false);
   const [saveSuccessToast, setSaveSuccessToast] = useState(false);
   const [isExited, setIsExited] = useState(false);
 
   const [selectedStudent, setSelectedStudent] = useState<string[]>([]);
+  const [selectedStudentsByClass, setSelectedStudentsByClass] = useState<Record<string, string[]>>({});
   const [selectedCallMessage, setSelectedCallMessage] = useState<string>('교무실로 오세요');
   const [teacherName, setTeacherName] = useState<string>('');
   const [locationName, setLocationName] = useState<string>('교무실');
@@ -634,11 +642,127 @@ export default function App() {
   const [adminGradeCounts, setAdminGradeCounts] = useState(schoolConfig.gradeCounts);
   const [adminNeisApiKey, setAdminNeisApiKey] = useState(schoolConfig.neisApiKey);
   const [adminGeminiApiKey, setAdminGeminiApiKey] = useState(schoolConfig.geminiApiKey);
-  const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
+  const [adminGeminiThinkingLevel, setAdminGeminiThinkingLevel] = useState<string>((schoolConfig as any).geminiThinkingLevel || 'HIGH');
   const [adminGeminiModel, setAdminGeminiModel] = useState<string>((schoolConfig as any).geminiModel || 'gemini-3.8-flash');
-  const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
+  const [adminAiProvider, setAdminAiProvider] = useState<'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq'>((schoolConfig as any).aiProvider || 'gemini');
+  const [adminOpenrouterApiKey, setAdminOpenrouterApiKey] = useState<string>((schoolConfig as any).openrouterApiKey || '');
+  const [adminOpenrouterModel, setAdminOpenrouterModel] = useState<string>((schoolConfig as any).openrouterModel || 'openai/o3');
+  const [adminChatgptApiKey, setAdminChatgptApiKey] = useState<string>((schoolConfig as any).chatgptApiKey || '');
+  const [adminChatgptModel, setAdminChatgptModel] = useState<string>((schoolConfig as any).chatgptModel || 'o3');
+  const [adminClaudeApiKey, setAdminClaudeApiKey] = useState<string>((schoolConfig as any).claudeApiKey || '');
+  const [adminClaudeModel, setAdminClaudeModel] = useState<string>((schoolConfig as any).claudeModel || 'claude-opus-4-6');
   const [adminGroqApiKey, setAdminGroqApiKey] = useState((schoolConfig as any).groqApiKey || '');
-  const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
+  const [adminGroqModel, setAdminGroqModel] = useState<string>((schoolConfig as any).groqModel || 'deepseek-r1-distill-llama-70b');
+  const [discoveredModelsMap, setDiscoveredModelsMap] = useState<Record<string, Array<{ id: string; label: string }>>>({});
+  const [aiModelAutoNotice, setAiModelAutoNotice] = useState<string>('');
+  const [isDiscoveringModels, setIsDiscoveringModels] = useState<boolean>(false);
+  const discoverDebounceRef = useRef<any>(null);
+
+  const DEFAULT_REASONING_MODELS: Record<'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq', Array<{ id: string; label: string }>> = {
+    gemini: [
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (최신 초고속 심층 사고 모델 · 기본 추천)' },
+      { id: 'gemini-4-argon', label: 'Gemini 4 Argon (최상위 플래그십 고차원 사고/추론 모델)' },
+      { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro Preview (정밀 복합 추론 모델)' },
+      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (경량 초고속 모델)' }
+    ],
+    openrouter: [
+      { id: 'openai/o3', label: 'OpenAI o3 (OpenRouter 최신 최상위 심층 사고 모델 · 추천)' },
+      { id: 'anthropic/claude-opus-4-6', label: 'Anthropic Claude Opus 4.6 (Extended Thinking 최고 추론)' },
+      { id: 'anthropic/claude-3.7-sonnet:thinking', label: 'Claude 3.7 Sonnet Thinking (심층 사고 전용)' },
+      { id: 'google/gemini-2.5-pro', label: 'Google Gemini 2.5 Pro (대용량 정밀 사고 모델)' },
+      { id: 'deepseek/deepseek-r1', label: 'DeepSeek R1 (초고성능 추론 특화 사고 모델)' },
+      { id: 'openrouter/auto', label: 'OpenRouter Auto (최신 최상위 사고 모델 자동 라우팅)' }
+    ],
+    chatgpt: [
+      { id: 'o3', label: 'OpenAI o3 (최신 최상위 심층 사고/추론 모델 · 추천)' },
+      { id: 'o4-mini', label: 'OpenAI o4-mini (초고속 시각·수리 추론 사고 모델)' },
+      { id: 'gpt-5', label: 'GPT-5 (최신 플래그십 통합 추론 모델)' },
+      { id: 'gpt-4.1', label: 'GPT-4.1 (고정밀 멀티모달 분석 모델)' },
+      { id: 'gpt-4o', label: 'GPT-4o (옴니 멀티모달 비전/텍스트 모델)' }
+    ],
+    claude: [
+      { id: 'claude-opus-4-6', label: 'Claude Opus 4.6 (최신 최상위 Extended Thinking 사고 모델 · 추천)' },
+      { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 (고성능 하이브리드 심층 사고 모델)' },
+      { id: 'claude-3-7-sonnet-latest', label: 'Claude 3.7 Sonnet Latest (Extended Thinking 추론 모델)' },
+      { id: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet Latest (고속 비전·문서 분석)' }
+    ],
+    groq: [
+      { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill Llama 70B (최신 심층 사고/추론 모델 · 추천)' },
+      { id: 'qwen-qwq-32b', label: 'Qwen QwQ 32B (고성능 수리·논리 사고 모델)' },
+      { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick 17B (최신 멀티모달 비전/추론 모델)' },
+      { id: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout 17B (초고속 멀티모달 비전/추론)' },
+      { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile (70B 고정밀 범용 분석)' }
+    ]
+  };
+
+  // ⚡ 새 API 키 입력 또는 제공업체 변경 시 자동으로 최신 사고(Reasoning) 모델 및 HIGH 사고 수준으로 즉시 업데이트
+  const autoUpgradeToLatestReasoningModel = (
+    targetProvider: 'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq',
+    rawNewKey: string,
+    isNewKeyInput = true
+  ) => {
+    const trimmedKey = rawNewKey.trim();
+    const defaultTopModel = DEFAULT_REASONING_MODELS[targetProvider][0].id;
+
+    // 1. 즉시 기본 최상위 사고 모델 및 최고 사고 수준(HIGH)으로 선반영
+    setAdminGeminiThinkingLevel('HIGH');
+    if (targetProvider === 'gemini') setAdminGeminiModel(trimmedKey ? 'gemini-4-argon' : 'gemini-3.8-flash');
+    if (targetProvider === 'openrouter') setAdminOpenrouterModel(defaultTopModel);
+    if (targetProvider === 'chatgpt') setAdminChatgptModel(defaultTopModel);
+    if (targetProvider === 'claude') setAdminClaudeModel(defaultTopModel);
+    if (targetProvider === 'groq') setAdminGroqModel(defaultTopModel);
+
+    if (isNewKeyInput && trimmedKey.length >= 8) {
+      setAiModelAutoNotice(`⚡ 새 API 키 감지: [${targetProvider.toUpperCase()}] 최신 사고 모델(${targetProvider === 'gemini' ? 'gemini-4-argon' : defaultTopModel}) 및 최고 사고 수준(HIGH)으로 자동 설정 중...`);
+    }
+
+    if (discoverDebounceRef.current) clearTimeout(discoverDebounceRef.current);
+    discoverDebounceRef.current = setTimeout(async () => {
+      setIsDiscoveringModels(true);
+      try {
+        const res = await fetch('/api/ai/discover-models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: targetProvider, apiKey: trimmedKey })
+        });
+        const data = await res.json();
+        if (data?.success && Array.isArray(data.models) && data.models.length > 0) {
+          setDiscoveredModelsMap(prev => ({ ...prev, [targetProvider]: data.models }));
+          const bestModel = data.latestReasoningModel || data.models[0].id;
+          setAdminGeminiThinkingLevel('HIGH');
+          if (targetProvider === 'gemini') setAdminGeminiModel(bestModel);
+          if (targetProvider === 'openrouter') setAdminOpenrouterModel(bestModel);
+          if (targetProvider === 'chatgpt') setAdminChatgptModel(bestModel);
+          if (targetProvider === 'claude') setAdminClaudeModel(bestModel);
+          if (targetProvider === 'groq') setAdminGroqModel(bestModel);
+
+          // 로컬 설정에도 즉시 반영하여 저장 버튼 누르기 전에도 바로 최신 모델로 작동하도록 보장
+          setSchoolConfig(prev => {
+            const updated: any = {
+              ...prev,
+              aiProvider: targetProvider,
+              geminiThinkingLevel: 'HIGH',
+              ...(targetProvider === 'gemini' ? { geminiApiKey: trimmedKey, geminiModel: bestModel } : {}),
+              ...(targetProvider === 'openrouter' ? { openrouterApiKey: trimmedKey, openrouterModel: bestModel } : {}),
+              ...(targetProvider === 'chatgpt' ? { chatgptApiKey: trimmedKey, chatgptModel: bestModel } : {}),
+              ...(targetProvider === 'claude' ? { claudeApiKey: trimmedKey, claudeModel: bestModel } : {}),
+              ...(targetProvider === 'groq' ? { groqApiKey: trimmedKey, groqModel: bestModel } : {})
+            };
+            try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch (e) {}
+            return updated;
+          });
+
+          setAiModelAutoNotice(
+            `✅ 최신 사고 모델 자동 업데이트 완료! [${targetProvider.toUpperCase()}] ➔ "${bestModel}" (사고 수준: HIGH 최고 추론)`
+          );
+        }
+      } catch (e) {
+        console.warn('Model auto discovery warning:', e);
+      } finally {
+        setIsDiscoveringModels(false);
+      }
+    }, 350);
+  };
   const [adminDisplayDayOverride, setAdminDisplayDayOverride] = useState<string>((schoolConfig as any).displayDayOverride || '');
   const [adminEduCode, setAdminEduCode] = useState(schoolConfig.eduCode);
   const [adminSchoolCode, setAdminSchoolCode] = useState(schoolConfig.schoolCode);
@@ -658,6 +782,10 @@ export default function App() {
   const [riroStatus, setRiroStatus] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [appinDatStatus, setAppinDatStatus] = useState<{ type: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
   const [appinDatPreview, setAppinDatPreview] = useState<string>('');
+  const [appinAutoWatchActive, setAppinAutoWatchActive] = useState<boolean>(false);
+  const [appinAutoWatchInfo, setAppinAutoWatchInfo] = useState<string>('');
+  const appinFileHandleRef = useRef<any>(null);
+  const appinLastModifiedRef = useRef<number>(0);
 
   const [editTargetGrade, setEditTargetGrade] = useState(schoolConfig.currentGrade);
   const [editTargetClass, setEditTargetClass] = useState(schoolConfig.currentClass);
@@ -1515,8 +1643,118 @@ export default function App() {
     }
   };
 
+  // 🎯 [다중 학급 학생 동시 호출 필터] 해당 교실(학년-반) 소속 학생의 이름만 추출하고, 다른 반 학생만 호출된 경우 알림에서 제외
+  const extractClassFilteredStudents = (
+    rawTargetStr: string,
+    targetGrade: number,
+    targetClass: number,
+    rostersMap: Record<string, string[]>
+  ): string[] | 'ALL_CLASS' | null => {
+    const trimmed = (rawTargetStr || '').trim();
+    if (!trimmed) return null;
+    if (trimmed === '학급 전체' || trimmed === '전체') return 'ALL_CLASS';
+
+    const classKey = `${targetGrade}-${targetClass}`;
+    const tokens = trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    if (tokens.length === 0) return null;
+
+    // 1. 토큰에 "2-1 홍길동", "[2-1반] 1번 홍길동", "2학년 1반 홍길동" 등 학년-반 접두사가 포함된 경우
+    const classPrefixRegex = /^[\[\(]?\s*(\d+)\s*(?:학년|-)\s*(\d+)\s*반?\s*[\]\)]?\s*[:\-]?\s*(.+)$/;
+    const hasAnyClassPrefix = tokens.some(t => classPrefixRegex.test(t));
+    if (hasAnyClassPrefix) {
+      const matchedForThisClass: string[] = [];
+      for (const tok of tokens) {
+        const m = tok.match(classPrefixRegex);
+        if (m) {
+          const g = Number(m[1]);
+          const c = Number(m[2]);
+          const stuName = m[3].trim();
+          if (g === Number(targetGrade) && c === Number(targetClass) && stuName) {
+            matchedForThisClass.push(stuName);
+          }
+        }
+      }
+      return matchedForThisClass.length > 0 ? matchedForThisClass : null;
+    }
+
+    // 2. 학년-반 접두사가 없는 경우: 학급별 명렬표(classRosters)와 대조하여 타 학급 학생 이름을 제외하고 우리 반 학생만 남김
+    const myRoster = rostersMap[classKey] || [];
+    const stripNumberPrefix = (s: string) => s.replace(/^\d+\s*번?\s*/, '').trim();
+    const isInRoster = (stuToken: string, rosterList: string[]) => {
+      const cleanToken = stripNumberPrefix(stuToken);
+      return rosterList.some(r => {
+        const rTrim = r.trim();
+        return rTrim === stuToken || (cleanToken.length >= 2 && stripNumberPrefix(rTrim) === cleanToken);
+      });
+    };
+
+    const filteredTokens = tokens.filter(tok => {
+      if (myRoster.length > 0 && isInRoster(tok, myRoster)) {
+        return true;
+      }
+      // 다른 학급 명렬표에 등록된 학생인지 확인 (우리 반에는 없고 다른 반에만 있는 학생이면 제외)
+      const isInOtherClassRoster = Object.entries(rostersMap).some(([otherKey, otherList]) => {
+        if (otherKey === classKey || !Array.isArray(otherList)) return false;
+        return isInRoster(tok, otherList);
+      });
+      return !isInOtherClassRoster;
+    });
+
+    return filteredTokens.length > 0 ? filteredTokens : null;
+  };
+
+  const filterAnnouncementForClassroom = (
+    data: any,
+    targetGrade: number,
+    targetClass: number,
+    rostersMap: Record<string, string[]>
+  ): string | null => {
+    if (!data) return null;
+    const rawText = data.text ? String(data.text).trim() : '';
+    if (!rawText) return '';
+
+    const classKey = `${targetGrade}-${targetClass}`;
+
+    // 1. 특정 반 전용 타겟 키가 지정되어 있는데 우리 반이 아니면 무시
+    if (data.targetClassKey && String(data.targetClassKey) !== classKey) {
+      return null;
+    }
+
+    // 2. 다중 학급 동시 호출 매핑(perClassStudents)이 포함된 경우: 우리 반 학생 이름만 표시
+    if (data.perClassStudents && typeof data.perClassStudents === 'object') {
+      const myClassList = data.perClassStudents[classKey];
+      if (!Array.isArray(myClassList) || myClassList.length === 0) {
+        return null; // 우리 반은 호출 대상 학생이 없으므로 팝업 띄우지 않음
+      }
+      const myTargetStr = myClassList.join(', ');
+      if (rawText.includes('[대상:')) {
+        return rawText.replace(/\[대상:\s*.*?\]/, `[대상: ${myTargetStr}]`);
+      }
+      return `[대상: ${myTargetStr}]\n${rawText}`;
+    }
+
+    // 3. 텍스트 내 [대상: ...] 구문에서 우리 반 학생만 자동 필터링
+    if (rawText.includes('[대상:')) {
+      const targetMatch = rawText.match(/\[대상:\s*(.*?)\]/);
+      if (targetMatch) {
+        const filtered = extractClassFilteredStudents(targetMatch[1], targetGrade, targetClass, rostersMap);
+        if (filtered === null) {
+          return null; // 다른 반 학생만 호출한 알림이므로 우리 반에서는 무시
+        }
+        if (filtered !== 'ALL_CLASS') {
+          return rawText.replace(/\[대상:\s*.*?\]/, `[대상: ${filtered.join(', ')}]`);
+        }
+      }
+    }
+
+    return rawText;
+  };
+
   useEffect(() => {
     if (viewMode !== 'classroom') return;
+
+    // 학급 전환 시 해당 학급의 최신 호출을 즉시 불러올 수 있도록 초기화
+    lastSyncTimeRef.current = 0;
 
     const classKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
     const announceRef = db ? ref(db, `announcements/${classKey}`) : null;
@@ -1530,7 +1768,7 @@ export default function App() {
       const DEFAULT_MSG = '';
       
       if (data) {
-        const incomingText = data.text ? data.text.trim() : '';
+        const rawIncomingText = data.text ? data.text.trim() : '';
         
         // 학년별 전송 필터링 로직 추가
         if (data.targetGrades && Array.isArray(data.targetGrades)) {
@@ -1539,6 +1777,16 @@ export default function App() {
             return;
           }
         }
+
+        // 🎯 다중 학급 호출 시 현재 교실(학년-반)의 학생 이름만 필터링 (타 학급 전용 호출이면 무시)
+        const filteredText = rawIncomingText
+          ? filterAnnouncementForClassroom(data, schoolConfig.currentGrade, schoolConfig.currentClass, classRosters)
+          : '';
+        if (rawIncomingText && filteredText === null) {
+          setNotInitial();
+          return;
+        }
+        const incomingText = filteredText || '';
         
         const now = Date.now();
         const msgTime = data.time || now;
@@ -1869,11 +2117,17 @@ export default function App() {
       setAdminRiroId((schoolConfig as any).riroId || '');
       setAdminRiroPw((schoolConfig as any).riroPw || '');
       setAdminGeminiApiKey(schoolConfig.geminiApiKey || '');
-      setAdminGeminiThinkingLevel((schoolConfig as any).geminiThinkingLevel || 'DEFAULT');
+      setAdminGeminiThinkingLevel((schoolConfig as any).geminiThinkingLevel || 'HIGH');
       setAdminGeminiModel((schoolConfig as any).geminiModel || 'gemini-3.8-flash');
       setAdminAiProvider((schoolConfig as any).aiProvider || 'gemini');
+      setAdminOpenrouterApiKey((schoolConfig as any).openrouterApiKey || '');
+      setAdminOpenrouterModel((schoolConfig as any).openrouterModel || 'openai/o3');
+      setAdminChatgptApiKey((schoolConfig as any).chatgptApiKey || '');
+      setAdminChatgptModel((schoolConfig as any).chatgptModel || 'o3');
+      setAdminClaudeApiKey((schoolConfig as any).claudeApiKey || '');
+      setAdminClaudeModel((schoolConfig as any).claudeModel || 'claude-opus-4-6');
       setAdminGroqApiKey((schoolConfig as any).groqApiKey || '');
-      setAdminGroqModel((schoolConfig as any).groqModel || 'llama-3.3-70b-versatile');
+      setAdminGroqModel((schoolConfig as any).groqModel || 'deepseek-r1-distill-llama-70b');
       setAdminDisplayDayOverride((schoolConfig as any).displayDayOverride || '');
       setAdminEduCode(schoolConfig.eduCode);
       setAdminSchoolCode(schoolConfig.schoolCode);
@@ -2562,6 +2816,407 @@ ${htmlText.substring(0, 30000)}
   };
 
 
+  const processAppinDatBuffer = async (arrayBuffer: ArrayBuffer, fileName: string, isAutoWatch = false): Promise<boolean> => {
+    const bytes = new Uint8Array(arrayBuffer);
+
+    const headerHex = Array.from(bytes.slice(0, 64))
+      .map(b => b.toString(16).padStart(2, '0').toUpperCase())
+      .join(' ');
+
+    const APPIN_XOR_KEY = [0x37, 0x6E, 0x31, 0x62, 0x6D, 0x75]; // "7n1bmu"
+    const isAppinEncrypted =
+      bytes.length >= 4 &&
+      bytes[0] === 0x23 && // '#'
+      bytes[1] === 0x68 && // 'h'
+      bytes[2] === 0x5F && // '_' ('n' ^ 0x31)
+      bytes[3] === 0x64;   // 'd'
+
+    const decodeEucKr = (buf: Uint8Array) => {
+      const cleaned = new Uint8Array(buf.length);
+      for (let i = 0; i < buf.length; i++) {
+        const b = buf[i];
+        if (b === 0x00) cleaned[i] = 0x0A;
+        else if (b < 0x20 && b !== 0x09 && b !== 0x0A && b !== 0x0D) cleaned[i] = 0x20;
+        else cleaned[i] = b;
+      }
+      try {
+        return new TextDecoder('euc-kr').decode(cleaned);
+      } catch {
+        return new TextDecoder('utf-8', { fatal: false }).decode(cleaned);
+      }
+    };
+
+    let decodedText = '';
+    let bestXorKey = 0;
+    const countKorean = (str: string) => (str.match(/[가-힣]/g) || []).length;
+
+    if (isAppinEncrypted) {
+      const decryptedBytes = new Uint8Array(bytes.length);
+      let colIdx = 0;
+      for (let i = 0; i < bytes.length; i++) {
+        const b = bytes[i];
+        if (b === 0x0A || b === 0x0D) {
+          decryptedBytes[i] = b;
+          colIdx = 0;
+        } else {
+          if (b > 0x20) {
+            const x = b ^ APPIN_XOR_KEY[colIdx % 6];
+            decryptedBytes[i] = x > 0x20 ? x : b;
+          } else {
+            decryptedBytes[i] = b;
+          }
+          colIdx++;
+        }
+      }
+      decodedText = decodeEucKr(decryptedBytes);
+    } else {
+      decodedText = decodeEucKr(bytes);
+      let maxKoreanCount = countKorean(decodedText);
+      if (maxKoreanCount < 10 && bytes.length > 32) {
+        const sampleLen = Math.min(bytes.length, 16384);
+        const sample = bytes.slice(0, sampleLen);
+        for (let k = 1; k < 256; k++) {
+          const xored = new Uint8Array(sampleLen);
+          for (let i = 0; i < sampleLen; i++) xored[i] = sample[i] ^ k;
+          const kCount = countKorean(decodeEucKr(xored));
+          if (kCount > maxKoreanCount + 20) {
+            maxKoreanCount = kCount;
+            bestXorKey = k;
+          }
+        }
+        if (bestXorKey > 0) {
+          const fullXored = new Uint8Array(bytes.length);
+          for (let i = 0; i < bytes.length; i++) fullXored[i] = bytes[i] ^ bestXorKey;
+          decodedText = decodeEucKr(fullXored);
+        }
+      }
+    }
+
+    const rawLines = decodedText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    const ipMatch = decodedText.match(/\b(?:10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{2,5})?\b/);
+    if (ipMatch && !adminAppinServerUrl) {
+      setAdminAppinServerUrl(ipMatch[0]);
+    }
+
+    const sbjLine = rawLines.find(l => l.startsWith('#sbjnames '));
+    const tcrLine = rawLines.find(l => l.startsWith('#tcrnames '));
+    const clsLine = rawLines.find(l => l.startsWith('#clsnames '));
+    const hndLine = rawLines.find(l => l.startsWith('#hnd '));
+    const sjpIndex = rawLines.findIndex(l => l.startsWith('#sjp'));
+
+    if (sbjLine && sjpIndex !== -1) {
+      const subjectMap: Record<number, string> = {};
+      const sbjEntries = sbjLine.replace(/^#sbjnames\s+/, '').split(',');
+      sbjEntries.forEach((entry, idx) => {
+        const name = entry.split('^')[0]?.trim();
+        if (name) subjectMap[idx + 1] = name;
+      });
+
+      const teacherMap: Record<number, string> = {};
+      if (tcrLine) {
+        const tcrEntries = tcrLine.replace(/^#tcrnames\s+/, '').split(',');
+        tcrEntries.forEach((entry, idx) => {
+          const name = entry.split('^')[0]?.trim();
+          if (name) teacherMap[idx + 1] = name;
+        });
+      }
+
+      const classIndexMap: Record<number, string> = {};
+      if (clsLine) {
+        const cleanClsLine = clsLine.replace(/^#clsnames\s+/, '');
+        const clsMatches = Array.from(cleanClsLine.matchAll(/(?:^|,)\s*\d+\^(\d+-\d+)@/g));
+        clsMatches.forEach((m, idx) => {
+          classIndexMap[idx + 1] = m[1];
+        });
+      }
+      if (Object.keys(classIndexMap).length < 24) {
+        for (let g = 1; g <= 3; g++) {
+          for (let c = 1; c <= 8; c++) {
+            const idx = (g - 1) * 8 + c;
+            if (!classIndexMap[idx]) {
+              classIndexMap[idx] = `${g}-${c}`;
+            }
+          }
+        }
+      }
+
+      const schoolYearMatch = hndLine?.match(/#hnd\s+(\d{4})/);
+      const baseYear = schoolYearMatch ? parseInt(schoolYearMatch[1], 10) : new Date().getFullYear();
+      const march1Utc = Date.UTC(baseYear, 2, 1);
+
+      const sjpRowsByDay: Record<number, string> = {};
+      const activeDayNums: number[] = [];
+      for (let i = sjpIndex + 1; i < rawLines.length; i++) {
+        const line = rawLines[i];
+        const m = line.match(/^(\d+),\d+,\d+,\d+,\{/);
+        if (m) {
+          const dNum = parseInt(m[1], 10);
+          sjpRowsByDay[dNum] = line;
+          const hasLessons = /\d+\(\d+/.test(line);
+          if (hasLessons) activeDayNums.push(dNum);
+        }
+      }
+
+      const selParts = (adminDate || '').split('-').map(Number);
+      const refUtc = selParts.length === 3 && !isNaN(selParts[0])
+        ? Date.UTC(selParts[0], selParts[1] - 1, selParts[2])
+        : Date.now();
+      const refDate = new Date(refUtc);
+      const dayOfWeek = refDate.getUTCDay();
+      const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+      const mondayUtc = refUtc + diffToMon * 86400000;
+      let targetMondayNum = Math.floor((mondayUtc - march1Utc) / 86400000) + 1;
+
+      const hasWeekData = (monNum: number) =>
+        [0, 1, 2, 3, 4].some(offset => activeDayNums.includes(monNum + offset));
+
+      if (!hasWeekData(targetMondayNum) && activeDayNums.length > 0) {
+        let closestDay = activeDayNums[activeDayNums.length - 1];
+        let minDiff = Infinity;
+        for (const d of activeDayNums) {
+          const diff = Math.abs(d - targetMondayNum);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestDay = d;
+          }
+        }
+        const closestUtc = march1Utc + (closestDay - 1) * 86400000;
+        const closestDow = new Date(closestUtc).getUTCDay();
+        const closestDiffToMon = closestDow === 0 ? -6 : 1 - closestDow;
+        targetMondayNum = closestDay + closestDiffToMon;
+      }
+
+      const isIgnoredSubj = (name?: string) =>
+        !name || name === '대강' || name === '공강' || name === '복도감독';
+
+      const formatCellSubject = (rawCell: string): string => {
+        if (!rawCell) return '-';
+        const activePart = rawCell.split('#')[0].trim();
+        if (!activePart) return '-';
+        const beforeParen = activePart.split('(')[0].trim();
+        if (!beforeParen) return '-';
+
+        const electMatch = beforeParen.match(/^(\d+)>(.+)$/);
+        if (electMatch) {
+          const groupCode = String.fromCharCode(64 + parseInt(electMatch[1], 10));
+          const subjIds = electMatch[2]
+            .split('+')
+            .map(s => parseInt(s.replace(/\D/g, ''), 10))
+            .filter(n => !isNaN(n) && n > 0);
+          const validNames = subjIds
+            .map(id => subjectMap[id])
+            .filter(name => !isIgnoredSubj(name));
+          if (validNames.length > 0) {
+            return Array.from(new Set(validNames)).join('/');
+          }
+          return `${groupCode}선택`;
+        }
+
+        const subjIds = beforeParen
+          .split('+')
+          .map(s => parseInt(s.replace(/\D/g, ''), 10))
+          .filter(n => !isNaN(n) && n > 0);
+        const validNames = subjIds
+          .map(id => subjectMap[id])
+          .filter(name => !isIgnoredSubj(name));
+        if (validNames.length > 0) {
+          return Array.from(new Set(validNames)).join('/');
+        }
+        return '-';
+      };
+
+      const newTimetables: Record<string, Record<string, Record<number, string>>> = { ...tempClassTimetables };
+      const updatedClassSet = new Set<string>();
+
+      for (let dayOffset = 0; dayOffset < 5; dayOffset++) {
+        const dNum = targetMondayNum + dayOffset;
+        const rowStr = sjpRowsByDay[dNum];
+        const dayKey = String(dayOffset + 1);
+        if (!rowStr) continue;
+
+        const classBlocks = rowStr.split('{').slice(1);
+        for (const block of classBlocks) {
+          const cols = block.split(',');
+          const clsIdx = parseInt(cols[0], 10);
+          const classKey = classIndexMap[clsIdx];
+          if (!classKey) continue;
+
+          if (!newTimetables[classKey]) newTimetables[classKey] = {};
+          if (!newTimetables[classKey][dayKey]) newTimetables[classKey][dayKey] = {};
+
+          for (let period = 1; period <= 7; period++) {
+            const cellStr = cols[1 + period] || '';
+            const subjName = formatCellSubject(cellStr);
+            newTimetables[classKey][dayKey][period] = subjName;
+          }
+          updatedClassSet.add(classKey);
+        }
+      }
+
+      if (updatedClassSet.size > 0) {
+        setTempClassTimetables(newTimetables);
+        setClassTimetables(newTimetables);
+        try {
+          localStorage.setItem('class_timetables_map', JSON.stringify(newTimetables));
+          localStorage.setItem('school_class_timetables', JSON.stringify(newTimetables));
+        } catch (e) {}
+        // 💡 전 학급 전자칠판으로 즉시 실시간 동기화
+        syncGlobalData({ classTimetables: newTimetables });
+
+        const curClassKey = `${editTargetGrade}-${editTargetClass}`;
+        const curSchedule = newTimetables[curClassKey] || {};
+        const weekStartStr = new Date(march1Utc + (targetMondayNum - 1) * 86400000).toISOString().slice(0, 10);
+        const sbjPreviewList = Object.entries(subjectMap)
+          .map(([id, name]) => `${id}.${name}`)
+          .join(', ');
+        const tcrPreviewList = Object.entries(teacherMap)
+          .map(([id, name]) => `${id}.${name}`)
+          .join(', ');
+
+        const curClassLines = ['1', '2', '3', '4', '5'].map((dKey, idx) => {
+          const dayNames = ['월', '화', '수', '목', '금'];
+          const pList = [1, 2, 3, 4, 5, 6, 7].map(p => `${p}교시:${curSchedule[dKey]?.[p] || '-'}`).join(' | ');
+          return `  [${dayNames[idx]}] ${pList}`;
+        });
+
+        const allClassListStr = Array.from(updatedClassSet).join(', ');
+        const decodedReport = [
+          `[파일명]: ${fileName} (${bytes.length.toLocaleString()} bytes) [압핀 6바이트 XOR("7n1bmu") 완벽 복호화 완료]`,
+          `[학년도/기준주간]: ${baseYear}학년도 / 적용 주간 월요일: ${weekStartStr} (${targetMondayNum}일차~${targetMondayNum + 4}일차)`,
+          `[추출된 학급 수]: 총 ${updatedClassSet.size}개 학급 (${allClassListStr} — 전체 학급 자동 반영 및 칠판 동기화 완료)`,
+          `[개설 과목(${Object.keys(subjectMap).length}개)]: ${sbjPreviewList}`,
+          `[교사 명단(${Object.keys(teacherMap).length}명)]: ${tcrPreviewList}`,
+          `----------------------------------------`,
+          `📌 현재 선택 학급 [${curClassKey}반] 주간 시간표 추출 결과:`,
+          ...curClassLines,
+          `----------------------------------------`,
+          `[복호화된 원본 데이터 샘플 (상위 30줄)]:`,
+          ...rawLines.slice(0, 30).map(l => l.slice(0, 180))
+        ].join('\n');
+
+        setAppinDatPreview(decodedReport);
+        const timeStr = new Date().toLocaleTimeString('ko-KR');
+        setAppinDatStatus({
+          type: 'success',
+          message: isAutoWatch
+            ? `⚡ [실시간 자동 감지 완료 - ${timeStr}] 압핀 파일(${fileName}) 변경이 감지되어 전교 ${updatedClassSet.size}개 학급 시간표가 자동 갱신·전송되었습니다!`
+            : `🎉 [${fileName}] 압핀 암호("7n1bmu") 복호화 성공! 전체 ${updatedClassSet.size}개 학급(1~3학년 전 학급)의 시간표가 즉시 자동 등록 및 칠판에 동기화되었습니다!`
+        });
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // ⚡ [실시간 파일 변경 감시] 브라우저/PC앱에서 C:\Program Files (x86)\압핀시간표\amc42.dat 파일을 한 번 지정하면 10초마다 변경 여부를 자동 감지하여 업로드 없이 즉시 동기화
+  const handleConnectAppinAutoWatch = async () => {
+    try {
+      if (!(window as any).showOpenFilePicker) {
+        alert('현재 브라우저는 실시간 파일 감시(File System Access API)를 지원하지 않습니다. 크롬(Chrome), 엣지(Edge), 또는 PC용 앱에서 실행하거나 우측의 [무인 자동 동기화기(.bat) 다운로드]를 이용해 주세요.');
+        return;
+      }
+      const [fileHandle] = await (window as any).showOpenFilePicker({
+        types: [
+          {
+            description: '압핀시간표 데이터 파일 (amc42.dat)',
+            accept: { 'application/octet-stream': ['.dat', '.cfg', '.afn', '.arm'] }
+          }
+        ],
+        multiple: false
+      });
+      if (!fileHandle) return;
+
+      appinFileHandleRef.current = fileHandle;
+      const file = await fileHandle.getFile();
+      appinLastModifiedRef.current = file.lastModified;
+      setTimetableFileName(file.name);
+      setAppinAutoWatchActive(true);
+      const timeStr = new Date().toLocaleTimeString('ko-KR');
+      setAppinAutoWatchInfo(`실시간 감시 중: ${file.name} (최근 동기화: ${timeStr})`);
+
+      const buf = await file.arrayBuffer();
+      await processAppinDatBuffer(buf, file.name, false);
+    } catch (err: any) {
+      if (err?.name !== 'AbortError') {
+        setAppinDatStatus({ type: 'error', message: `❌ 실시간 감시 연결 실패: ${err?.message || '파일 선택이 취소되었습니다.'}` });
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!appinAutoWatchActive || !appinFileHandleRef.current) return;
+    const watchTimer = setInterval(async () => {
+      try {
+        const handle = appinFileHandleRef.current;
+        if (!handle) return;
+        const file = await handle.getFile();
+        if (file.lastModified !== appinLastModifiedRef.current) {
+          appinLastModifiedRef.current = file.lastModified;
+          const buf = await file.arrayBuffer();
+          await processAppinDatBuffer(buf, file.name, true);
+          const timeStr = new Date().toLocaleTimeString('ko-KR');
+          setAppinAutoWatchInfo(`실시간 감시 중: ${file.name} (자동 갱신됨: ${timeStr})`);
+        }
+      } catch (e) {
+        console.warn('Appin auto-watch poll warning:', e);
+      }
+    }, 10000); // 10초마다 파일 수정 시각 확인
+    return () => clearInterval(watchTimer);
+  }, [appinAutoWatchActive, adminDate]);
+
+  // 🤖 [윈도우 무인 자동 동기화기(.bat) 다운로드] 브라우저를 켜두지 않아도 PC가 켜져 있으면 C:\Program Files (x86)\압핀시간표\amc42.dat 변경 시 서버로 자동 업로드
+  const handleDownloadAppinWatcherBat = () => {
+    const serverOrigin = window.location.origin;
+    const batContent = [
+      '@echo off',
+      'chcp 65001 > nul',
+      'title 압핀시간표(amc42.dat) 실시간 무인 자동 동기화기',
+      'echo ========================================================',
+      'echo   [사직여고 전자칠판] 압핀시간표(amc42.dat) 자동 동기화기',
+      'echo   - 감시 경로: C:\\Program Files (x86)\\압핀시간표\\amc42.dat',
+      `echo   - 연동 서버: ${serverOrigin}/api/sync/appin-dat`,
+      'echo   - 압핀에서 시간표를 수정/저장하면 자동으로 칠판에 반영됩니다.',
+      'echo ========================================================',
+      'echo.',
+      'powershell -NoProfile -ExecutionPolicy Bypass -Command ^',
+      '  "$path = \'C:\\Program Files (x86)\\압핀시간표\\amc42.dat\'; ^',
+      '   if (-not (Test-Path $path)) { $path = Join-Path $PSScriptRoot \'amc42.dat\' }; ^',
+      `   $url = '${serverOrigin}/api/sync/appin-dat'; ^`,
+      '   $lastWrite = [datetime]::MinValue; ^',
+      '   while ($true) { ^',
+      '     if (Test-Path $path) { ^',
+      '       $curWrite = (Get-Item $path).LastWriteTime; ^',
+      '       if ($curWrite -ne $lastWrite) { ^',
+      '         Write-Host (\'[\' + (Get-Date -Format \'HH:mm:ss\') + \'] amc42.dat 변경 감지! 서버로 자동 업로드 중...\') -ForegroundColor Cyan; ^',
+      '         try { ^',
+      '           $bytes = [System.IO.File]::ReadAllBytes($path); ^',
+      '           $res = Invoke-RestMethod -Uri $url -Method Post -Body $bytes -ContentType \'application/octet-stream\'; ^',
+      '           Write-Host (\'✅ 전교 시간표 자동 동기화 완료! (\' + $res.updatedClasses + \'개 학급)\') -ForegroundColor Green; ^',
+      '           $lastWrite = $curWrite; ^',
+      '         } catch { ^',
+      '           Write-Host (\'❌ 전송 오류: \' + $_.Exception.Message) -ForegroundColor Red; ^',
+      '         } ^',
+      '       } ^',
+      '     } else { ^',
+      '       Write-Host \'⚠️ amc42.dat 파일을 찾을 수 없습니다. 압핀시간표 폴더에 이 파일을 넣거나 경로를 확인해주세요.\' -ForegroundColor Yellow; ^',
+      '     } ^',
+      '     Start-Sleep -Seconds 15; ^',
+      '   }"',
+      'pause'
+    ].join('\r\n');
+
+    const blob = new Blob([batContent], { type: 'application/bat;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '압핀시간표_무인자동동기화.bat';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleTimetableImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2575,280 +3230,21 @@ ${htmlText.substring(0, 30000)}
       setAppinDatStatus({ type: 'info', message: `⏳ 압핀시간표 내부 파일(${file.name}, ${(file.size / 1024).toFixed(1)}KB)의 바이너리/EUC-KR 구조를 해독 중입니다...` });
       try {
         const arrayBuffer = await file.arrayBuffer();
+        const handled = await processAppinDatBuffer(arrayBuffer, file.name, false);
+        if (handled) {
+          setIsNeisLoading(false);
+          e.target.value = '';
+          return;
+        }
         const bytes = new Uint8Array(arrayBuffer);
-
-        // 1. 헤더 Hex 덤프 (처음 64바이트)
         const headerHex = Array.from(bytes.slice(0, 64))
           .map(b => b.toString(16).padStart(2, '0').toUpperCase())
           .join(' ');
-
-        // 2. 압핀시간표(amc42.dat) 전용 6바이트 XOR("7n1bmu") 복호화 + EUC-KR(CP949) 디코딩
-        const APPIN_XOR_KEY = [0x37, 0x6E, 0x31, 0x62, 0x6D, 0x75]; // "7n1bmu"
-        const isAppinEncrypted =
-          bytes.length >= 4 &&
-          bytes[0] === 0x23 && // '#'
-          bytes[1] === 0x68 && // 'h'
-          bytes[2] === 0x5F && // '_' ('n' ^ 0x31)
-          bytes[3] === 0x64;   // 'd'
-
-        const decodeEucKr = (buf: Uint8Array) => {
-          const cleaned = new Uint8Array(buf.length);
-          for (let i = 0; i < buf.length; i++) {
-            const b = buf[i];
-            if (b === 0x00) cleaned[i] = 0x0A;
-            else if (b < 0x20 && b !== 0x09 && b !== 0x0A && b !== 0x0D) cleaned[i] = 0x20;
-            else cleaned[i] = b;
-          }
-          try {
-            return new TextDecoder('euc-kr').decode(cleaned);
-          } catch {
-            return new TextDecoder('utf-8', { fatal: false }).decode(cleaned);
-          }
-        };
-
-        let decodedText = '';
-        let bestXorKey = 0;
-        const countKorean = (str: string) => (str.match(/[가-힣]/g) || []).length;
-
-        if (isAppinEncrypted) {
-          // 줄 단위(\r\n)로 6바이트 키 [0x37, 0x6E, 0x31, 0x62, 0x6D, 0x75] 복호화 후 EUC-KR 디코딩
-          const decryptedBytes = new Uint8Array(bytes.length);
-          let colIdx = 0;
-          for (let i = 0; i < bytes.length; i++) {
-            const b = bytes[i];
-            if (b === 0x0A || b === 0x0D) {
-              decryptedBytes[i] = b;
-              colIdx = 0;
-            } else {
-              if (b > 0x20) {
-                const x = b ^ APPIN_XOR_KEY[colIdx % 6];
-                decryptedBytes[i] = x > 0x20 ? x : b;
-              } else {
-                decryptedBytes[i] = b;
-              }
-              colIdx++;
-            }
-          }
-          decodedText = decodeEucKr(decryptedBytes);
-        } else {
-          decodedText = decodeEucKr(bytes);
-          let maxKoreanCount = countKorean(decodedText);
-          if (maxKoreanCount < 10 && bytes.length > 32) {
-            const sampleLen = Math.min(bytes.length, 16384);
-            const sample = bytes.slice(0, sampleLen);
-            for (let k = 1; k < 256; k++) {
-              const xored = new Uint8Array(sampleLen);
-              for (let i = 0; i < sampleLen; i++) xored[i] = sample[i] ^ k;
-              const kCount = countKorean(decodeEucKr(xored));
-              if (kCount > maxKoreanCount + 20) {
-                maxKoreanCount = kCount;
-                bestXorKey = k;
-              }
-            }
-            if (bestXorKey > 0) {
-              const fullXored = new Uint8Array(bytes.length);
-              for (let i = 0; i < bytes.length; i++) fullXored[i] = bytes[i] ^ bestXorKey;
-              decodedText = decodeEucKr(fullXored);
-            }
-          }
-        }
-
-        const maxKoreanCount = countKorean(decodedText);
+        const isAppinEncrypted = false;
+        const bestXorKey = 0;
+        const decodedText = new TextDecoder('euc-kr').decode(bytes);
+        const maxKoreanCount = (decodedText.match(/[가-힣]/g) || []).length;
         const rawLines = decodedText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-        // amc42.cfg 등에서 IP 주소/포트가 발견되면 자동으로 서버 주소 칸에 채워주기
-        const ipMatch = decodedText.match(/\b(?:10|172|192)\.\d{1,3}\.\d{1,3}\.\d{1,3}(?::\d{2,5})?\b/);
-        if (ipMatch && !adminAppinServerUrl) {
-          setAdminAppinServerUrl(ipMatch[0]);
-        }
-
-        // 3. 압핀시간표(amc42.dat) 표준 섹션(#sbjnames, #tcrnames, #clsnames, #sjp) 결정론적 파서
-        const sbjLine = rawLines.find(l => l.startsWith('#sbjnames '));
-        const tcrLine = rawLines.find(l => l.startsWith('#tcrnames '));
-        const clsLine = rawLines.find(l => l.startsWith('#clsnames '));
-        const hndLine = rawLines.find(l => l.startsWith('#hnd '));
-        const sjpIndex = rawLines.findIndex(l => l.startsWith('#sjp'));
-
-        if (sbjLine && sjpIndex !== -1) {
-          // (1) 과목 번호(1-based) -> 과목명 매핑
-          const subjectMap: Record<number, string> = {};
-          const sbjEntries = sbjLine.replace(/^#sbjnames\s+/, '').split(',');
-          sbjEntries.forEach((entry, idx) => {
-            const name = entry.split('^')[0]?.trim();
-            if (name) subjectMap[idx + 1] = name;
-          });
-
-          // (2) 교사 번호(1-based) -> 교사명 매핑
-          const teacherMap: Record<number, string> = {};
-          if (tcrLine) {
-            const tcrEntries = tcrLine.replace(/^#tcrnames\s+/, '').split(',');
-            tcrEntries.forEach((entry, idx) => {
-              const name = entry.split('^')[0]?.trim();
-              if (name) teacherMap[idx + 1] = name;
-            });
-          }
-
-          // (3) 학급 번호(1-based) -> "학년-반" 매핑
-          const classIndexMap: Record<number, string> = {};
-          if (clsLine) {
-            const clsMatches = Array.from(clsLine.matchAll(/(?:^|,)\s*\d+\^(\d+-\d+)@/g));
-            clsMatches.forEach((m, idx) => {
-              classIndexMap[idx + 1] = m[1];
-            });
-          }
-          // 기본 24학급(1~3학년 각 8반) 폴백 보장
-          if (Object.keys(classIndexMap).length === 0) {
-            for (let g = 1; g <= 3; g++) {
-              for (let c = 1; c <= 8; c++) {
-                classIndexMap[(g - 1) * 8 + c] = `${g}-${c}`;
-              }
-            }
-          }
-
-          // (4) #sjp 일자별 시간표 라인 파싱 (1일차 = 해당 학년도 3월 1일)
-          const schoolYearMatch = hndLine?.match(/#hnd\s+(\d{4})/);
-          const baseYear = schoolYearMatch ? parseInt(schoolYearMatch[1], 10) : new Date().getFullYear();
-          const march1Utc = Date.UTC(baseYear, 2, 1); // YYYY-03-01
-
-          const sjpRowsByDay: Record<number, string> = {};
-          const activeDayNums: number[] = [];
-          for (let i = sjpIndex + 1; i < rawLines.length; i++) {
-            const line = rawLines[i];
-            const m = line.match(/^(\d+),\d+,\d+,\d+,\{/);
-            if (m) {
-              const dNum = parseInt(m[1], 10);
-              sjpRowsByDay[dNum] = line;
-              // 수업이 실제로 들어있는 평일인지 확인
-              const hasLessons = /\d+\(\d+/.test(line);
-              if (hasLessons) activeDayNums.push(dNum);
-            }
-          }
-
-          // 선택된 날짜(selectedDate)가 속한 주의 월요일(dayNum) 계산
-          const selParts = (selectedDate || '').split('-').map(Number);
-          const refUtc = selParts.length === 3 && !isNaN(selParts[0])
-            ? Date.UTC(selParts[0], selParts[1] - 1, selParts[2])
-            : Date.now();
-          const refDate = new Date(refUtc);
-          const dayOfWeek = refDate.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-          const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-          const mondayUtc = refUtc + diffToMon * 86400000;
-          let targetMondayNum = Math.floor((mondayUtc - march1Utc) / 86400000) + 1;
-
-          // 만약 해당 주에 수업 데이터가 없다면 가장 가까운 활성 주의 월요일 탐색
-          const hasWeekData = (monNum: number) =>
-            [0, 1, 2, 3, 4].some(offset => activeDayNums.includes(monNum + offset));
-
-          if (!hasWeekData(targetMondayNum) && activeDayNums.length > 0) {
-            // 가장 최근(또는 가장 가까운) 활성 일자 기준으로 월요일 맞춤
-            let closestDay = activeDayNums[activeDayNums.length - 1];
-            let minDiff = Infinity;
-            for (const d of activeDayNums) {
-              const diff = Math.abs(d - targetMondayNum);
-              if (diff < minDiff) {
-                minDiff = diff;
-                closestDay = d;
-              }
-            }
-            const closestUtc = march1Utc + (closestDay - 1) * 86400000;
-            const closestDow = new Date(closestUtc).getUTCDay();
-            const closestDiffToMon = closestDow === 0 ? -6 : 1 - closestDow;
-            targetMondayNum = closestDay + closestDiffToMon;
-          }
-
-          // 셀 문자열(예: "2(8", "1>19(9|433", "8(39#7(39<285.3", "~47(")을 과목명으로 변환
-          const formatCellSubject = (rawCell: string): string => {
-            if (!rawCell) return '-';
-            const activePart = rawCell.split('#')[0].trim();
-            if (!activePart) return '-';
-            // 선택과목 형식: "1>19(9|433"
-            const electMatch = activePart.match(/^(\d+)>(\d+)\(/);
-            if (electMatch) {
-              const groupCode = String.fromCharCode(64 + parseInt(electMatch[1], 10)); // 1->A, 2->B...
-              const subjId = parseInt(electMatch[2], 10);
-              const subjName = subjectMap[subjId] || `${groupCode}선택`;
-              return subjName;
-            }
-            // 일반/창체 과목 형식: "2(8" 또는 "~47("
-            const stdMatch = activePart.match(/^~?(\d+)\(/);
-            if (stdMatch) {
-              const subjId = parseInt(stdMatch[1], 10);
-              return subjectMap[subjId] || '-';
-            }
-            return '-';
-          };
-
-          const newTimetables: Record<string, Record<string, Record<number, string>>> = { ...tempClassTimetables };
-          const updatedClassSet = new Set<string>();
-
-          for (let dayOffset = 0; dayOffset < 5; dayOffset++) {
-            const dNum = targetMondayNum + dayOffset;
-            const rowStr = sjpRowsByDay[dNum];
-            const dayKey = String(dayOffset + 1); // "1"(월) ~ "5"(금)
-            if (!rowStr) continue;
-
-            const classBlocks = rowStr.split('{').slice(1);
-            for (const block of classBlocks) {
-              const cols = block.split(',');
-              const clsIdx = parseInt(cols[0], 10);
-              const classKey = classIndexMap[clsIdx];
-              if (!classKey) continue;
-
-              if (!newTimetables[classKey]) newTimetables[classKey] = {};
-              if (!newTimetables[classKey][dayKey]) newTimetables[classKey][dayKey] = {};
-
-              for (let period = 1; period <= 7; period++) {
-                const cellStr = cols[1 + period] || '';
-                const subjName = formatCellSubject(cellStr);
-                newTimetables[classKey][dayKey][period] = subjName;
-              }
-              updatedClassSet.add(classKey);
-            }
-          }
-
-          if (updatedClassSet.size > 0) {
-            setTempClassTimetables(newTimetables);
-            setClassTimetables(newTimetables);
-            localStorage.setItem('school_class_timetables', JSON.stringify(newTimetables));
-
-            const curClassKey = `${editTargetGrade}-${editTargetClass}`;
-            const curSchedule = newTimetables[curClassKey] || {};
-            const weekStartStr = new Date(march1Utc + (targetMondayNum - 1) * 86400000).toISOString().slice(0, 10);
-            const sbjPreviewList = Object.entries(subjectMap)
-              .map(([id, name]) => `${id}.${name}`)
-              .join(', ');
-            const tcrPreviewList = Object.entries(teacherMap)
-              .map(([id, name]) => `${id}.${name}`)
-              .join(', ');
-
-            const curClassLines = ['1', '2', '3', '4', '5'].map((dKey, idx) => {
-              const dayNames = ['월', '화', '수', '목', '금'];
-              const pList = [1, 2, 3, 4, 5, 6, 7].map(p => `${p}교시:${curSchedule[dKey]?.[p] || '-'}`).join(' | ');
-              return `  [${dayNames[idx]}] ${pList}`;
-            });
-
-            const decodedReport = [
-              `[파일명]: ${file.name} (${bytes.length.toLocaleString()} bytes) [압핀 6바이트 XOR("7n1bmu") 완벽 복호화 완료]`,
-              `[학년도/기준주간]: ${baseYear}학년도 / 적용 주간 월요일: ${weekStartStr} (${targetMondayNum}일차~${targetMondayNum + 4}일차)`,
-              `[추출된 학급 수]: 총 ${updatedClassSet.size}개 학급 (${Array.from(updatedClassSet).slice(0, 8).join(', ')} 등 전체 학급 자동 반영됨)`,
-              `[개설 과목(${Object.keys(subjectMap).length}개)]: ${sbjPreviewList}`,
-              `[교사 명단(${Object.keys(teacherMap).length}명)]: ${tcrPreviewList}`,
-              `----------------------------------------`,
-              `📌 현재 선택 학급 [${curClassKey}반] 주간 시간표 추출 결과:`,
-              ...curClassLines,
-              `----------------------------------------`,
-              `[복호화된 원본 데이터 샘플 (상위 30줄)]:`,
-              ...rawLines.slice(0, 30).map(l => l.slice(0, 180))
-            ].join('\n');
-
-            setAppinDatPreview(decodedReport);
-            setAppinDatStatus({
-              type: 'success',
-              message: `🎉 [${file.name}] 압핀 암호("7n1bmu") 복호화 성공! 전체 ${updatedClassSet.size}개 학급(1~3학년 전 학급)의 시간표가 즉시 자동 등록 및 저장되었습니다!`
-            });
-            return;
-          }
-        }
 
         // 의미 있는 한글/영문/숫자 라인만 정제 (일반 dat/cfg 파일용)
         const extractedLines = rawLines
@@ -3161,10 +3557,19 @@ ${joinedStrings}
     }
   };
 
-  const sendFirebaseMessage = (msg: string, isGlobal = false, customDuration?: number, forcePopupOverride?: boolean, colorOverride?: string) => {
+  const sendFirebaseMessage = (
+    msg: string,
+    isGlobal = false,
+    customDuration?: number,
+    forcePopupOverride?: boolean,
+    colorOverride?: string,
+    overrideClassKey?: string,
+    perClassStudentsMap?: Record<string, string[]>,
+    customToastText?: string
+  ) => {
     const grade = schoolConfig.currentGrade || 1;
     const cls = schoolConfig.currentClass || 1;
-    const classKey = `${grade}-${cls}`;
+    const classKey = overrideClassKey || `${grade}-${cls}`;
     const effectiveTimeout = customDuration 
       || (classPopupTimeouts[classKey] !== undefined ? classPopupTimeouts[classKey] : (schoolConfig.popupTimeout || 60));
     const shouldForce = forcePopupOverride !== undefined ? forcePopupOverride : isForcePopupSend;
@@ -3176,19 +3581,25 @@ ${joinedStrings}
       duration: effectiveTimeout,
       forcePopup: shouldForce,
       color: finalColor,
+      targetClassKey: isGlobal ? null : classKey,
+      perClassStudents: perClassStudentsMap || null,
       targetGrades: isGlobal && globalTargetGrades.length > 0 ? globalTargetGrades : null
     };
 
-    // 💡 철저한 경로 검증 및 강제: 전체 전송이 아닐 경우 반드시 현재 선택된 학년-반 경로로 지정
-    const targetPath = isGlobal ? 'announcements/global' : `announcements/${grade}-${cls}`;
+    // 💡 철저한 경로 검증 및 강제: 전체 전송이 아닐 경우 반드시 지정된 학년-반 경로로 지정
+    const targetPath = isGlobal ? 'announcements/global' : `announcements/${classKey}`;
     console.log("Strictly targeted announcement path:", targetPath);
 
-    localStorage.setItem('class_announcement', msg);
-    setAnnouncement(msg);
-    setCurrentAnnouncementDuration(effectiveTimeout);
-    setCurrentAnnouncementColor(finalColor);
+    if (classKey === `${grade}-${cls}` || isGlobal) {
+      localStorage.setItem('class_announcement', msg);
+      setAnnouncement(msg);
+      setCurrentAnnouncementDuration(effectiveTimeout);
+      setCurrentAnnouncementColor(finalColor);
+    }
+
+    setSendSuccessMessage(customToastText || '전송 완료! 교실 알림판에 팝업이 표시됩니다.');
     setSendSuccessToast(true);
-    setTimeout(() => setSendSuccessToast(false), 3000);
+    setTimeout(() => setSendSuccessToast(false), 3500);
 
     syncAnnouncement(targetPath, payload);
     setIsGlobalSend(false);
@@ -3244,9 +3655,45 @@ ${joinedStrings}
       if (!isConfirmed) return;
     }
 
-    const targetStr = selectedStudent.length > 0 ? selectedStudent.join(', ') : '학급 전체';
     const teacherStr = teacherName.trim() ? `\n(${teacherName.trim()} 선생님 호출)` : '';
-    const finalMsg = `[대상: ${targetStr}]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
+
+    // 🎯 다중 학급(또는 특정 학급) 학생 선택 여부 확인
+    const curClassKey = `${schoolConfig.currentGrade || 1}-${schoolConfig.currentClass || 1}`;
+    const mergedClassMap: Record<string, string[]> = { ...selectedStudentsByClass };
+    if ((!mergedClassMap[curClassKey] || mergedClassMap[curClassKey].length === 0) && selectedStudent.length > 0) {
+      mergedClassMap[curClassKey] = selectedStudent;
+    }
+
+    const activeClassEntries = (Object.entries(mergedClassMap) as [string, string[]][])
+      .filter(([_, list]) => Array.isArray(list) && list.length > 0);
+
+    if (activeClassEntries.length > 0) {
+      // 💡 여러 반(또는 단일 반)의 학생을 호출할 때 각 반 전자칠판에는 오직 해당 반 소속 학생의 이름만 개별 전송
+      const cleanPerClassMap: Record<string, string[]> = Object.fromEntries(activeClassEntries);
+      const classSummaryLabels = activeClassEntries.map(([k, list]) => `${k}반(${list.length}명)`).join(', ');
+      const toastMsg = activeClassEntries.length > 1
+        ? `✅ 다중 학급 동시 호출 완료! [${classSummaryLabels}] 각 반 전자칠판에 해당 반 학생 이름만 개별 알림으로 표시됩니다.`
+        : `✅ 전송 완료! [${classSummaryLabels}] 전자칠판에 호출 알림이 표시됩니다.`;
+
+      activeClassEntries.forEach(([targetClassKey, stuList]) => {
+        const classSpecificTargetStr = stuList.join(', ');
+        const classSpecificMsg = `[대상: ${classSpecificTargetStr}]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
+        sendFirebaseMessage(
+          classSpecificMsg,
+          false, // 학생 지정 호출 시 전체 교실에 다른 반 학생 이름이 뜨지 않도록 반드시 해당 반으로만 개별 전송
+          undefined,
+          isForcePopupSend,
+          selectedPopupColor,
+          targetClassKey,
+          cleanPerClassMap,
+          toastMsg
+        );
+      });
+      return;
+    }
+
+    // 선택된 학생이 없는 경우: 학급 전체(또는 전체 교실) 호출
+    const finalMsg = `[대상: 학급 전체]\n호출 내용: ${actualMessage}\n장소: ${locationName}${teacherStr}`;
     sendFirebaseMessage(finalMsg, isGlobalSend);
   };
 
@@ -3289,6 +3736,12 @@ ${joinedStrings}
       aiProvider: adminAiProvider,
       geminiThinkingLevel: adminGeminiThinkingLevel,
       geminiModel: adminGeminiModel,
+      openrouterApiKey: adminOpenrouterApiKey.trim(),
+      openrouterModel: adminOpenrouterModel,
+      chatgptApiKey: adminChatgptApiKey.trim(),
+      chatgptModel: adminChatgptModel,
+      claudeApiKey: adminClaudeApiKey.trim(),
+      claudeModel: adminClaudeModel,
       groqApiKey: adminGroqApiKey.trim(),
       groqModel: adminGroqModel,
       displayDayOverride: adminDisplayDayOverride,
@@ -3362,6 +3815,10 @@ ${joinedStrings}
 
   const renderColorPickerWithPreview = () => {
     const popupStyles = getPopupTheme(selectedPopupColor);
+    const activeEntries = (Object.entries(selectedStudentsByClass) as [string, string[]][])
+      .filter(([_, list]) => Array.isArray(list) && list.length > 0);
+    const curClassKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+    const curClassSelected = selectedStudentsByClass[curClassKey] || selectedStudent;
 
     return (
       <div className="flex flex-col gap-2 mb-4 w-full">
@@ -3394,9 +3851,28 @@ ${joinedStrings}
             <h4 className="text-base font-black tracking-widest">메시지</h4>
             <ShieldAlert size={20} />
           </div>
-          <div className="inline-block px-4 py-1.5 border-2 rounded-full text-[11px] font-black mb-4 shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
-            대상: 학급 전체 / 선택 학생
-          </div>
+          {activeEntries.length > 1 ? (
+            <div className="flex flex-col items-center gap-1.5 mb-3 w-full">
+              <div className="flex flex-wrap justify-center gap-1.5">
+                {activeEntries.map(([cKey, stuList]) => (
+                  <div
+                    key={cKey}
+                    className="px-3 py-1 border-2 rounded-full text-[11px] font-black shadow-sm"
+                    style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}
+                  >
+                    [{cKey}반 칠판] 대상: {stuList.join(', ')}
+                  </div>
+                ))}
+              </div>
+              <span className="text-[10px] font-bold" style={{ color: popupStyles.textBadge }}>
+                ※ 각 반 전자칠판에는 해당 반 학생의 이름만 개별 표시됩니다.
+              </span>
+            </div>
+          ) : (
+            <div className="inline-block px-4 py-1.5 border-2 rounded-full text-[11px] font-black mb-4 shadow-sm" style={{ backgroundColor: popupStyles.bgBadge, borderColor: `${popupStyles.hex}40`, color: popupStyles.textBadge }}>
+              대상: {curClassSelected.length > 0 ? curClassSelected.join(', ') : (activeEntries.length === 1 ? activeEntries[0][1].join(', ') : '학급 전체')}
+            </div>
+          )}
           <div className="text-sm font-black break-keep w-full line-clamp-2" style={{ color: popupStyles.textMain, textShadow: `0 2px 10px ${popupStyles.shadow}` }}>
             {selectedCallMessage === '직접 입력' ? (customAnnouncement || '전자칠판 화면 중앙에 이렇게 팝업됩니다.') : (selectedCallMessage || customAnnouncement || '전자칠판 화면 중앙에 이렇게 팝업됩니다.')}
           </div>
@@ -3629,8 +4105,8 @@ ${joinedStrings}
                     const newVal = Number(e.target.value);
                     const newConfig = { ...schoolConfig, currentGrade: newVal };
                     setSchoolConfig(newConfig);
+                    setSelectedStudent(selectedStudentsByClass[`${newVal}-${schoolConfig.currentClass}`] || []);
                     try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
-                    syncGlobalData({ schoolConfig: newConfig });
                   }}
                   className="flex-1 bg-[#111] border border-white/20 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none focus:border-amber-400 cursor-pointer"
                 >
@@ -3646,8 +4122,8 @@ ${joinedStrings}
                     const newVal = Number(e.target.value);
                     const newConfig = { ...schoolConfig, currentClass: newVal };
                     setSchoolConfig(newConfig);
+                    setSelectedStudent(selectedStudentsByClass[`${schoolConfig.currentGrade}-${newVal}`] || []);
                     try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
-                    syncGlobalData({ schoolConfig: newConfig });
                   }}
                   className="flex-1 bg-[#111] border border-white/20 rounded-xl px-3 py-2 text-sm font-bold text-white outline-none focus:border-amber-400 cursor-pointer"
                 >
@@ -3702,45 +4178,221 @@ ${joinedStrings}
             <div className="xl:col-span-6 space-y-6">
               
               <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-4">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <label className="text-xs font-bold text-slate-300 tracking-wider flex items-center gap-2">
-                    👥 학생 선택 ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 명렬 - 총 {currentStudents.length}명)
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-amber-400 font-bold">
-                      {selectedStudent.length > 0 ? `${selectedStudent.length}명 선택됨 (${selectedStudent.join(', ')})` : '학급 전체 대상'}
-                    </span>
-                    {selectedStudent.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedStudent([])}
-                        className="text-[11px] px-2 py-0.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/60 font-bold cursor-pointer"
-                      >
-                        선택 해제
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                {currentStudents.length > 0 ? (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2.5 overflow-y-visible">
-                    {currentStudents.map((stu, i) => {
-                      const isSelected = selectedStudent.includes(stu);
-                      return (
-                        <button
-                          type="button"
-                          key={i}
-                          onClick={() => setSelectedStudent(prev => prev.includes(stu) ? prev.filter(s => s !== stu) : [...prev, stu])}
-                          className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all border cursor-pointer truncate ${isSelected ? 'bg-rose-600 text-white border-rose-500 shadow-lg scale-[1.03]' : 'bg-[#222] text-slate-300 border-white/10 hover:bg-[#2a2a2a]'}`}
-                        >
-                          {stu}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-sm text-slate-500 bg-[#111] rounded-2xl border border-white/5">등록된 학생이 없습니다. 관리자 모드에서 설정해주세요.</div>
-                )}
+                {(() => {
+                  const curClassKey = `${schoolConfig.currentGrade}-${schoolConfig.currentClass}`;
+                  const curClassSelectedList = selectedStudentsByClass[curClassKey] || [];
+                  const activeEntries = (Object.entries(selectedStudentsByClass) as [string, string[]][])
+                    .filter(([_, list]) => Array.isArray(list) && list.length > 0);
+                  const totalSelectedStudents = activeEntries.reduce((acc, [_, list]) => acc + list.length, 0);
+                  const maxGrade = schoolConfig.schoolLevel === 'elementary' ? 6 : 3;
+                  const classCountForGrade = schoolConfig.gradeCounts[schoolConfig.currentGrade as any] || 8;
+
+                  const toggleStudentInCurrentClass = (stu: string) => {
+                    setSelectedStudentsByClass(prev => {
+                      const existing = prev[curClassKey] || [];
+                      const nextList = existing.includes(stu)
+                        ? existing.filter(s => s !== stu)
+                        : [...existing, stu];
+                      const nextMap = { ...prev, [curClassKey]: nextList };
+                      if (nextList.length === 0) delete nextMap[curClassKey];
+                      setSelectedStudent(nextList);
+                      return nextMap;
+                    });
+                  };
+
+                  return (
+                    <>
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <label className="text-xs font-bold text-slate-300 tracking-wider flex items-center gap-2">
+                          👥 학생 선택 ({schoolConfig.currentGrade}학년 {schoolConfig.currentClass}반 명렬 - 총 {currentStudents.length}명)
+                        </label>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-amber-400 font-bold">
+                            {totalSelectedStudents > 0
+                              ? `${activeEntries.length}개 반 · 총 ${totalSelectedStudents}명 선택됨`
+                              : '학급 전체 대상'}
+                          </span>
+                          {curClassSelectedList.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentsByClass(prev => {
+                                  const next = { ...prev };
+                                  delete next[curClassKey];
+                                  return next;
+                                });
+                                setSelectedStudent([]);
+                              }}
+                              className="text-[11px] px-2 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/15 font-bold cursor-pointer"
+                            >
+                              현재 반 해제
+                            </button>
+                          )}
+                          {totalSelectedStudents > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentsByClass({});
+                                setSelectedStudent([]);
+                              }}
+                              className="text-[11px] px-2.5 py-0.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-700/60 font-bold cursor-pointer"
+                            >
+                              전체 선택 해제
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* ⚡ 다중 학급 빠른 전환 바 (여러 반의 학생을 동시에 고를 때 1클릭 전환) */}
+                      <div className="bg-[#111] border border-white/10 rounded-2xl p-2.5 space-y-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            {Array.from({ length: maxGrade }, (_, i) => i + 1).map(g => {
+                              const isGradeActive = Number(schoolConfig.currentGrade) === g;
+                              const gradeSelectedCount = activeEntries
+                                .filter(([k]) => k.startsWith(`${g}-`))
+                                .reduce((acc, [_, list]) => acc + list.length, 0);
+                              return (
+                                <button
+                                  key={g}
+                                  type="button"
+                                  onClick={() => {
+                                    const newConfig = { ...schoolConfig, currentGrade: g };
+                                    setSchoolConfig(newConfig);
+                                    const nextKey = `${g}-${schoolConfig.currentClass}`;
+                                    setSelectedStudent(selectedStudentsByClass[nextKey] || []);
+                                    try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                                  }}
+                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    isGradeActive
+                                      ? 'bg-amber-500 text-black font-black shadow'
+                                      : 'bg-white/5 text-slate-400 hover:text-white'
+                                  }`}
+                                >
+                                  <span>{g}학년</span>
+                                  {gradeSelectedCount > 0 && (
+                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${isGradeActive ? 'bg-black text-amber-400' : 'bg-rose-600 text-white'}`}>
+                                      {gradeSelectedCount}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <span className="text-[11px] text-emerald-400 font-bold">
+                            💡 다른 반 탭을 눌러 여러 반 학생을 동시에 선택할 수 있습니다
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-white/5">
+                          {Array.from({ length: classCountForGrade }, (_, i) => i + 1).map(c => {
+                            const key = `${schoolConfig.currentGrade}-${c}`;
+                            const isClassActive = Number(schoolConfig.currentClass) === c;
+                            const countInClass = (selectedStudentsByClass[key] || []).length;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                onClick={() => {
+                                  const newConfig = { ...schoolConfig, currentClass: c };
+                                  setSchoolConfig(newConfig);
+                                  setSelectedStudent(selectedStudentsByClass[key] || []);
+                                  try { localStorage.setItem('school_config', JSON.stringify(newConfig)); } catch(err) {}
+                                }}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border ${
+                                  isClassActive
+                                    ? 'bg-emerald-600 text-white border-emerald-400 font-black shadow'
+                                    : countInClass > 0
+                                    ? 'bg-rose-950/70 text-rose-200 border-rose-500/60 hover:bg-rose-900/70'
+                                    : 'bg-[#1a1a1a] text-slate-400 border-white/10 hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                <span>{c}반</span>
+                                {countInClass > 0 && (
+                                  <span className="px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-black">
+                                    {countInClass}명
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 📌 선택된 학생 다중 학급 요약 배지 (여러 반 동시 호출 시 반별 분리 안내) */}
+                      {activeEntries.length > 0 && (
+                        <div className="bg-emerald-950/30 border border-emerald-500/40 rounded-2xl p-3 space-y-2 animate-fade-in">
+                          <div className="flex items-center justify-between flex-wrap gap-1">
+                            <span className="text-[11px] font-black text-emerald-300 flex items-center gap-1.5">
+                              🎯 반별 개별 알림 대상 ({activeEntries.length}개 학급 · 총 {totalSelectedStudents}명)
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-300">
+                              ※ 호출 전송 시 각 반 전자칠판에는 해당 반 학생의 이름만 알림으로 뜹니다!
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {activeEntries.map(([cKey, stuList]) => {
+                              const [gStr, cStr] = cKey.split('-');
+                              return (
+                                <div
+                                  key={cKey}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-black/50 border border-rose-500/40 text-xs"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newConfig = { ...schoolConfig, currentGrade: Number(gStr), currentClass: Number(cStr) };
+                                      setSchoolConfig(newConfig);
+                                      setSelectedStudent(selectedStudentsByClass[cKey] || []);
+                                    }}
+                                    className="font-black text-amber-400 hover:underline cursor-pointer"
+                                  >
+                                    {gStr}학년 {cStr}반:
+                                  </button>
+                                  <span className="font-bold text-white">{stuList.join(', ')}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedStudentsByClass(prev => {
+                                        const next = { ...prev };
+                                        delete next[cKey];
+                                        return next;
+                                      });
+                                      if (cKey === curClassKey) setSelectedStudent([]);
+                                    }}
+                                    className="ml-1 text-rose-400 hover:text-rose-200 cursor-pointer"
+                                    title={`${gStr}학년 ${cStr}반 선택 해제`}
+                                  >
+                                    <X size={13} />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {currentStudents.length > 0 ? (
+                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2.5 overflow-y-visible">
+                          {currentStudents.map((stu, i) => {
+                            const isSelected = curClassSelectedList.includes(stu);
+                            return (
+                              <button
+                                type="button"
+                                key={i}
+                                onClick={() => toggleStudentInCurrentClass(stu)}
+                                className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all border cursor-pointer truncate ${isSelected ? 'bg-rose-600 text-white border-rose-500 shadow-lg scale-[1.03]' : 'bg-[#222] text-slate-300 border-white/10 hover:bg-[#2a2a2a]'}`}
+                              >
+                                {stu}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-sm text-slate-500 bg-[#111] rounded-2xl border border-white/5">등록된 학생이 없습니다. 관리자 모드에서 설정해주세요.</div>
+                      )}
+                    </>
+                  );
+                })()}
               </section>
 
               <section className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-6 space-y-5">
@@ -3824,7 +4476,16 @@ ${joinedStrings}
                       }[selectedPopupColor]
                     }`}
                   >
-                    <Send size={20} /> 스마트 리모컨 호출 전송
+                    <Send size={20} />
+                    {(() => {
+                      const activeEntries = (Object.entries(selectedStudentsByClass) as [string, string[]][])
+                        .filter(([_, list]) => Array.isArray(list) && list.length > 0);
+                      if (activeEntries.length > 1) {
+                        const totalCnt = activeEntries.reduce((acc, [_, list]) => acc + list.length, 0);
+                        return `스마트 리모컨 동시 호출 전송 (${activeEntries.length}개 반 · 총 ${totalCnt}명 반별 개별 알림)`;
+                      }
+                      return '스마트 리모컨 호출 전송';
+                    })()}
                   </button>
                 </form>
               </section>
@@ -4084,9 +4745,9 @@ ${joinedStrings}
         </main>
 
         {sendSuccessToast && (
-          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 p-4 px-6 bg-emerald-500 text-white rounded-2xl text-sm font-bold flex items-center gap-3 animate-fade-in shadow-2xl z-50">
-            <CheckCircle2 size={20} />
-            전송 완료! 교실 알림판에 팝업이 표시됩니다.
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 p-4 px-6 bg-emerald-500 text-white rounded-2xl text-sm font-bold flex items-center gap-3 animate-fade-in shadow-2xl z-50 max-w-2xl text-center">
+            <CheckCircle2 size={20} className="shrink-0" />
+            <span>{sendSuccessMessage}</span>
           </div>
         )}
         
@@ -4244,120 +4905,240 @@ ${joinedStrings}
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-emerald-900/60 space-y-3">
+                <div className="pt-3 border-t border-emerald-900/60 space-y-3.5">
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <label className="text-xs font-bold text-slate-400">인공지능(AI) 서비스 제공업체 선택</label>
-                    <div className="flex gap-5">
-                      <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer select-none">
-                        <input 
-                          type="radio" 
-                          name="aiProvider" 
-                          value="gemini" 
-                          checked={adminAiProvider === 'gemini'} 
-                          onChange={() => {
-                            setAdminAiProvider('gemini');
-                            setSchoolConfig(prev => {
-                              const updated = { ...prev, aiProvider: 'gemini' };
-                              try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
-                              return updated;
-                            });
-                          }} 
-                          className="w-4 h-4 accent-emerald-500 cursor-pointer"
-                        />
-                        Google Gemini (기본값)
-                      </label>
-                      <label className="flex items-center gap-2 text-xs font-bold text-white cursor-pointer select-none">
-                        <input 
-                          type="radio" 
-                          name="aiProvider" 
-                          value="groq" 
-                          checked={adminAiProvider === 'groq'} 
-                          onChange={() => {
-                            setAdminAiProvider('groq');
-                            setSchoolConfig(prev => {
-                              const updated = { ...prev, aiProvider: 'groq' };
-                              try { localStorage.setItem('school_config', JSON.stringify(updated)); } catch(e) {}
-                              return updated;
-                            });
-                          }} 
-                          className="w-4 h-4 accent-emerald-500 cursor-pointer"
-                        />
-                        Groq Cloud (Llama 3 초고속 모델)
-                      </label>
-                    </div>
+                    <label className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      🤖 인공지능(AI) 서비스 제공업체 선택 <span className="text-[10px] text-emerald-400 font-normal">(새 API 키 입력 시 최신 사고 모델로 자동 업데이트)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const keyMap: Record<string, string> = {
+                          gemini: adminGeminiApiKey,
+                          openrouter: adminOpenrouterApiKey,
+                          chatgpt: adminChatgptApiKey,
+                          claude: adminClaudeApiKey,
+                          groq: adminGroqApiKey
+                        };
+                        autoUpgradeToLatestReasoningModel(adminAiProvider, keyMap[adminAiProvider] || '', false);
+                      }}
+                      className="px-2.5 py-1 bg-emerald-800/70 hover:bg-emerald-700 text-emerald-200 border border-emerald-600/60 rounded-lg text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <RefreshCw size={12} className={isDiscoveringModels ? 'animate-spin' : ''} />
+                      최신 사고 모델 자동 업데이트
+                    </button>
                   </div>
 
-                  {adminAiProvider === 'gemini' ? (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-400">활용할 Gemini AI 모델 선택</label>
-                          <select
-                            value={adminGeminiModel}
-                            onChange={e => setAdminGeminiModel(e.target.value)}
-                            className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
-                          >
-                            <option value="gemini-3.8-flash">Gemini 3.8 Flash (최신 기본 추천)</option>
-                            <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash Lite</option>
-                            <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (최고 성능 추론)</option>
-                          </select>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[11px] font-bold text-slate-400">Gemini 사고 수준 (Thinking Level) 설정</label>
-                          <select
-                            value={adminGeminiThinkingLevel}
-                            onChange={e => setAdminGeminiThinkingLevel(e.target.value)}
-                            className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
-                          >
-                            <option value="DEFAULT">DEFAULT (기본 자동 조정 - 추천)</option>
-                            <option value="HIGH">HIGH (최고 수준 추론 - 정밀 추출)</option>
-                            <option value="LOW">LOW (저지연 빠른 추론)</option>
-                            <option value="MINIMAL">MINIMAL (최소 사고 - 즉답)</option>
-                          </select>
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-slate-500">
-                        * 복잡한 시간표/식단표 분석 시 HIGH 또는 DEFAULT를 권장합니다.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-bold text-slate-400 block mb-1.5">Groq API KEY (Llama 초고속 엔진)</label>
-                        <div className="flex gap-2">
-                          <div className="flex-1 flex flex-col gap-1">
-                            <input 
-                              type="password" 
-                              value={adminGroqApiKey}
-                              onChange={e => setAdminGroqApiKey(e.target.value)}
-                              className="w-full px-4 py-2.5 bg-[#111a15] text-white rounded-xl border text-sm outline-none transition-colors border-emerald-900 focus:border-emerald-500"
-                              placeholder="발급받은 Groq API KEY (gsk_...) 입력"
-                            />
-                          </div>
-                          <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="px-4 py-2.5 bg-orange-950/40 hover:bg-orange-900 text-orange-300 rounded-xl text-xs font-bold flex items-center justify-center border border-orange-700/50 h-[42px] shrink-0">
-                            <Key size={14} className="mr-1"/> 키 발급받기
-                          </a>
-                        </div>
-                      </div>
-                      
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-bold text-slate-400">활용할 Groq AI 모델 선택</label>
-                        <select
-                          value={adminGroqModel}
-                          onChange={e => setAdminGroqModel(e.target.value)}
-                          className="w-full px-3 py-2 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer"
+                  {/* 5대 AI 제공업체 선택 탭 */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {[
+                      { id: 'gemini', label: 'Google Gemini', sub: '서버 기본 / Argon·3.8' },
+                      { id: 'openrouter', label: 'OpenRouter', sub: '통합 최신 추론 라우터' },
+                      { id: 'chatgpt', label: 'ChatGPT (OpenAI)', sub: 'o3 / o4-mini / GPT-5' },
+                      { id: 'claude', label: 'Claude (Anthropic)', sub: 'Opus 4.6 / Extended' },
+                      { id: 'groq', label: 'Groq Cloud', sub: 'DeepSeek R1 / QwQ' }
+                    ].map((prov) => {
+                      const isSelected = adminAiProvider === prov.id;
+                      return (
+                        <button
+                          key={prov.id}
+                          type="button"
+                          onClick={() => {
+                            const nextProv = prov.id as 'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq';
+                            setAdminAiProvider(nextProv);
+                            const keyMap: Record<string, string> = {
+                              gemini: adminGeminiApiKey,
+                              openrouter: adminOpenrouterApiKey,
+                              chatgpt: adminChatgptApiKey,
+                              claude: adminClaudeApiKey,
+                              groq: adminGroqApiKey
+                            };
+                            autoUpgradeToLatestReasoningModel(nextProv, keyMap[nextProv] || '', false);
+                          }}
+                          className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-emerald-700/40 border-emerald-400 text-white shadow-md'
+                              : 'bg-[#111a15] border-emerald-900/60 text-slate-400 hover:text-white hover:border-emerald-700'
+                          }`}
                         >
-                          <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (70B 고해상도 텍스트 분석 - 추천)</option>
-                          <option value="llama-3.2-11b-vision-preview">llama-3.2-11b-vision-preview (11B 멀티모달 비전 모델 - 이미지 OCR 최적화)</option>
-                          <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (8B 초스피드 경량 텍스트 분석)</option>
-                        </select>
-                        <p className="text-[10px] text-slate-500">
-                          * 텍스트 전용 모델을 선택하더라도, 시간표/식단표 이미지 분석 작업 시에는 비전 모델인 11B Vision 모델로 스마트 자동 우회 처리됩니다.
-                        </p>
-                      </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`w-2.5 h-2.5 rounded-full ${isSelected ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-slate-600'}`} />
+                            <span className="text-xs font-black tracking-tight truncate">{prov.label}</span>
+                          </div>
+                          <span className="text-[10px] text-emerald-300/80 mt-1 truncate pl-4">{prov.sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {aiModelAutoNotice && (
+                    <div className="px-3.5 py-2 bg-emerald-950/70 border border-emerald-500/50 rounded-xl text-[11px] font-bold text-emerald-200 flex items-center justify-between gap-2">
+                      <span>{aiModelAutoNotice}</span>
+                      <button type="button" onClick={() => setAiModelAutoNotice('')} className="text-emerald-400 hover:text-white cursor-pointer">
+                        <X size={13} />
+                      </button>
                     </div>
                   )}
+
+                  {/* 선택된 제공업체별 API 키 입력 및 최신 사고 모델 설정 */}
+                  {(() => {
+                    const providerMeta: Record<
+                      'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq',
+                      {
+                        title: string;
+                        keyPlaceholder: string;
+                        keyUrl: string;
+                        keyValue: string;
+                        setKey: (v: string) => void;
+                        modelValue: string;
+                        setModel: (v: string) => void;
+                      }
+                    > = {
+                      gemini: {
+                        title: 'Google Gemini API KEY (미입력 시 서버 기본 내장 키 자동 사용 · 새 키 입력 시 최신 사고 모델 자동 전환)',
+                        keyPlaceholder: '선택사항: 새 Gemini API KEY (AIza...) 입력 시 최신 Gemini 4 Argon / 3.8 Flash 사고 모델로 자동 업데이트',
+                        keyUrl: 'https://aistudio.google.com/app/apikey',
+                        keyValue: adminGeminiApiKey,
+                        setKey: setAdminGeminiApiKey,
+                        modelValue: adminGeminiModel,
+                        setModel: setAdminGeminiModel
+                      },
+                      openrouter: {
+                        title: 'OpenRouter API KEY (입력 즉시 최신 o3 / Claude 4.6 / R1 사고 모델로 자동 업데이트)',
+                        keyPlaceholder: '발급받은 OpenRouter API KEY (sk-or-v1-...) 입력',
+                        keyUrl: 'https://openrouter.ai/keys',
+                        keyValue: adminOpenrouterApiKey,
+                        setKey: setAdminOpenrouterApiKey,
+                        modelValue: adminOpenrouterModel,
+                        setModel: setAdminOpenrouterModel
+                      },
+                      chatgpt: {
+                        title: 'OpenAI (ChatGPT) API KEY (입력 즉시 최신 o3 / o4-mini / GPT-5 사고 모델로 자동 업데이트)',
+                        keyPlaceholder: '발급받은 OpenAI API KEY (sk-proj-...) 입력',
+                        keyUrl: 'https://platform.openai.com/api-keys',
+                        keyValue: adminChatgptApiKey,
+                        setKey: setAdminChatgptApiKey,
+                        modelValue: adminChatgptModel,
+                        setModel: setAdminChatgptModel
+                      },
+                      claude: {
+                        title: 'Anthropic Claude API KEY (입력 즉시 최신 Claude Opus 4.6 / Sonnet 4.5 Extended Thinking 모델로 자동 업데이트)',
+                        keyPlaceholder: '발급받은 Anthropic API KEY (sk-ant-...) 입력',
+                        keyUrl: 'https://console.anthropic.com/settings/keys',
+                        keyValue: adminClaudeApiKey,
+                        setKey: setAdminClaudeApiKey,
+                        modelValue: adminClaudeModel,
+                        setModel: setAdminClaudeModel
+                      },
+                      groq: {
+                        title: 'Groq Cloud API KEY (입력 즉시 최신 DeepSeek R1 / Qwen QwQ / Llama 4 사고 모델로 자동 업데이트)',
+                        keyPlaceholder: '발급받은 Groq API KEY (gsk_...) 입력',
+                        keyUrl: 'https://console.groq.com/keys',
+                        keyValue: adminGroqApiKey,
+                        setKey: setAdminGroqApiKey,
+                        modelValue: adminGroqModel,
+                        setModel: setAdminGroqModel
+                      }
+                    };
+
+                    const cur = providerMeta[adminAiProvider];
+                    const modelList = discoveredModelsMap[adminAiProvider] || DEFAULT_REASONING_MODELS[adminAiProvider];
+
+                    return (
+                      <div className="space-y-3 bg-[#0d1612] p-3.5 rounded-2xl border border-emerald-900/50">
+                        <div>
+                          <label className="text-xs font-bold text-emerald-300 block mb-1.5">{cur.title}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              value={cur.keyValue}
+                              onChange={e => {
+                                const val = e.target.value;
+                                cur.setKey(val);
+                                // 키 접두사로 타사 키 붙여넣기까지 스마트 감지
+                                let detectedProv = adminAiProvider;
+                                const trimmed = val.trim();
+                                if (trimmed.startsWith('sk-or-')) {
+                                  detectedProv = 'openrouter';
+                                  setAdminAiProvider('openrouter');
+                                  setAdminOpenrouterApiKey(val);
+                                } else if (trimmed.startsWith('sk-ant-')) {
+                                  detectedProv = 'claude';
+                                  setAdminAiProvider('claude');
+                                  setAdminClaudeApiKey(val);
+                                } else if (trimmed.startsWith('gsk_')) {
+                                  detectedProv = 'groq';
+                                  setAdminAiProvider('groq');
+                                  setAdminGroqApiKey(val);
+                                } else if (trimmed.startsWith('AIza')) {
+                                  detectedProv = 'gemini';
+                                  setAdminAiProvider('gemini');
+                                  setAdminGeminiApiKey(val);
+                                } else if (trimmed.startsWith('sk-') && adminAiProvider !== 'openrouter') {
+                                  detectedProv = 'chatgpt';
+                                  setAdminAiProvider('chatgpt');
+                                  setAdminChatgptApiKey(val);
+                                }
+                                if (trimmed.length >= 8 || trimmed.length === 0) {
+                                  autoUpgradeToLatestReasoningModel(detectedProv, trimmed, true);
+                                }
+                              }}
+                              className="flex-1 px-4 py-2.5 bg-[#111a15] text-white rounded-xl border text-xs outline-none transition-colors border-emerald-800 focus:border-emerald-400"
+                              placeholder={cur.keyPlaceholder}
+                            />
+                            <a
+                              href={cur.keyUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3.5 py-2.5 bg-amber-950/50 hover:bg-amber-900/70 text-amber-300 rounded-xl text-xs font-bold flex items-center justify-center border border-amber-700/50 shrink-0"
+                            >
+                              <Key size={14} className="mr-1" /> 키 발급받기
+                            </a>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-slate-300">
+                              활용할 {adminAiProvider.toUpperCase()} 최신 사고(Reasoning) 모델
+                            </label>
+                            <select
+                              value={cur.modelValue}
+                              onChange={e => cur.setModel(e.target.value)}
+                              className="w-full px-3 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer font-bold"
+                            >
+                              {modelList.map(m => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold text-slate-300">
+                              사고 수준 (Thinking / Reasoning Effort) 설정
+                            </label>
+                            <select
+                              value={adminGeminiThinkingLevel}
+                              onChange={e => setAdminGeminiThinkingLevel(e.target.value)}
+                              className="w-full px-3 py-2.5 bg-[#111a15] text-white rounded-xl border border-emerald-900 text-xs focus:border-emerald-500 outline-none cursor-pointer font-bold"
+                            >
+                              <option value="HIGH">HIGH (최고 수준 심층 사고 · 새 API 키 입력 시 기본 자동 적용)</option>
+                              <option value="DEFAULT">DEFAULT (표준 자동 사고 조정)</option>
+                              <option value="MEDIUM">MEDIUM (균형 잡힌 중간 추론)</option>
+                              <option value="LOW">LOW (저지연 빠른 추론)</option>
+                              <option value="MINIMAL">MINIMAL (최소 사고 · 즉답 모드)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-slate-400">
+                          * 새로운 API 키를 입력하면 해당 제공업체의 모델 서버를 즉시 조회하여 <b>가장 최신 버전의 사고(Reasoning) 모델</b>과 <b>HIGH(최고 수준 추론)</b>로 자동 업데이트됩니다.
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </section>
 
@@ -4976,6 +5757,50 @@ ${joinedStrings}
                       </div>
                     </div>
 
+                    {/* ⚡ 압핀(amc42.dat) 무인 자동 동기화 패널 (매일 수동 업로드 불필요) */}
+                    <div className="p-3.5 bg-[#0c1812] border border-emerald-700/60 rounded-2xl flex flex-col gap-2.5">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-black text-emerald-300">
+                            ⚡ 압핀(amc42.dat) 실시간 자동 동기화 (매일 수동 업로드 불필요!)
+                          </span>
+                          {appinAutoWatchActive && (
+                            <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-400 text-emerald-300 rounded-md text-[10px] font-black animate-pulse">
+                              ● 실시간 감시 작동 중
+                            </span>
+                          )}
+                        </div>
+                        {appinAutoWatchInfo && (
+                          <span className="text-[11px] text-amber-300 font-bold">{appinAutoWatchInfo}</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        압핀이 설치된 PC에서 아래 <b>[1. 실시간 파일 감시 켜기]</b>로 <code className="text-amber-300">C:\Program Files (x86)\압핀시간표\amc42.dat</code> 파일을 한 번만 연결해 두면, 압핀에서 시간표를 수정·저장할 때마다 <b>10초 이내에 자동으로 감지하여 전교 칠판에 즉시 반영</b>합니다. (브라우저를 켜두지 않으려면 <b>[2. 윈도우 무인 자동 동기화기(.bat)]</b>를 다운로드해 실행해 두세요.)
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={handleConnectAppinAutoWatch}
+                          className={`px-3 py-2.5 rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                            appinAutoWatchActive
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-300'
+                              : 'bg-teal-700 hover:bg-teal-600 text-white border-teal-500'
+                          }`}
+                        >
+                          <RefreshCw size={14} className={appinAutoWatchActive ? 'animate-spin' : ''} />
+                          {appinAutoWatchActive ? '실시간 자동 감시 중 (다른 파일로 변경)' : '1. 압핀 파일(amc42.dat) 실시간 자동 감시 켜기'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDownloadAppinWatcherBat}
+                          className="px-3 py-2.5 bg-indigo-700 hover:bg-indigo-600 text-white border border-indigo-500 rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <FileText size={14} />
+                          2. 윈도우 무인 자동 동기화기(.bat) 다운로드
+                        </button>
+                      </div>
+                    </div>
+
                     <div className="flex flex-col gap-1.5 pt-3 border-t border-emerald-900/40">
                       <span className="text-xs font-bold text-emerald-200">내부망 서버 직접 연동 (URL/IP)</span>
                       <div className="flex gap-2">
@@ -5522,7 +6347,20 @@ ${joinedStrings}
     const teacherMatch = announcement.match(/\n\((.*?)\s*선생님 호출\)$/);
     
     if (targetMatch && locationMatch) {
-      const target = targetMatch[1];
+      const rawTarget = targetMatch[1];
+      const filteredList = extractClassFilteredStudents(
+        rawTarget,
+        schoolConfig.currentGrade,
+        schoolConfig.currentClass,
+        classRosters
+      );
+      const target =
+        filteredList === 'ALL_CLASS'
+          ? '학급 전체'
+          : Array.isArray(filteredList) && filteredList.length > 0
+          ? filteredList.join(', ')
+          : rawTarget;
+
       const location = locationMatch[1];
       const teacher = teacherMatch ? teacherMatch[1] : '';
       

@@ -7,15 +7,24 @@ const Type = {
   BOOLEAN: "BOOLEAN",
 } as const;
 
+export type AiProviderType = 'gemini' | 'openrouter' | 'chatgpt' | 'claude' | 'groq';
+
 export function getAiConfig() {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('school_config') : null;
   const parsed = saved ? JSON.parse(saved) : {};
   return {
-    aiProvider: parsed.aiProvider || 'gemini',
+    aiProvider: (parsed.aiProvider || 'gemini') as AiProviderType,
+    geminiApiKey: parsed.geminiApiKey || "",
     geminiModel: parsed.geminiModel || "gemini-3.8-flash",
-    geminiThinkingLevel: parsed.geminiThinkingLevel || 'DEFAULT',
+    geminiThinkingLevel: parsed.geminiThinkingLevel || 'HIGH',
+    openrouterApiKey: parsed.openrouterApiKey || "",
+    openrouterModel: parsed.openrouterModel || "openai/o3",
+    chatgptApiKey: parsed.chatgptApiKey || "",
+    chatgptModel: parsed.chatgptModel || "o3",
+    claudeApiKey: parsed.claudeApiKey || "",
+    claudeModel: parsed.claudeModel || "claude-opus-4-6",
     groqApiKey: parsed.groqApiKey || "",
-    groqModel: parsed.groqModel || "llama-3.3-70b-versatile"
+    groqModel: parsed.groqModel || "deepseek-r1-distill-llama-70b"
   };
 }
 
@@ -31,12 +40,9 @@ export async function callGroq(
   }
 
   const hasImage = base64Data && mimeType;
-  
   let modelToUse = groqModel;
-  if (hasImage) {
-    if (groqModel === "llama-3.3-70b-versatile" || groqModel === "llama-3.1-8b-instant" || groqModel === "llama-3.2-90b-vision-preview") {
-      modelToUse = "llama-3.2-11b-vision-preview";
-    }
+  if (hasImage && !/vision|llama-4/i.test(groqModel)) {
+    modelToUse = "meta-llama/llama-4-scout-17b-16e-instruct";
   }
 
   const contentArray: any[] = [{ type: "text", text: prompt }];
@@ -60,7 +66,7 @@ export async function callGroq(
     temperature: 0.1
   };
 
-  if (jsonMode) {
+  if (jsonMode && !/deepseek-r1|qwq/i.test(modelToUse)) {
     body.response_format = { type: "json_object" };
   }
 
@@ -79,11 +85,12 @@ export async function callGroq(
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  const raw = data.choices?.[0]?.message?.content || "";
+  return raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 }
 
 async function callGemini(contents: any, responseSchema?: any, jsonMode: boolean = true): Promise<string> {
-  const { geminiModel, geminiThinkingLevel } = getAiConfig();
+  const { geminiApiKey, geminiModel, geminiThinkingLevel } = getAiConfig();
   const response = await fetch("/api/gemini", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -92,7 +99,8 @@ async function callGemini(contents: any, responseSchema?: any, jsonMode: boolean
       responseSchema,
       jsonMode,
       model: geminiModel || "gemini-3.8-flash",
-      thinkingLevel: geminiThinkingLevel || "DEFAULT"
+      thinkingLevel: geminiThinkingLevel || "HIGH",
+      customApiKey: geminiApiKey || undefined
     })
   });
 
@@ -112,15 +120,49 @@ export async function callUnifiedAi(
   mimeType?: string,
   jsonMode: boolean = true
 ): Promise<string> {
-  const { aiProvider, groqApiKey } = getAiConfig();
+  const cfg = getAiConfig();
+  let effectiveProvider: AiProviderType = cfg.aiProvider;
 
-  let effectiveProvider = aiProvider;
-  if (effectiveProvider === 'groq' && !groqApiKey) {
+  const keyByProvider: Record<AiProviderType, string> = {
+    gemini: cfg.geminiApiKey,
+    openrouter: cfg.openrouterApiKey,
+    chatgpt: cfg.chatgptApiKey,
+    claude: cfg.claudeApiKey,
+    groq: cfg.groqApiKey
+  };
+
+  const modelByProvider: Record<AiProviderType, string> = {
+    gemini: cfg.geminiModel,
+    openrouter: cfg.openrouterModel,
+    chatgpt: cfg.chatgptModel,
+    claude: cfg.claudeModel,
+    groq: cfg.groqModel
+  };
+
+  if (effectiveProvider !== 'gemini' && !keyByProvider[effectiveProvider]) {
     effectiveProvider = 'gemini';
   }
 
-  if (effectiveProvider === 'groq') {
-    return callGroq(prompt, base64Data, mimeType, jsonMode);
+  if (effectiveProvider !== 'gemini') {
+    const response = await fetch("/api/ai/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: effectiveProvider,
+        apiKey: keyByProvider[effectiveProvider],
+        model: modelByProvider[effectiveProvider],
+        thinkingLevel: cfg.geminiThinkingLevel || "HIGH",
+        prompt,
+        base64Data,
+        mimeType,
+        jsonMode
+      })
+    });
+    const data = await response.json();
+    if (!response.ok || !data?.success) {
+      throw new Error(data?.error || `${effectiveProvider.toUpperCase()} AI 응답 실패`);
+    }
+    return data.text || "";
   }
 
   const contents: any[] = [];
